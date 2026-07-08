@@ -1,6 +1,6 @@
 {
-    "name": "hospimed",
-    "short_name": "hospimed",
+    "name": "TallyLiveData",
+    "short_name": "TallyLiveData",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
