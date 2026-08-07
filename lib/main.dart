@@ -21,11 +21,11 @@ void main() async {
     ),
   );
 
-  runApp(HospiMedApp());
+  runApp(TallyLiveApp());
 }
 
-class HospiMedApp extends StatelessWidget {
-  HospiMedApp({super.key});
+class TallyLiveApp extends StatelessWidget {
+  TallyLiveApp({super.key});
 
   final CompanyState _companyState = CompanyState();
 
@@ -34,7 +34,7 @@ class HospiMedApp extends StatelessWidget {
     return CompanyProvider(
       state: _companyState,
       child: MaterialApp(
-        title: 'Demo Company',
+        title: 'TallyLive',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         home: const SplashScreen(),

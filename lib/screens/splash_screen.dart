@@ -3,7 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../config/app_theme.dart';
+import '../providers/company_provider.dart';
+import '../services/supabase_service.dart';
 import 'company_selection_screen.dart';
+import 'login_screen.dart';
+import 'main_shell.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -13,6 +17,7 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  final SupabaseService _service = SupabaseService();
   Timer? _timer;
   bool _animate = false;
 
@@ -24,11 +29,42 @@ class _SplashScreenState extends State<SplashScreen> {
     _timer = Timer(const Duration(milliseconds: 2000), _goNext);
   }
 
-  void _goNext() {
+  Future<void> _goNext() async {
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const CompanySelectionScreen()),
-    );
+
+    final session = _service.currentSession;
+    if (session == null) {
+      // User not logged in ➔ Go to LoginScreen
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+      return;
+    }
+
+    // User is logged in ➔ Fetch user profile to get company name
+    try {
+      final user = session.user;
+      final profile = await _service.getUserProfile(user.id);
+      final companyName = profile != null ? profile['company_name']?.toString() : null;
+
+      if (!mounted) return;
+
+      if (companyName != null && companyName.isNotEmpty) {
+        CompanyProvider.of(context).selectCompany(companyName);
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MainShell()),
+        );
+      } else {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const CompanySelectionScreen()),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    }
   }
 
   @override
@@ -65,14 +101,14 @@ class _SplashScreenState extends State<SplashScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
-                        blurRadius: 18,
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
                     ],
@@ -81,21 +117,32 @@ class _SplashScreenState extends State<SplashScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF1366D6), Color(0xFF1A73E8)],
+                        padding: const EdgeInsets.all(16),
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Color(0xFF0D47A1), Color(0xFF1A73E8)],
                           ),
+                          shape: BoxShape.circle,
                         ),
-                        child: const Text(
-                          'DEMO COMPANY',
-                          style: TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.5,
-                            color: Colors.white,
-                          ),
+                        child: const Icon(Icons.analytics_rounded, color: Colors.white, size: 40),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'TallyLive',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5,
+                          color: Color(0xFF1A1F36),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Live Tally Data Portal',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey.shade500,
                         ),
                       ),
                     ],

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
+import '../services/supabase_service.dart';
 import 'company_selection_screen.dart';
 import 'dashboard_screen.dart';
+import 'login_screen.dart';
+import 'profile_screen.dart';
 import 'stock_screen.dart';
 import 'ledger_screen.dart';
 import 'receivables_payables_screen.dart';
@@ -26,7 +29,16 @@ class _MainShellState extends State<MainShell> {
   void _switchCompany() {
     CompanyProvider.of(context).clearCompany();
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const CompanySelectionScreen()),
+      MaterialPageRoute(builder: (_) => const CompanySelectionScreen(isSwitching: true)),
+    );
+  }
+
+  Future<void> _logout() async {
+    await SupabaseService().signOut();
+    if (!mounted) return;
+    CompanyProvider.of(context).clearCompany();
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
   }
 
@@ -115,7 +127,7 @@ class _MainShellState extends State<MainShell> {
                   label: 'Purchases',
                   isSelected: _currentIndex == 5,
                   onTap: () => _onNavigate(5),
-                  color: AppTheme.purchaseColor ?? Colors.purple, // Assuming AppTheme has purchaseColor, if not fallback to purple
+                  color: AppTheme.purchaseColor,
                 ),
               ],
             ),
@@ -186,7 +198,11 @@ class _NavItem extends StatelessWidget {
 class _CompanyBanner extends StatelessWidget {
   final String companyName;
   final VoidCallback onSwitch;
-  const _CompanyBanner({required this.companyName, required this.onSwitch});
+
+  const _CompanyBanner({
+    required this.companyName,
+    required this.onSwitch,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -198,8 +214,6 @@ class _CompanyBanner extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
-              const Icon(Icons.monitor_heart_rounded, color: Colors.white70, size: 18),
-              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   companyName,
@@ -210,7 +224,7 @@ class _CompanyBanner extends StatelessWidget {
               GestureDetector(
                 onTap: onSwitch,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
@@ -223,6 +237,22 @@ class _CompanyBanner extends StatelessWidget {
                       Text('Switch', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
                     ],
                   ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.person_rounded, color: Colors.white, size: 18),
                 ),
               ),
             ],

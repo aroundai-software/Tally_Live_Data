@@ -8,6 +8,7 @@ import '../widgets/search_bar_widget.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/error_state_widget.dart';
 
 class StockScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -276,7 +277,7 @@ class _StockScreenState extends State<StockScreen> {
 
   Widget _buildBody() {
     if (_isLoading) return const ShimmerLoading();
-    if (_error != null) return ErrorState(message: _error!, onRetry: _loadData);
+    if (_error != null) return ErrorStateWidget(error: _error, onRetry: _loadData);
     if (_filteredProducts.isEmpty) {
       return EmptyState(
         icon: Icons.inventory_2_outlined,

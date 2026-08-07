@@ -5,9 +5,11 @@ import '../config/app_theme.dart';
 import '../services/supabase_service.dart';
 import '../providers/company_provider.dart';
 import 'main_shell.dart';
+import 'login_screen.dart';
 
 class CompanySelectionScreen extends StatefulWidget {
-  const CompanySelectionScreen({super.key});
+  final bool isSwitching;
+  const CompanySelectionScreen({super.key, this.isSwitching = false});
 
   @override
   State<CompanySelectionScreen> createState() => _CompanySelectionScreenState();
@@ -30,10 +32,11 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
   Future<void> _loadCompanies() async {
     setState(() { _isLoading = true; _error = null; });
     try {
-      final companies = await _service.getCompanies();
+      final user = _service.currentUser;
+      final companies = user != null ? await _service.getUserCompanies(user.id) : await _service.getCompanies();
       if (mounted) {
         setState(() { _companies = companies; _isLoading = false; });
-        if (companies.length == 1) {
+        if (!widget.isSwitching && companies.length == 1) {
           _selectCompany(companies.first);
         }
       }
@@ -66,16 +69,182 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
     );
   }
 
+  void _showLinkCompanyDialog() {
+    final nameCtrl = TextEditingController();
+    final mobileCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool isLinking = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.add_business_rounded, color: AppTheme.primaryColor),
+                  SizedBox(width: 8),
+                  Text('Link New Company', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Enter the exact Tally company name and registered mobile number to link it to your account.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Company Name',
+                        hintText: '',
+                        prefixIcon: Icon(Icons.business_rounded),
+                      ),
+                      validator: (val) {
+                        if (val == null || val.trim().isEmpty) {
+                          return 'Please enter exact company name';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: mobileCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Registered Mobile Number',
+                        hintText: '9447000111',
+                        prefixIcon: Icon(Icons.phone_rounded),
+                      ),
+                      validator: (val) {
+                        if (val == null || val.trim().isEmpty) {
+                          return 'Please enter registered mobile number';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isLinking ? null : () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: isLinking
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+                          setDialogState(() => isLinking = true);
+                          try {
+                            final user = _service.currentUser;
+                            if (user != null) {
+                              final linkedName = await _service.linkCompanyToUser(
+                                userId: user.id,
+                                companyName: nameCtrl.text.trim(),
+                                mobileNumber: mobileCtrl.text.trim(),
+                              );
+                              if (!mounted) return;
+                              Navigator.of(ctx).pop();
+                              await _loadCompanies();
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Successfully linked $linkedName!'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            setDialogState(() => isLinking = false);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(e.toString().replaceAll('Exception:', '').trim()),
+                                backgroundColor: AppTheme.errorColor,
+                              ),
+                            );
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: isLinking
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Link Company'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _skipToDashboard() {
+    _selectCompany('No Company Linked');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final selectedCompany = CompanyProvider.of(context).selectedCompany;
+    final showBackButton = widget.isSwitching || (selectedCompany != null && selectedCompany.isNotEmpty) || _companies.isNotEmpty;
+
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: showBackButton
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF1A1F36)),
+                tooltip: 'Back to Dashboard',
+                onPressed: () {
+                  final provider = CompanyProvider.of(context);
+                  if ((provider.selectedCompany == null || provider.selectedCompany!.isEmpty) && _companies.isNotEmpty) {
+                    provider.selectCompany(_companies.first);
+                  }
+                  if (Navigator.of(context).canPop()) {
+                    Navigator.of(context).pop();
+                  } else {
+                    Navigator.of(context).pushReplacement(
+                      MaterialPageRoute(builder: (_) => const MainShell()),
+                    );
+                  }
+                },
+              )
+            : null,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout_rounded, color: Color(0xFF1A1F36)),
+            tooltip: 'Log Out',
+            onPressed: () async {
+              await _service.signOut();
+              if (!mounted) return;
+              CompanyProvider.of(context).clearCompany();
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: SafeArea(
+        top: false,
         child: Column(
           children: [
-            const SizedBox(height: 52),
+            SizedBox(height: showBackButton ? 0 : 16),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
@@ -83,49 +252,88 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.06),
                     blurRadius: 18,
-                    offset: const Offset(0, 10),
+                    offset: const Offset(0, 6),
                   ),
                 ],
               ),
-              child: Column(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF1366D6), Color(0xFF1A73E8)],
+                        colors: [Color(0xFF0D47A1), Color(0xFF1A73E8)],
                       ),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Text(
-                      'DEMO COMPANY',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.5,
-                        color: Colors.white,
-                      ),
+                    child: const Icon(Icons.analytics_rounded, color: Colors.white, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'TallyLive',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                      color: Color(0xFF1A1F36),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 26),
+            const SizedBox(height: 16),
             const Text(
               'Select Company',
-              style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36)),
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36)),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               'Choose a Tally company to view its data',
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
             ),
-            const SizedBox(height: 32),
-            Expanded(child: _buildBody()),
             const SizedBox(height: 16),
+            Expanded(child: _buildBody()),
             Padding(
-              padding: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _showLinkCompanyDialog,
+                  icon: const Icon(Icons.add_business_rounded, color: AppTheme.primaryColor),
+                  label: const Text(
+                    '+ Link New Company',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.primaryColor),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppTheme.primaryColor, width: 1.5),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: _skipToDashboard,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Skip for now',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.primaryColor,
+                    ),
+                  ),
+                  SizedBox(width: 4),
+                  Icon(Icons.arrow_forward_rounded, size: 14, color: AppTheme.primaryColor),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
               child: Text(
                 '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v1.0.0+1'}',
                 style: TextStyle(

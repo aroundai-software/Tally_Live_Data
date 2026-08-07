@@ -9,6 +9,321 @@ import '../models/daybook_entry.dart';
 class SupabaseService {
   final SupabaseClient _client = Supabase.instance.client;
 
+  // ─── Auth & User Profiles ─────────────────────────────────────
+  User? get currentUser => _client.auth.currentUser;
+  Session? get currentSession => _client.auth.currentSession;
+
+  Future<AuthResponse> signInWithPhone({required String phone, required String password}) async {
+    final allDigits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    final tenDigits = allDigits.length >= 10 ? allDigits.substring(allDigits.length - 10) : allDigits;
+    
+    final emailAlias1 = '$tenDigits@gmail.com';
+    final emailAlias2 = '$tenDigits@tallylive.com';
+    final emailAlias3 = '$tenDigits@tallylive.app';
+    final emailAlias4 = '$tenDigits@hospimed.app';
+
+    Object? firstError;
+
+    // 1. Try 10-digit gmail.com email alias
+    try {
+      return await _client.auth.signInWithPassword(
+        email: emailAlias1,
+        password: password,
+      );
+    } catch (e) {
+      firstError = e;
+    }
+
+    // 2. Try 10-digit tallylive.com email alias
+    try {
+      return await _client.auth.signInWithPassword(
+        email: emailAlias2,
+        password: password,
+      );
+    } catch (_) {}
+
+    // 3. Try 10-digit tallylive.app email alias
+    try {
+      return await _client.auth.signInWithPassword(
+        email: emailAlias3,
+        password: password,
+      );
+    } catch (_) {}
+
+    // 4. Try 10-digit hospimed.app email alias
+    try {
+      return await _client.auth.signInWithPassword(
+        email: emailAlias4,
+        password: password,
+      );
+    } catch (_) {}
+
+    // 3. Try raw input as email
+    try {
+      return await _client.auth.signInWithPassword(
+        email: phone.trim(),
+        password: password,
+      );
+    } catch (_) {}
+
+    // Rethrow clear credential error if email auth failed
+    if (firstError != null) {
+      throw firstError;
+    }
+
+    throw 'Invalid phone number or password. Please check your credentials and try again.';
+  }
+
+  Future<AuthResponse> registerUser({
+    required String fullName,
+    required String phone,
+    required String password,
+    String? companyName,
+  }) async {
+    final allDigits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    final tenDigits = allDigits.length >= 10 ? allDigits.substring(allDigits.length - 10) : allDigits;
+    if (tenDigits.length < 10) throw 'Please enter a valid 10-digit mobile number.';
+    if (password.length < 6) throw 'Password must be at least 6 characters.';
+
+    final emailAlias = '$tenDigits@tallylive.app';
+
+    AuthResponse res;
+    try {
+      res = await _client.auth.signUp(
+        email: emailAlias,
+        password: password,
+        data: {
+          'full_name': fullName.trim(),
+          'phone_number': tenDigits,
+        },
+      );
+    } catch (e) {
+      final errStr = e.toString().toLowerCase();
+      if (errStr.contains('email_provider_disabled') || errStr.contains('email signups are disabled')) {
+        throw 'Account registration is temporarily unavailable. Please try again later or contact support.';
+      } else if (errStr.contains('rate limit') || errStr.contains('429') || errStr.contains('over_email_send_rate_limit')) {
+        try {
+          res = await signInWithPhone(phone: tenDigits, password: password);
+        } catch (_) {
+          throw 'Registration limit exceeded. Please wait a few minutes and try again.';
+        }
+      } else {
+        rethrow;
+      }
+    }
+
+    final user = res.user;
+    if (user != null) {
+      try {
+        await _client.from('users').upsert({
+          'id': user.id,
+          'full_name': fullName.trim(),
+          'phone_number': tenDigits,
+          'company_name': companyName?.trim() ?? '',
+          'role': 'owner',
+        });
+      } catch (err) {
+        print('Profile upsert warning: $err');
+      }
+
+      if (companyName != null && companyName.trim().isNotEmpty) {
+        try {
+          await linkCompanyToUser(
+            userId: user.id,
+            companyName: companyName.trim(),
+            mobileNumber: tenDigits,
+          );
+        } catch (_) {}
+      }
+    }
+
+    return res;
+  }
+
+  Future<Map<String, dynamic>?> getUserProfile(String userId) async {
+    try {
+      final response = await _client
+          .from('users')
+          .select()
+          .eq('id', userId)
+          .maybeSingle();
+      return response;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<void> updatePassword(String newPassword) async {
+    await _client.auth.updateUser(
+      UserAttributes(password: newPassword),
+    );
+  }
+
+  Future<void> updateUserPhone(String userId, String newPhone) async {
+    final cleanDigits = newPhone.replaceAll(RegExp(r'[^0-9]'), '');
+    final tenDigits = cleanDigits.length >= 10 ? cleanDigits.substring(cleanDigits.length - 10) : cleanDigits;
+
+    // 1. Try RPC call to update both Auth & Profile
+    try {
+      await _client.rpc('update_owner_phone', params: {'p_new_phone': tenDigits});
+      return;
+    } catch (_) {}
+
+    // 2. Fallback to direct table update
+    final existing = await getUserProfile(userId);
+    if (existing != null) {
+      await _client.from('users').update({
+        'phone_number': tenDigits,
+      }).eq('id', userId);
+    } else {
+      await _client.from('users').upsert({
+        'id': userId,
+        'phone_number': tenDigits,
+        'company_name': 'Demo Company',
+        'role': 'owner',
+      });
+    }
+  }
+
+  Future<void> updateUserFullName(String userId, String newName) async {
+    final existing = await getUserProfile(userId);
+    if (existing != null) {
+      await _client.from('users').update({
+        'full_name': newName,
+      }).eq('id', userId);
+    } else {
+      await _client.from('users').upsert({
+        'id': userId,
+        'full_name': newName,
+        'company_name': 'Demo Company',
+        'role': 'owner',
+      });
+    }
+  }
+
+  Future<List<String>> getUserCompanies(String userId) async {
+    try {
+      // 1. Query user_companies mapping table
+      final response = await _client
+          .from('user_companies')
+          .select('company_name')
+          .eq('user_id', userId);
+
+      if (response is List && response.isNotEmpty) {
+        final list = response
+            .map((row) => row['company_name']?.toString() ?? '')
+            .where((name) => name.isNotEmpty)
+            .toList();
+        if (list.isNotEmpty) return list;
+      }
+    } catch (_) {}
+
+    // 2. Query primary company in public.users profile
+    try {
+      final profile = await getUserProfile(userId);
+      if (profile != null) {
+        final primaryCompany = profile['company_name']?.toString();
+        final userPhone = profile['phone_number']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '';
+        final tenDigits = userPhone.length >= 10 ? userPhone.substring(userPhone.length - 10) : userPhone;
+
+        if (primaryCompany != null && primaryCompany.trim().isNotEmpty) {
+          return [primaryCompany.trim()];
+        }
+
+        // 3. Auto-match active companies in tally_companies by registered mobile number
+        if (tenDigits.isNotEmpty) {
+          final matched = await _client
+              .from('tally_companies')
+              .select('company_name, mobile_number, phone_number')
+              .eq('is_active', true);
+
+          if (matched is List && matched.isNotEmpty) {
+            final autoAssigned = <String>[];
+            for (final row in matched) {
+              final dbMobile = (row['mobile_number'] ?? row['phone_number'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+              if (dbMobile.isNotEmpty && (dbMobile.contains(tenDigits) || tenDigits.contains(dbMobile))) {
+                final cName = row['company_name']?.toString();
+                if (cName != null && cName.isNotEmpty && !autoAssigned.contains(cName)) {
+                  autoAssigned.add(cName);
+                }
+              }
+            }
+            if (autoAssigned.isNotEmpty) return autoAssigned;
+          }
+        }
+      }
+    } catch (_) {}
+
+    return [];
+  }
+
+  Future<String> linkCompanyToUser({
+    required String userId,
+    required String companyName,
+    required String mobileNumber,
+  }) async {
+    final cleanName = companyName.trim();
+    final cleanMobile = mobileNumber.replaceAll(RegExp(r'[^0-9]'), '');
+    final tenDigits = cleanMobile.length >= 10 ? cleanMobile.substring(cleanMobile.length - 10) : cleanMobile;
+
+    if (cleanName.isEmpty) throw 'Please enter the exact company name.';
+    if (tenDigits.isEmpty) throw 'Please enter a valid mobile number.';
+
+    // 1. Fetch matching company from tally_companies where company_name ILIKE cleanName
+    final response = await _client
+        .from('tally_companies')
+        .select('company_name, mobile_number, phone_number')
+        .ilike('company_name', cleanName)
+        .eq('is_active', true);
+
+    if (response is! List || response.isEmpty) {
+      throw 'No active company found with name "$cleanName".';
+    }
+
+    // 2. Verify mobile number match
+    Map<String, dynamic>? matchedRow;
+    for (final item in response) {
+      final row = item as Map<String, dynamic>;
+      final dbMobile = (row['mobile_number'] ?? row['phone_number'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+      if (dbMobile.contains(tenDigits) || tenDigits.contains(dbMobile) && dbMobile.isNotEmpty) {
+        matchedRow = row;
+        break;
+      }
+    }
+
+    if (matchedRow == null) {
+      throw 'The mobile number provided does not match the registered phone number for "$cleanName".';
+    }
+
+    final matchedCompanyName = matchedRow['company_name'].toString();
+
+    // 3. Upsert into user_companies mapping table or RPC
+    try {
+      await _client.rpc('link_company_to_user', params: {
+        'p_user_id': userId,
+        'p_company_name': matchedCompanyName,
+      });
+    } catch (_) {
+      try {
+        await _client.from('user_companies').upsert({
+          'user_id': userId,
+          'company_name': matchedCompanyName,
+        });
+      } catch (_) {
+        // Fallback: update company_name in public.users profile
+        await _client.from('users').update({
+          'company_name': matchedCompanyName,
+        }).eq('id', userId);
+      }
+    }
+
+    return matchedCompanyName;
+  }
+
+  Future<void> signOut() async {
+    await _client.auth.signOut();
+  }
+
   // ─── Companies ───────────────────────────────────────────────
   Future<List<String>> getCompanies() async {
     try {
@@ -396,6 +711,7 @@ class SupabaseService {
       dynamic query = _client.from(table).select(select);
       
       if (companyName != null && companyName.isNotEmpty) {
+        if (companyName == 'No Company Linked') return [];
         query = query.ilike('company_name', companyName);
       }
       
@@ -419,6 +735,11 @@ class SupabaseService {
         query = query.order(orderColumn, ascending: ascending);
       }
 
+      if (select != '*') {
+        final response = await query.limit(5000);
+        return response as List;
+      }
+
       final response = await query.range(offset, offset + limit - 1);
       final data = response as List;
       allData.addAll(data);
@@ -430,23 +751,13 @@ class SupabaseService {
 
   Future<int> _fetchCount(String table, {String? companyName}) async {
     try {
-      int total = 0;
-      int offset = 0;
-      const int limit = 1000;
-      bool hasMore = true;
-
-      while (hasMore) {
-        dynamic query = _client.from(table).select('id');
-        if (companyName != null && companyName.isNotEmpty) {
-          query = query.ilike('company_name', companyName);
-        }
-        final response = await query.range(offset, offset + limit - 1);
-        final data = response as List;
-        total += data.length;
-        hasMore = data.length == limit;
-        offset += limit;
+      dynamic query = _client.from(table).select('id');
+      if (companyName != null && companyName.isNotEmpty) {
+        if (companyName == 'No Company Linked') return 0;
+        query = query.ilike('company_name', companyName);
       }
-      return total;
+      final response = await query.count(CountOption.exact);
+      return response.count;
     } catch (e) {
       return 0;
     }

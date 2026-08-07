@@ -6,6 +6,7 @@ import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
+import '../widgets/error_state_widget.dart';
 import 'daybook_screen.dart';
 import 'reports_screen.dart';
 
@@ -20,6 +21,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   final SupabaseService _service = SupabaseService();
   bool _isLoading = true;
+  Object? _error;
 
   double _totalStockValue = 0;
   int _stockItemCount = 0;
@@ -33,6 +35,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double _daybookInflow = 0;
   double _daybookOutflow = 0;
 
+  bool _initialized = false;
+
   @override
   void initState() {
     super.initState();
@@ -41,13 +45,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _loadDashboardData();
+    if (!_initialized) {
+      _initialized = true;
+      _loadDashboardData();
+    }
   }
 
   String? get _company => CompanyProvider.of(context).selectedCompany;
 
   Future<void> _loadDashboardData() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
     try {
       final c = _company;
       final results = await Future.wait([
@@ -82,7 +92,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _error = e;
+          _isLoading = false;
+        });
       }
     }
   }
@@ -96,67 +109,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
         color: AppTheme.primaryColor,
         child: _isLoading 
           ? const ShimmerGridLoading(itemCount: 4)
-          : SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(
-                children: [
-                  _buildHeader(),
-                  _buildBody(),
-                ],
-              ),
-            ),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1A73E8), Color(0xFF0D47A1)],
-        ),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-          child: Row(
-            children: [
-
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'DEMO COMPANY',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.5,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const Text('Business Dashboard', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                ],
-              ),
-              const Spacer(),
-              IconButton(
-                onPressed: _loadDashboardData,
-                icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
-                visualDensity: VisualDensity.compact,
-              ),
-            ],
-          ),
-        ),
+          : _error != null
+              ? ErrorStateWidget(
+                  error: _error,
+                  onRetry: _loadDashboardData,
+                )
+              : SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: _buildBody(),
+                ),
       ),
     );
   }
 
   Widget _buildBody() {
-    return AnimationLimiter(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      child: AnimationLimiter(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -165,26 +134,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 const Text(
                   'Overview',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36)),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF1A1F36)),
                 ),
-                Text(
-                  'Last updated: ${DateFormat('HH:mm').format(DateTime.now())}',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                Row(
+                  children: [
+                    Text(
+                      'Last updated: ${DateFormat('HH:mm').format(DateTime.now())}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(width: 4),
+                    IconButton(
+                      onPressed: _loadDashboardData,
+                      icon: const Icon(Icons.refresh_rounded, size: 20),
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Refresh Dashboard',
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
+
             _buildSummaryGrid(),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
             _buildDaybookCard(),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
             const Text(
               'Quick Actions',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36)),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             _buildQuickActions(),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
             _buildFinancialHighlight(),
           ],
         ),
@@ -193,6 +174,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildSummaryGrid() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    int crossAxisCount = 2;
+    double childAspectRatio = 1.6;
+
+    if (screenWidth >= 1200) {
+      crossAxisCount = 5;
+      childAspectRatio = 1.6;
+    } else if (screenWidth >= 800) {
+      crossAxisCount = 3;
+      childAspectRatio = 1.5;
+    } else if (screenWidth >= 600) {
+      crossAxisCount = 3;
+      childAspectRatio = 1.5;
+    } else {
+      crossAxisCount = 2;
+      childAspectRatio = 1.5;
+    }
+
     final items = [
       {
         'title': 'Total Stock Value',
@@ -235,18 +234,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: GridView.builder(
         physics: const NeverScrollableScrollPhysics(),
         shrinkWrap: true,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
           crossAxisSpacing: 10,
           mainAxisSpacing: 10,
-          childAspectRatio: 1.3,
+          childAspectRatio: childAspectRatio,
         ),
         itemCount: items.length,
         itemBuilder: (context, index) {
           final item = items[index];
           return AnimationConfiguration.staggeredGrid(
             position: index,
-            columnCount: 2,
+            columnCount: crossAxisCount,
             duration: const Duration(milliseconds: 400),
             child: ScaleAnimation(
               child: FadeInAnimation(
