@@ -116,15 +116,11 @@ class _SplashScreenState extends State<SplashScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Color(0xFF0D47A1), Color(0xFF1A73E8)],
-                          ),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.analytics_rounded, color: Colors.white, size: 40),
+                      Image.asset(
+                        'assets/icon/app_icon.png',
+                        width: 110,
+                        height: 110,
+                        fit: BoxFit.contain,
                       ),
                       const SizedBox(height: 14),
                       const Text(

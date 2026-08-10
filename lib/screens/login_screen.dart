@@ -19,6 +19,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
+  final FocusNode _phoneFocusNode = FocusNode();
+  final FocusNode _passwordFocusNode = FocusNode();
+
   bool _isLoading = false;
   bool _obscurePassword = true;
 
@@ -26,6 +29,8 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _phoneController.dispose();
     _passwordController.dispose();
+    _phoneFocusNode.dispose();
+    _passwordFocusNode.dispose();
     super.dispose();
   }
 
@@ -247,12 +252,24 @@ class _LoginScreenState extends State<LoginScreen> {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(16),
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.18),
+                            blurRadius: 14,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
                       ),
-                      child: const Icon(Icons.analytics_rounded, color: Colors.white, size: 36),
+                      child: Image.asset(
+                        'assets/icon/app_icon.png',
+                        width: 72,
+                        height: 72,
+                        fit: BoxFit.contain,
+                      ),
                     ),
                     const SizedBox(width: 16),
                     const Text(
@@ -337,12 +354,24 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
+                    color: Colors.white,
                     shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
                   ),
-                  child: const Icon(Icons.analytics_rounded, color: Colors.white, size: 36),
+                  child: Image.asset(
+                    'assets/icon/app_icon.png',
+                    width: 88,
+                    height: 88,
+                    fit: BoxFit.contain,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 const Text(
@@ -433,7 +462,12 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 6),
             TextFormField(
               controller: _phoneController,
+              focusNode: _phoneFocusNode,
               keyboardType: TextInputType.phone,
+              textInputAction: TextInputAction.next,
+              onFieldSubmitted: (_) {
+                FocusScope.of(context).requestFocus(_passwordFocusNode);
+              },
               decoration: const InputDecoration(
                 hintText: '9876543210',
                 prefixIcon: Icon(Icons.phone_rounded, size: 20),
@@ -462,7 +496,10 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 6),
             TextFormField(
               controller: _passwordController,
+              focusNode: _passwordFocusNode,
               obscureText: _obscurePassword,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _handleLogin(),
               decoration: InputDecoration(
                 hintText: '••••••••',
                 prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
@@ -565,6 +602,11 @@ class _LoginScreenState extends State<LoginScreen> {
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
     final passwordCtrl = TextEditingController();
+
+    final nameFocus = FocusNode();
+    final phoneFocus = FocusNode();
+    final passwordFocus = FocusNode();
+
     final formKey = GlobalKey<FormState>();
     bool isRegistering = false;
     bool obscure = true;
@@ -574,6 +616,32 @@ class _LoginScreenState extends State<LoginScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            Future<void> submitRegistration() async {
+              if (!formKey.currentState!.validate() || isRegistering) return;
+              setDialogState(() => isRegistering = true);
+              try {
+                await _service.registerUser(
+                  fullName: nameCtrl.text.trim(),
+                  phone: phoneCtrl.text.trim(),
+                  password: passwordCtrl.text.trim(),
+                );
+                if (!mounted) return;
+                Navigator.of(ctx).pop();
+                
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const CompanySelectionScreen()),
+                );
+              } catch (e) {
+                setDialogState(() => isRegistering = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Registration failed: ${e.toString().replaceAll('Exception:', '').trim()}'),
+                    backgroundColor: AppTheme.errorColor,
+                  ),
+                );
+              }
+            }
+
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Row(
@@ -597,6 +665,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: nameCtrl,
+                        focusNode: nameFocus,
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) {
+                          FocusScope.of(context).requestFocus(phoneFocus);
+                        },
                         decoration: const InputDecoration(
                           labelText: 'Full Name *',
                           hintText: 'John Doe',
@@ -612,7 +685,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: phoneCtrl,
+                        focusNode: phoneFocus,
                         keyboardType: TextInputType.phone,
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) {
+                          FocusScope.of(context).requestFocus(passwordFocus);
+                        },
                         decoration: const InputDecoration(
                           labelText: '10-Digit Mobile Number *',
                           hintText: '9876543210',
@@ -631,7 +709,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: passwordCtrl,
+                        focusNode: passwordFocus,
                         obscureText: obscure,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) => submitRegistration(),
                         decoration: InputDecoration(
                           labelText: 'Create Password *',
                           hintText: '••••••••',
@@ -661,33 +742,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: const Text('Cancel'),
                 ),
                 ElevatedButton(
-                  onPressed: isRegistering
-                      ? null
-                      : () async {
-                          if (!formKey.currentState!.validate()) return;
-                          setDialogState(() => isRegistering = true);
-                          try {
-                            await _service.registerUser(
-                              fullName: nameCtrl.text.trim(),
-                              phone: phoneCtrl.text.trim(),
-                              password: passwordCtrl.text.trim(),
-                            );
-                            if (!mounted) return;
-                            Navigator.of(ctx).pop();
-                            
-                            Navigator.of(context).pushReplacement(
-                              MaterialPageRoute(builder: (_) => const CompanySelectionScreen()),
-                            );
-                          } catch (e) {
-                            setDialogState(() => isRegistering = false);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Registration failed: ${e.toString().replaceAll('Exception:', '').trim()}'),
-                                backgroundColor: AppTheme.errorColor,
-                              ),
-                            );
-                          }
-                        },
+                  onPressed: isRegistering ? null : submitRegistration,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primaryColor,
                     foregroundColor: Colors.white,

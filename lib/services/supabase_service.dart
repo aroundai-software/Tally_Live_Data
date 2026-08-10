@@ -20,7 +20,6 @@ class SupabaseService {
     final emailAlias1 = '$tenDigits@gmail.com';
     final emailAlias2 = '$tenDigits@tallylive.com';
     final emailAlias3 = '$tenDigits@tallylive.app';
-    final emailAlias4 = '$tenDigits@hospimed.app';
 
     Object? firstError;
 
@@ -50,14 +49,6 @@ class SupabaseService {
       );
     } catch (_) {}
 
-    // 4. Try 10-digit hospimed.app email alias
-    try {
-      return await _client.auth.signInWithPassword(
-        email: emailAlias4,
-        password: password,
-      );
-    } catch (_) {}
-
     // 3. Try raw input as email
     try {
       return await _client.auth.signInWithPassword(
@@ -66,11 +57,9 @@ class SupabaseService {
       );
     } catch (_) {}
 
-    // Rethrow clear credential error if email auth failed
     if (firstError != null) {
       throw firstError;
     }
-
     throw 'Invalid phone number or password. Please check your credentials and try again.';
   }
 
@@ -186,15 +175,23 @@ class SupabaseService {
   }
 
   Future<void> updateUserFullName(String userId, String newName) async {
+    // 1. Update Auth metadata so Supabase Auth Dashboard updates Display name
+    try {
+      await _client.auth.updateUser(
+        UserAttributes(data: {'full_name': newName.trim()}),
+      );
+    } catch (_) {}
+
+    // 2. Update public.users profile table
     final existing = await getUserProfile(userId);
     if (existing != null) {
       await _client.from('users').update({
-        'full_name': newName,
+        'full_name': newName.trim(),
       }).eq('id', userId);
     } else {
       await _client.from('users').upsert({
         'id': userId,
-        'full_name': newName,
+        'full_name': newName.trim(),
         'company_name': 'Demo Company',
         'role': 'owner',
       });

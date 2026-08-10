@@ -52,12 +52,12 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
       final info = await PackageInfo.fromPlatform();
       if (!mounted) return;
       setState(() {
-        _appVersion = 'v${info.version}+${info.buildNumber}';
+        _appVersion = 'v${info.version}';
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _appVersion = 'v1.0.0+1';
+        _appVersion = 'v1.0.0';
       });
     }
   }
@@ -259,21 +259,17 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF0D47A1), Color(0xFF1A73E8)],
-                      ),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.analytics_rounded, color: Colors.white, size: 20),
+                  Image.asset(
+                    'assets/icon/app_icon.png',
+                    width: 68,
+                    height: 68,
+                    fit: BoxFit.contain,
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 14),
                   const Text(
                     'TallyLive',
                     style: TextStyle(
-                      fontSize: 22,
+                      fontSize: 28,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 0.5,
                       color: Color(0xFF1A1F36),
@@ -335,7 +331,7 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Text(
-                '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v1.0.0+1'}',
+                '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v1.0.0'}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
