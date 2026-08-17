@@ -88,7 +88,9 @@ class SupabaseService {
       );
     } catch (e) {
       final errStr = e.toString().toLowerCase();
-      if (errStr.contains('email_provider_disabled') || errStr.contains('email signups are disabled')) {
+      if (errStr.contains('user_already_exists')) {
+        throw 'An account with this mobile number already exists. Please try logging in instead.';
+      } else if (errStr.contains('email_provider_disabled') || errStr.contains('email signups are disabled')) {
         throw 'Account registration is temporarily unavailable. Please try again later or contact support.';
       } else if (errStr.contains('rate limit') || errStr.contains('429') || errStr.contains('over_email_send_rate_limit')) {
         try {

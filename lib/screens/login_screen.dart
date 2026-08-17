@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
@@ -162,6 +163,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextFormField(
                       controller: resetPhoneCtrl,
                       keyboardType: TextInputType.phone,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(10),
+                      ],
                       decoration: const InputDecoration(
                         labelText: 'Registered Mobile Number',
                         hintText: '9876543210',
@@ -171,7 +176,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         if (val == null || val.trim().isEmpty) {
                           return 'Please enter mobile number';
                         }
-                        if (val.trim().replaceAll(RegExp(r'[^0-9]'), '').length < 10) {
+                        if (val.trim().length != 10) {
                           return 'Enter a valid 10-digit phone number';
                         }
                         return null;
@@ -464,6 +469,10 @@ class _LoginScreenState extends State<LoginScreen> {
               controller: _phoneController,
               focusNode: _phoneFocusNode,
               keyboardType: TextInputType.phone,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(10),
+              ],
               textInputAction: TextInputAction.next,
               onFieldSubmitted: (_) {
                 FocusScope.of(context).requestFocus(_passwordFocusNode);
@@ -476,7 +485,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 if (value == null || value.trim().isEmpty) {
                   return 'Please enter your phone number';
                 }
-                if (value.trim().replaceAll(RegExp(r'[^0-9]'), '').length < 10) {
+                if (value.trim().length != 10) {
                   return 'Enter a valid 10-digit phone number';
                 }
                 return null;
@@ -635,7 +644,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 setDialogState(() => isRegistering = false);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Registration failed: ${e.toString().replaceAll('Exception:', '').trim()}'),
+                    content: Text(e.toString().replaceAll('Exception:', '').trim()),
                     backgroundColor: AppTheme.errorColor,
                   ),
                 );
@@ -687,6 +696,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: phoneCtrl,
                         focusNode: phoneFocus,
                         keyboardType: TextInputType.phone,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(10),
+                        ],
                         textInputAction: TextInputAction.next,
                         onFieldSubmitted: (_) {
                           FocusScope.of(context).requestFocus(passwordFocus);
@@ -700,7 +713,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           if (val == null || val.trim().isEmpty) {
                             return 'Please enter mobile number';
                           }
-                          if (val.trim().replaceAll(RegExp(r'[^0-9]'), '').length < 10) {
+                          if (val.trim().length != 10) {
                             return 'Enter a valid 10-digit phone number';
                           }
                           return null;

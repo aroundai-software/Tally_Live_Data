@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../config/app_theme.dart';
@@ -118,6 +119,10 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
                     TextFormField(
                       controller: mobileCtrl,
                       keyboardType: TextInputType.phone,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(10),
+                      ],
                       decoration: const InputDecoration(
                         labelText: 'Registered Mobile Number',
                         hintText: '9447000111',
@@ -126,6 +131,9 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) {
                           return 'Please enter registered mobile number';
+                        }
+                        if (val.trim().length != 10) {
+                          return 'Enter a valid 10-digit phone number';
                         }
                         return null;
                       },
