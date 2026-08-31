@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
 import '../widgets/shimmer_loading.dart';
 import 'login_screen.dart';
+import 'admin_panel_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -22,6 +24,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _companyName = '';
   String _role = 'owner';
   String? _userId;
+  String _appVersion = 'v2.0.0';
 
   @override
   void initState() {
@@ -37,6 +40,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _userId = user.id;
         final profile = await _service.getUserProfile(user.id);
         final assigned = await _service.getUserCompanies(user.id);
+        final info = await PackageInfo.fromPlatform();
         _assignedCompanies = assigned;
         String rawPhone = '';
         if (profile != null) {
@@ -56,6 +60,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           rawPhone = rawPhone.substring(1);
         }
         _phone = rawPhone;
+        _appVersion = 'v${info.version}';
       }
     } catch (e) {
       // Fallback defaults if offline
@@ -103,6 +108,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _showChangePasswordDialog() {
     final newPassCtrl = TextEditingController();
     final confirmPassCtrl = TextEditingController();
+    final confirmPassFocus = FocusNode();
     final formKey = GlobalKey<FormState>();
     bool isSaving = false;
 
@@ -111,6 +117,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            Future<void> submitPasswordChange() async {
+              if (!formKey.currentState!.validate() || isSaving) return;
+              setDialogState(() => isSaving = true);
+              try {
+                await _service.updatePassword(newPassCtrl.text.trim());
+                if (!mounted) return;
+                Navigator.of(ctx).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Password updated successfully!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } catch (e) {
+                setDialogState(() => isSaving = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to update password: $e'),
+                    backgroundColor: AppTheme.errorColor,
+                  ),
+                );
+              }
+            }
+
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Row(
@@ -128,6 +158,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     TextFormField(
                       controller: newPassCtrl,
                       obscureText: true,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) {
+                        FocusScope.of(context).requestFocus(confirmPassFocus);
+                      },
                       decoration: const InputDecoration(
                         labelText: 'New Password',
                         hintText: 'Enter new password',
@@ -143,7 +177,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: confirmPassCtrl,
+                      focusNode: confirmPassFocus,
                       obscureText: true,
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) => submitPasswordChange(),
                       decoration: const InputDecoration(
                         labelText: 'Confirm New Password',
                         hintText: 'Re-enter new password',
@@ -165,31 +202,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: const Text('Cancel'),
                 ),
                 ElevatedButton(
-                  onPressed: isSaving
-                      ? null
-                      : () async {
-                          if (!formKey.currentState!.validate()) return;
-                          setDialogState(() => isSaving = true);
-                          try {
-                            await _service.updatePassword(newPassCtrl.text.trim());
-                            if (!mounted) return;
-                            Navigator.of(ctx).pop();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Password updated successfully!'),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          } catch (e) {
-                            setDialogState(() => isSaving = false);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Failed to update password: $e'),
-                                backgroundColor: AppTheme.errorColor,
-                              ),
-                            );
-                          }
-                        },
+                  onPressed: isSaving ? null : submitPasswordChange,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primaryColor,
                     foregroundColor: Colors.white,
@@ -405,20 +418,117 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       body: _isLoading
           ? const ShimmerGridLoading(itemCount: 4)
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  _buildHeaderCard(),
-                  const SizedBox(height: 16),
-                  _buildInfoSection(),
-                  const SizedBox(height: 16),
-                  _buildSecuritySection(),
-                  const SizedBox(height: 24),
-                  _buildLogoutButton(),
-                ],
+          : Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 600),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      _buildHeaderCard(),
+                      _buildAdminSection(),
+                      const SizedBox(height: 16),
+                      _buildInfoSection(),
+                      const SizedBox(height: 16),
+                      _buildSecuritySection(),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppTheme.textSecondary.withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(Icons.info_outline_rounded, color: AppTheme.textSecondary.withOpacity(0.7), size: 22),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'App Version',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1A1F36),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '$_appVersion (Latest)',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppTheme.textSecondary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      _buildLogoutButton(),
+                    ],
+                  ),
+                ),
               ),
             ),
+    );
+  }
+
+  Widget _buildAdminSection() {
+    final bool isSuperAdmin = _role == 'super_admin' || _service.currentUser?.email == 'admin@tallylive.com';
+    if (!isSuperAdmin) return const SizedBox.shrink();
+
+    return Column(
+      children: [
+        const SizedBox(height: 16),
+        Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Text(
+                    'Administrator Controls',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36)),
+                  ),
+                ),
+                const Divider(height: 1, color: AppTheme.dividerColor),
+                _buildListTile(
+                  icon: Icons.admin_panel_settings_rounded,
+                  title: 'Admin Control Panel',
+                  subtitle: 'Manage client company subscriptions and features',
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const AdminPanelScreen()),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -587,12 +697,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         padding: EdgeInsets.only(right: 4),
                                         child: Icon(Icons.check_circle_rounded, color: AppTheme.primaryColor, size: 13),
                                       ),
-                                    Text(
-                                      comp,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                                        color: isSelected ? AppTheme.primaryColor : const Color(0xFF1A1F36),
+                                    Flexible(
+                                      child: Text(
+                                        comp,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                          color: isSelected ? AppTheme.primaryColor : const Color(0xFF1A1F36),
+                                        ),
                                       ),
                                     ),
                                   ],

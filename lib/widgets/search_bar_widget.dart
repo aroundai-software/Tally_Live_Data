@@ -5,6 +5,7 @@ class SearchBarWidget extends StatelessWidget {
   final ValueChanged<String> onChanged;
   final TextEditingController? controller;
   final Widget? trailing;
+  final EdgeInsetsGeometry? margin;
 
   const SearchBarWidget({
     super.key,
@@ -12,15 +13,17 @@ class SearchBarWidget extends StatelessWidget {
     required this.onChanged,
     this.controller,
     this.trailing,
+    this.margin,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: margin ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(28),
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
@@ -37,12 +40,13 @@ class SearchBarWidget extends StatelessWidget {
               controller: controller,
               onChanged: onChanged,
               decoration: InputDecoration(
+                filled: false,
                 hintText: hintText,
                 prefixIcon: Icon(Icons.search_rounded, color: Colors.grey.shade400),
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 hintStyle: TextStyle(
                   color: Colors.grey.shade400,
                   fontSize: 14,

@@ -8,6 +8,7 @@ import '../services/supabase_service.dart';
 import 'company_selection_screen.dart';
 import 'login_screen.dart';
 import 'main_shell.dart';
+import 'admin_panel_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -45,10 +46,24 @@ class _SplashScreenState extends State<SplashScreen> {
     try {
       final user = session.user;
       final profile = await _service.getUserProfile(user.id);
-      final companyName = profile != null ? profile['company_name']?.toString() : null;
+      
+      // Admin Redirection check
+      final role = profile != null ? profile['role']?.toString() : null;
+      final email = user.email;
+      final phone = profile != null ? profile['phone_number']?.toString() : user.phone;
+      final cleanPhone = phone?.replaceAll(RegExp(r'[^0-9]'), '') ?? '';
+      final isSuperAdmin = role == 'super_admin' || email == 'admin@tallylive.com' || cleanPhone == '97000000';
 
       if (!mounted) return;
 
+      if (isSuperAdmin) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const AdminPanelScreen(isRootAdmin: true)),
+        );
+        return;
+      }
+
+      final companyName = profile != null ? profile['company_name']?.toString() : null;
       if (companyName != null && companyName.isNotEmpty) {
         CompanyProvider.of(context).selectCompany(companyName);
         Navigator.of(context).pushReplacement(

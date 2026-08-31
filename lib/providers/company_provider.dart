@@ -2,16 +2,28 @@ import 'package:flutter/material.dart';
 
 class CompanyState extends ChangeNotifier {
   String? _selectedCompany;
+  Map<String, bool> _enabledFeatures = {};
 
   String? get selectedCompany => _selectedCompany;
+  Map<String, bool> get enabledFeatures => _enabledFeatures;
+
+  bool isFeatureEnabled(String feature) {
+    return _enabledFeatures[feature] ?? true;
+  }
 
   void selectCompany(String company) {
     _selectedCompany = company;
     notifyListeners();
   }
 
+  void setFeatures(Map<String, bool> features) {
+    _enabledFeatures = features;
+    notifyListeners();
+  }
+
   void clearCompany() {
     _selectedCompany = null;
+    _enabledFeatures = {};
     notifyListeners();
   }
 }

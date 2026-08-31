@@ -17,6 +17,7 @@ class Ledger {
   final String? creditPeriod;
   final double? creditLimit;
   final double openingBalance;
+  final double closingBalance;
   final double discountPercentage;
   final String? companyName;
   final bool isActive;
@@ -42,6 +43,7 @@ class Ledger {
     this.creditPeriod,
     this.creditLimit,
     this.openingBalance = 0,
+    this.closingBalance = 0,
     this.discountPercentage = 0,
     this.companyName,
     this.isActive = true,
@@ -69,6 +71,7 @@ class Ledger {
       creditPeriod: json['credit_period'],
       creditLimit: _toDoubleNullable(json['credit_limit']),
       openingBalance: _toDouble(json['opening_balance']),
+      closingBalance: _toDouble(json['closing_balance']),
       discountPercentage: _toDouble(json['customer_discount_percentage']),
       companyName: json['company_name'],
       isActive: json['is_active'] ?? true,

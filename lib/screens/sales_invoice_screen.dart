@@ -1,15 +1,31 @@
 import 'package:flutter/material.dart';
+import '../utils/error_handler.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:intl/intl.dart';
 import '../config/app_theme.dart';
 import '../models/sales_invoice.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
+import '../services/user_preferences_service.dart';
 import '../services/pdf_service.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
+
+enum InvoiceSortOption {
+  dateNewest,
+  dateOldest,
+  amountHighest,
+  amountLowest,
+}
+
+enum DateRangeOption {
+  all,
+  today,
+  thisMonth,
+  custom,
+}
 
 class SalesInvoiceScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -27,11 +43,9 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
   String? _error;
   final TextEditingController _searchController = TextEditingController();
 
-  // Search filter flags
-  bool _searchInName = true;
-  bool _searchInInvoice = true;
-  bool _searchInAmount = true;
-  bool _searchInDate = true;
+  InvoiceSortOption _currentSort = InvoiceSortOption.dateNewest;
+  DateRangeOption _dateRangeOption = DateRangeOption.today;
+  DateTimeRange? _selectedDateRange;
 
   bool _initialized = false;
 
@@ -49,26 +63,46 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
   }
 
   void _onSearchChanged() {
+    _applyFiltersAndSort();
+  }
+
+  void _setSort(InvoiceSortOption option) {
+    setState(() => _currentSort = option);
+    final s = option == InvoiceSortOption.dateOldest ? 'dateOldest'
+      : option == InvoiceSortOption.amountHighest ? 'amountHighest'
+      : option == InvoiceSortOption.amountLowest ? 'amountLowest'
+      : 'dateNewest';
+    UserPreferencesService.saveSalesSort(s);
+    _applyFiltersAndSort();
+  }
+
+  void _setDateFilter(DateRangeOption option) {
+    setState(() => _dateRangeOption = option);
+    final s = option == DateRangeOption.thisMonth ? 'thisMonth'
+      : option == DateRangeOption.all ? 'all'
+      : option == DateRangeOption.custom ? 'custom'
+      : 'today';
+    UserPreferencesService.saveSalesDateFilter(s);
+    _applyFiltersAndSort();
+  }
+
+  void _applyFiltersAndSort() {
     final query = _searchController.text.toLowerCase();
-    if (query.isEmpty) {
-      setState(() => _filteredInvoices = _invoices);
-      return;
-    }
+    
+    // 1. Filter by Search Query
+    List<SalesInvoice> filtered = _invoices;
+    if (query.isNotEmpty) {
+      final dateFormat = DateFormat('dd MMM yyyy');
+      final monthFormat = DateFormat('MMMM');
 
-    final dateFormat = DateFormat('dd MMM yyyy');
-    final monthFormat = DateFormat('MMMM');
-
-    setState(() {
-      _filteredInvoices = _invoices.where((inv) {
-        final matchesName = _searchInName && inv.customerName.toLowerCase().contains(query);
-        final matchesInvoice = _searchInInvoice && inv.invoiceNumber.toLowerCase().contains(query);
-        final matchesAmount = _searchInAmount && (
-          inv.netAmount.toString().contains(query) || 
-          inv.totalAmount.toString().contains(query)
-        );
+      filtered = _invoices.where((inv) {
+        final matchesName = inv.customerName.toLowerCase().contains(query);
+        final matchesInvoice = inv.invoiceNumber.toLowerCase().contains(query);
+        final matchesAmount = inv.netAmount.toString().contains(query) || 
+                              inv.totalAmount.toString().contains(query);
         
         bool matchesDate = false;
-        if (_searchInDate && inv.invoiceDate != null) {
+        if (inv.invoiceDate != null) {
           final dateStr = dateFormat.format(inv.invoiceDate!).toLowerCase();
           final monthStr = monthFormat.format(inv.invoiceDate!).toLowerCase();
           matchesDate = dateStr.contains(query) || monthStr.contains(query);
@@ -76,6 +110,52 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
 
         return matchesName || matchesInvoice || matchesAmount || matchesDate;
       }).toList();
+    }
+
+    // 2. Filter by Date Range Preset
+    final now = DateTime.now();
+    DateTime? filterStart;
+    DateTime? filterEnd;
+
+    if (_dateRangeOption == DateRangeOption.today) {
+      filterStart = DateTime(now.year, now.month, now.day);
+      filterEnd = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
+    } else if (_dateRangeOption == DateRangeOption.thisMonth) {
+      filterStart = DateTime(now.year, now.month, 1);
+      filterEnd = DateTime(now.year, now.month + 1, 1).subtract(const Duration(milliseconds: 1));
+    } else if (_dateRangeOption == DateRangeOption.custom && _selectedDateRange != null) {
+      filterStart = DateTime(_selectedDateRange!.start.year, _selectedDateRange!.start.month, _selectedDateRange!.start.day);
+      filterEnd = DateTime(_selectedDateRange!.end.year, _selectedDateRange!.end.month, _selectedDateRange!.end.day, 23, 59, 59, 999);
+    }
+
+    if (filterStart != null && filterEnd != null) {
+      filtered = filtered.where((inv) {
+        if (inv.invoiceDate == null) return false;
+        return inv.invoiceDate!.isAfter(filterStart!.subtract(const Duration(milliseconds: 1))) &&
+               inv.invoiceDate!.isBefore(filterEnd!.add(const Duration(milliseconds: 1)));
+      }).toList();
+    }
+
+    // 3. Sort
+    filtered.sort((a, b) {
+      switch (_currentSort) {
+        case InvoiceSortOption.dateNewest:
+          if (a.invoiceDate == null) return 1;
+          if (b.invoiceDate == null) return -1;
+          return b.invoiceDate!.compareTo(a.invoiceDate!);
+        case InvoiceSortOption.dateOldest:
+          if (a.invoiceDate == null) return 1;
+          if (b.invoiceDate == null) return -1;
+          return a.invoiceDate!.compareTo(b.invoiceDate!);
+        case InvoiceSortOption.amountHighest:
+          return b.netAmount.compareTo(a.netAmount);
+        case InvoiceSortOption.amountLowest:
+          return a.netAmount.compareTo(b.netAmount);
+      }
+    });
+
+    setState(() {
+      _filteredInvoices = filtered;
     });
   }
 
@@ -84,7 +164,37 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
     super.didChangeDependencies();
     if (!_initialized) {
       _initialized = true;
-      _loadData();
+      _loadPreferencesAndData();
+    }
+  }
+
+  Future<void> _loadPreferencesAndData() async {
+    // Restore last-used settings before loading data
+    final savedSort = await UserPreferencesService.loadSalesSort();
+    final savedDate = await UserPreferencesService.loadSalesDateFilter();
+    if (mounted) {
+      setState(() {
+        _currentSort = _sortFromString(savedSort);
+        _dateRangeOption = _dateFromString(savedDate);
+      });
+    }
+    _loadData();
+  }
+
+  InvoiceSortOption _sortFromString(String s) {
+    switch (s) {
+      case 'dateOldest': return InvoiceSortOption.dateOldest;
+      case 'amountHighest': return InvoiceSortOption.amountHighest;
+      case 'amountLowest': return InvoiceSortOption.amountLowest;
+      default: return InvoiceSortOption.dateNewest;
+    }
+  }
+
+  DateRangeOption _dateFromString(String s) {
+    switch (s) {
+      case 'thisMonth': return DateRangeOption.thisMonth;
+      case 'all': return DateRangeOption.all;
+      default: return DateRangeOption.today;
     }
   }
 
@@ -96,18 +206,48 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
       if (mounted) {
         setState(() { 
           _invoices = items; 
-          _filteredInvoices = items;
           _isLoading = false; 
         });
-        _onSearchChanged();
+        _applyFiltersAndSort();
       }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _isLoading = false; });
+      if (mounted) setState(() { _error = AppErrorHandler.getFriendlyError(e); _isLoading = false; });
     }
   }
 
   double get _totalSales => _filteredInvoices.fold(0, (sum, inv) => sum + inv.netAmount);
 
+  double get _todaysSales {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    double total = 0;
+    for (var inv in _filteredInvoices) {
+      if (inv.invoiceDate != null) {
+        final d = DateTime(inv.invoiceDate!.year, inv.invoiceDate!.month, inv.invoiceDate!.day);
+        if (d.isAtSameMomentAs(today)) {
+          total += inv.netAmount;
+        }
+      }
+    }
+    return total;
+  }
+
+  int get _todaysSalesCount {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    int count = 0;
+    for (var inv in _filteredInvoices) {
+      if (inv.invoiceDate != null) {
+        final d = DateTime(inv.invoiceDate!.year, inv.invoiceDate!.month, inv.invoiceDate!.day);
+        if (d.isAtSameMomentAs(today)) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       primary: false,
@@ -123,42 +263,88 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         actions: [
+          IconButton(
+            onPressed: _showFilterSortDialog,
+            icon: const Icon(Icons.tune_rounded, color: AppTheme.salesColor),
+            tooltip: 'Filter & Sort',
+          ),
           IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        color: AppTheme.primaryColor,
-        child: Column(
-          children: [
-            _buildHeader(),
-            SearchBarWidget(
-              hintText: 'Search by name, invoice, date...',
-              controller: _searchController,
-              onChanged: (_) {}, // Handled by listener
-              trailing: PopupMenuButton<String>(
-                icon: const Icon(Icons.tune_rounded, color: AppTheme.primaryColor),
-                onSelected: (value) {
-                  setState(() {
-                    if (value == 'name') _searchInName = !_searchInName;
-                    if (value == 'invoice') _searchInInvoice = !_searchInInvoice;
-                    if (value == 'amount') _searchInAmount = !_searchInAmount;
-                    if (value == 'date') _searchInDate = !_searchInDate;
-                  });
-                  _onSearchChanged();
-                },
-                itemBuilder: (context) => [
-                  _buildFilterItem('Customer Name', _searchInName, 'name'),
-                  _buildFilterItem('Invoice Number', _searchInInvoice, 'invoice'),
-                  _buildFilterItem('Amount', _searchInAmount, 'amount'),
-                  _buildFilterItem('Date / Month', _searchInDate, 'date'),
+      body: Column(
+        children: [
+          SearchBarWidget(
+            hintText: 'Search by name, invoice, date...',
+            controller: _searchController,
+            onChanged: (_) {}, // Handled by listener
+          ),
+          _buildDateFilterPills(),
+          // Scrollable content area: Header cards scroll away, list scrolls underneath
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _loadData,
+              color: AppTheme.primaryColor,
+              child: NestedScrollView(
+                headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                  SliverToBoxAdapter(child: _buildHeader()),
                 ],
+                body: _buildBody(),
               ),
             ),
-            const SizedBox(height: 4),
-            Expanded(child: _buildBody()),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderCard(String title, double amount, String subtitle, List<Color> colors, {VoidCallback? onActionTap}) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: colors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(title, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              if (onActionTap != null)
+                GestureDetector(
+                  onTap: onActionTap,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.bar_chart_rounded,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            formatCurrency(amount),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(subtitle, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        ],
       ),
     );
   }
@@ -167,27 +353,24 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
     if (_isLoading) return const SizedBox.shrink();
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [Color(0xFF00BCD4), Color(0xFF00838F)]),
-        borderRadius: BorderRadius.circular(14),
-      ),
       child: Row(
         children: [
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Total Sales', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                const SizedBox(height: 4),
-                Text(formatCurrency(_totalSales), style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
-              ],
+            child: _buildHeaderCard(
+              "Today's Sales",
+              _todaysSales,
+              "$_todaysSalesCount invoice${_todaysSalesCount == 1 ? '' : 's'} today",
+              [const Color(0xFF00E5FF), const Color(0xFF00BCD4)],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(10)),
-            child: Text('${_filteredInvoices.length} invoices', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _buildHeaderCard(
+              "Total Sales",
+              _totalSales,
+              "${_filteredInvoices.length} invoice${_filteredInvoices.length == 1 ? '' : 's'} total",
+              [const Color(0xFF00BCD4), const Color(0xFF00838F)],
+            ),
           ),
         ],
       ),
@@ -211,29 +394,333 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
         itemCount: _filteredInvoices.length,
         itemBuilder: (context, index) {
           final invoice = _filteredInvoices[index];
+          final showHeader = index == 0 ||
+              invoice.invoiceDate == null ||
+              _filteredInvoices[index - 1].invoiceDate == null ||
+              invoice.invoiceDate!.month != _filteredInvoices[index - 1].invoiceDate!.month ||
+              invoice.invoiceDate!.year != _filteredInvoices[index - 1].invoiceDate!.year;
+
+          Widget card = _InvoiceCard(invoice: invoice, onTap: () => _showInvoiceDetail(invoice));
+          
+          if (showHeader && invoice.invoiceDate != null) {
+            final monthStr = DateFormat('MMMM yyyy').format(invoice.invoiceDate!);
+            card = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildMonthHeader(monthStr),
+                card,
+              ],
+            );
+          }
+
           return AnimationConfiguration.staggeredList(
             position: index,
             duration: const Duration(milliseconds: 350),
-            child: SlideAnimation(verticalOffset: 30, child: FadeInAnimation(child: _InvoiceCard(invoice: invoice, onTap: () => _showInvoiceDetail(invoice)))),
+            child: SlideAnimation(verticalOffset: 30, child: FadeInAnimation(child: card)),
           );
         },
       ),
     );
   }
 
-  PopupMenuItem<String> _buildFilterItem(String label, bool isSelected, String value) {
-    return PopupMenuItem(
-      value: value,
+  Widget _buildDialogChip({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+    required Color activeColor,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? activeColor : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? activeColor : Colors.grey.shade300,
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.black87,
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showFilterSortDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final activeColor = AppTheme.salesColor;
+            
+            String customRangeLabel = 'Custom...';
+            if (_dateRangeOption == DateRangeOption.custom && _selectedDateRange != null) {
+              customRangeLabel = '${DateFormat('d MMM').format(_selectedDateRange!.start)} - ${DateFormat('d MMM').format(_selectedDateRange!.end)}';
+            }
+
+            Future<void> handleCustomClick() async {
+              final DateTimeRange? picked = await showDateRangePicker(
+                context: context,
+                initialDateRange: _selectedDateRange,
+                firstDate: DateTime(2020),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+                builder: (context, child) {
+                  return Theme(
+                    data: Theme.of(context).copyWith(
+                      colorScheme: ColorScheme.light(
+                        primary: activeColor,
+                        onPrimary: Colors.white,
+                        onSurface: Colors.black87,
+                      ),
+                    ),
+                    child: child!,
+                  );
+                },
+              );
+
+              if (picked != null) {
+                setState(() {
+                  _selectedDateRange = picked;
+                  _dateRangeOption = DateRangeOption.custom;
+                });
+                _applyFiltersAndSort();
+                setDialogState(() {});
+              }
+            }
+
+            return Dialog(
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              elevation: 10,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Title + Close Icon
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Filter and sort',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.pop(context),
+                          child: Icon(
+                            Icons.close_rounded,
+                            color: Colors.grey.shade600,
+                            size: 20,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    
+                    // SORT BY section
+                    const Text(
+                      'SORT BY',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textSecondary,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _buildDialogChip(
+                          label: 'Newest',
+                          isSelected: _currentSort == InvoiceSortOption.dateNewest,
+                          onTap: () {
+                            _setSort(InvoiceSortOption.dateNewest);
+                            setDialogState(() {});
+                          },
+                          activeColor: activeColor,
+                        ),
+                        _buildDialogChip(
+                          label: 'Oldest',
+                          isSelected: _currentSort == InvoiceSortOption.dateOldest,
+                          onTap: () {
+                            _setSort(InvoiceSortOption.dateOldest);
+                            setDialogState(() {});
+                          },
+                          activeColor: activeColor,
+                        ),
+                        _buildDialogChip(
+                          label: 'Amount ↓',
+                          isSelected: _currentSort == InvoiceSortOption.amountHighest,
+                          onTap: () {
+                            _setSort(InvoiceSortOption.amountHighest);
+                            setDialogState(() {});
+                          },
+                          activeColor: activeColor,
+                        ),
+                        _buildDialogChip(
+                          label: 'Amount ↑',
+                          isSelected: _currentSort == InvoiceSortOption.amountLowest,
+                          onTap: () {
+                            _setSort(InvoiceSortOption.amountLowest);
+                            setDialogState(() {});
+                          },
+                          activeColor: activeColor,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    
+                    // DATE RANGE section
+                    const Text(
+                      'DATE RANGE',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textSecondary,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _buildDialogChip(
+                          label: 'All',
+                          isSelected: _dateRangeOption == DateRangeOption.all,
+                          onTap: () {
+                            _setDateFilter(DateRangeOption.all);
+                            setDialogState(() {});
+                          },
+                          activeColor: activeColor,
+                        ),
+                        _buildDialogChip(
+                          label: 'Today',
+                          isSelected: _dateRangeOption == DateRangeOption.today,
+                          onTap: () {
+                            _setDateFilter(DateRangeOption.today);
+                            setDialogState(() {});
+                          },
+                          activeColor: activeColor,
+                        ),
+                        _buildDialogChip(
+                          label: 'This month',
+                          isSelected: _dateRangeOption == DateRangeOption.thisMonth,
+                          onTap: () {
+                            _setDateFilter(DateRangeOption.thisMonth);
+                            setDialogState(() {});
+                          },
+                          activeColor: activeColor,
+                        ),
+                        _buildDialogChip(
+                          label: customRangeLabel,
+                          isSelected: _dateRangeOption == DateRangeOption.custom,
+                          onTap: handleCustomClick,
+                          activeColor: activeColor,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
+            ),
+          );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildMonthHeader(String monthStr) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 16, bottom: 8),
       child: Row(
         children: [
-          Icon(
-            isSelected ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
-            color: isSelected ? AppTheme.primaryColor : Colors.grey,
-            size: 20,
+          const Expanded(
+            child: Divider(
+              color: Color(0xFFE2E8F0),
+              thickness: 1,
+            ),
           ),
-          const SizedBox(width: 12),
-          Text(label, style: const TextStyle(fontSize: 14)),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppTheme.salesColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              monthStr,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.salesColor,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Divider(
+              color: Color(0xFFE2E8F0),
+              thickness: 1,
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDateFilterPills() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+      child: Row(
+        children: [
+          _buildPill('Today', DateRangeOption.today),
+          _buildPill('This Month', DateRangeOption.thisMonth),
+          _buildPill('All Time', DateRangeOption.all),
+          if (_dateRangeOption == DateRangeOption.custom)
+            _buildPill('Custom Range', DateRangeOption.custom),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPill(String label, DateRangeOption option) {
+    final isSelected = _dateRangeOption == option;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(label, style: TextStyle(fontSize: 13, color: isSelected ? Colors.white : Colors.black87)),
+        selected: isSelected,
+        selectedColor: AppTheme.salesColor,
+        checkmarkColor: Colors.white,
+        onSelected: (selected) {
+          if (selected) {
+            _setDateFilter(option);
+          }
+        },
       ),
     );
   }

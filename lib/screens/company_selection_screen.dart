@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import '../utils/error_handler.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../config/app_theme.dart';
 import '../services/supabase_service.dart';
+import '../services/user_preferences_service.dart';
 import '../providers/company_provider.dart';
 import 'main_shell.dart';
 import 'login_screen.dart';
@@ -37,13 +39,22 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
       final companies = user != null ? await _service.getUserCompanies(user.id) : await _service.getCompanies();
       if (mounted) {
         setState(() { _companies = companies; _isLoading = false; });
+        // Auto-skip if not switching and exactly one company
         if (!widget.isSwitching && companies.length == 1) {
           _selectCompany(companies.first);
+          return;
+        }
+        // Auto-restore last selected company if not switching
+        if (!widget.isSwitching && companies.length > 1) {
+          final lastCompany = await UserPreferencesService.loadLastCompany();
+          if (lastCompany != null && companies.contains(lastCompany) && mounted) {
+            _selectCompany(lastCompany);
+          }
         }
       }
     } catch (e) {
       if (mounted) {
-        setState(() { _error = e.toString(); _isLoading = false; });
+        setState(() { _error = AppErrorHandler.getFriendlyError(e); _isLoading = false; });
       }
     }
   }
@@ -58,12 +69,13 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _appVersion = 'v1.0.0';
+        _appVersion = 'v2.0.0';
       });
     }
   }
 
   void _selectCompany(String company) {
+    UserPreferencesService.saveLastCompany(company);
     CompanyProvider.of(context).selectCompany(company);
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const MainShell()),
@@ -197,9 +209,6 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
     );
   }
 
-  void _skipToDashboard() {
-    _selectCompany('No Company Linked');
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -317,29 +326,11 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
                 ),
               ),
             ),
-            TextButton(
-              onPressed: _skipToDashboard,
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Skip for now',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.primaryColor,
-                    ),
-                  ),
-                  SizedBox(width: 4),
-                  Icon(Icons.arrow_forward_rounded, size: 14, color: AppTheme.primaryColor),
-                ],
-              ),
-            ),
             const SizedBox(height: 4),
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Text(
-                '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v1.0.0'}',
+                '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v2.0.0'}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,

@@ -5,6 +5,7 @@ import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
 import 'company_selection_screen.dart';
 import 'main_shell.dart';
+import 'admin_panel_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -53,10 +54,24 @@ class _LoginScreenState extends State<LoginScreen> {
       final user = authResponse.user;
       if (user != null) {
         final profile = await _service.getUserProfile(user.id);
-        final companyName = profile != null ? profile['company_name']?.toString() : null;
+        
+        // Admin Redirection check
+        final role = profile != null ? profile['role']?.toString() : null;
+        final email = user.email;
+        final phone = profile != null ? profile['phone_number']?.toString() : user.phone;
+        final cleanPhone = phone?.replaceAll(RegExp(r'[^0-9]'), '') ?? '';
+        final isSuperAdmin = role == 'super_admin' || email == 'admin@tallylive.com' || cleanPhone == '97000000';
 
         if (!mounted) return;
 
+        if (isSuperAdmin) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const AdminPanelScreen(isRootAdmin: true)),
+          );
+          return;
+        }
+
+        final companyName = profile != null ? profile['company_name']?.toString() : null;
         if (companyName != null && companyName.isNotEmpty) {
           CompanyProvider.of(context).selectCompany(companyName);
           Navigator.of(context).pushReplacement(
@@ -576,199 +591,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
               ),
             ),
-            const SizedBox(height: 16),
-
-            // Register Link
-            Center(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    "Don't have an account? ",
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                  ),
-                  GestureDetector(
-                    onTap: _showRegisterDialog,
-                    child: const Text(
-                      'Register Now',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.primaryColor,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
-    );
-  }
-
-  void _showRegisterDialog() {
-    final nameCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final passwordCtrl = TextEditingController();
-
-    final nameFocus = FocusNode();
-    final phoneFocus = FocusNode();
-    final passwordFocus = FocusNode();
-
-    final formKey = GlobalKey<FormState>();
-    bool isRegistering = false;
-    bool obscure = true;
-
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Future<void> submitRegistration() async {
-              if (!formKey.currentState!.validate() || isRegistering) return;
-              setDialogState(() => isRegistering = true);
-              try {
-                await _service.registerUser(
-                  fullName: nameCtrl.text.trim(),
-                  phone: phoneCtrl.text.trim(),
-                  password: passwordCtrl.text.trim(),
-                );
-                if (!mounted) return;
-                Navigator.of(ctx).pop();
-                
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const CompanySelectionScreen()),
-                );
-              } catch (e) {
-                setDialogState(() => isRegistering = false);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(e.toString().replaceAll('Exception:', '').trim()),
-                    backgroundColor: AppTheme.errorColor,
-                  ),
-                );
-              }
-            }
-
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Row(
-                children: [
-                  Icon(Icons.person_add_rounded, color: AppTheme.primaryColor),
-                  SizedBox(width: 8),
-                  Text('Create Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Register your business owner profile to access TallyLive analytics.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: nameCtrl,
-                        focusNode: nameFocus,
-                        textInputAction: TextInputAction.next,
-                        onFieldSubmitted: (_) {
-                          FocusScope.of(context).requestFocus(phoneFocus);
-                        },
-                        decoration: const InputDecoration(
-                          labelText: 'Full Name *',
-                          hintText: 'John Doe',
-                          prefixIcon: Icon(Icons.person_outline_rounded),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) {
-                            return 'Please enter your full name';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: phoneCtrl,
-                        focusNode: phoneFocus,
-                        keyboardType: TextInputType.phone,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                          LengthLimitingTextInputFormatter(10),
-                        ],
-                        textInputAction: TextInputAction.next,
-                        onFieldSubmitted: (_) {
-                          FocusScope.of(context).requestFocus(passwordFocus);
-                        },
-                        decoration: const InputDecoration(
-                          labelText: '10-Digit Mobile Number *',
-                          hintText: '9876543210',
-                          prefixIcon: Icon(Icons.phone_rounded),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) {
-                            return 'Please enter mobile number';
-                          }
-                          if (val.trim().length != 10) {
-                            return 'Enter a valid 10-digit phone number';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: passwordCtrl,
-                        focusNode: passwordFocus,
-                        obscureText: obscure,
-                        textInputAction: TextInputAction.done,
-                        onFieldSubmitted: (_) => submitRegistration(),
-                        decoration: InputDecoration(
-                          labelText: 'Create Password *',
-                          hintText: '••••••••',
-                          prefixIcon: const Icon(Icons.lock_outline_rounded),
-                          suffixIcon: IconButton(
-                            icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                            onPressed: () => setDialogState(() => obscure = !obscure),
-                          ),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) {
-                            return 'Please create a password';
-                          }
-                          if (val.length < 6) {
-                            return 'Password must be at least 6 characters';
-                          }
-                          return null;
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isRegistering ? null : () => Navigator.of(ctx).pop(),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: isRegistering ? null : submitRegistration,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryColor,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: isRegistering
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Register Account'),
-                ),
-              ],
-            );
-          },
-        );
-      },
     );
   }
 }

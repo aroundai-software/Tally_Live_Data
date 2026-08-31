@@ -1,3 +1,4 @@
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
@@ -21,9 +22,54 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
+  bool _stockScreenShowSales = false;
+  int _receivablesPayablesTab = 0;
+  String? _lastCompany;
+  StreamSubscription<Map<String, bool>>? _featureSubscription;
 
-  void _onNavigate(int index) {
-    setState(() => _currentIndex = index);
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final companyState = CompanyProvider.of(context);
+    final currentCompany = companyState.selectedCompany;
+    if (currentCompany != _lastCompany) {
+      _lastCompany = currentCompany;
+      if (currentCompany != null) {
+        _listenToCompanyFeatures(currentCompany, companyState);
+      } else {
+        _featureSubscription?.cancel();
+        _featureSubscription = null;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _featureSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _listenToCompanyFeatures(String companyName, CompanyState companyState) {
+    _featureSubscription?.cancel();
+    _featureSubscription = SupabaseService().streamCompanyFeatures(companyName).listen((features) {
+      if (mounted) {
+        companyState.setFeatures(features);
+      }
+    }, onError: (_) {
+      // Keep existing features on error
+    });
+  }
+
+  void _onNavigate(
+    int index, {
+    bool showSalesInStock = false,
+    int receivablesPayablesTab = 0,
+  }) {
+    setState(() {
+      _currentIndex = index;
+      _stockScreenShowSales = showSalesInStock;
+      _receivablesPayablesTab = receivablesPayablesTab;
+    });
   }
 
   void _switchCompany() {
@@ -44,12 +90,30 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    final companyName = CompanyProvider.of(context).selectedCompany ?? '';
+    final companyState = CompanyProvider.of(context);
+    final companyName = companyState.selectedCompany ?? '';
+
+    // Calculate outstanding tab label and icon dynamically
+    final showRec = companyState.isFeatureEnabled('out_receivables');
+    final showPay = companyState.isFeatureEnabled('out_payables');
+    final outstandingLabel = (showRec && showPay)
+        ? 'Recv/Pay'
+        : (showRec ? 'Receivables' : 'Payables');
+    final outstandingIcon = (showRec && showPay)
+        ? Icons.swap_horiz_rounded
+        : (showRec ? Icons.trending_up_rounded : Icons.trending_down_rounded);
+
     final screens = [
       DashboardScreen(onNavigate: _onNavigate),
-      StockScreen(onBack: () => _onNavigate(0)),
+      StockScreen(
+        onBack: () => _onNavigate(0),
+        showSalesValue: _stockScreenShowSales,
+      ),
       LedgerScreen(onBack: () => _onNavigate(0)),
-      ReceivablesPayablesScreen(onBack: () => _onNavigate(0)),
+      ReceivablesPayablesScreen(
+        onBack: () => _onNavigate(0),
+        initialTabIndex: _receivablesPayablesTab,
+      ),
       SalesInvoiceScreen(onBack: () => _onNavigate(0)),
       PurchaseInvoiceScreen(onBack: () => _onNavigate(0)),
     ];
@@ -62,7 +126,7 @@ class _MainShellState extends State<MainShell> {
             child: MediaQuery.removePadding(
               context: context,
               removeTop: true,
-              child: IndexedStack(
+              child: FadeIndexedStack(
                 index: _currentIndex,
                 children: screens,
               ),
@@ -94,41 +158,46 @@ class _MainShellState extends State<MainShell> {
                   onTap: () => _onNavigate(0),
                   color: AppTheme.primaryColor,
                 ),
-                _NavItem(
-                  icon: Icons.inventory_2_rounded,
-                  label: 'Stock',
-                  isSelected: _currentIndex == 1,
-                  onTap: () => _onNavigate(1),
-                  color: AppTheme.stockColor,
-                ),
-                _NavItem(
-                  icon: Icons.people_alt_rounded,
-                  label: 'Ledgers',
-                  isSelected: _currentIndex == 2,
-                  onTap: () => _onNavigate(2),
-                  color: AppTheme.primaryColor,
-                ),
-                _NavItem(
-                  icon: Icons.swap_horiz_rounded,
-                  label: 'Recv/Pay',
-                  isSelected: _currentIndex == 3,
-                  onTap: () => _onNavigate(3),
-                  color: AppTheme.receivableColor,
-                ),
-                _NavItem(
-                  icon: Icons.receipt_long_rounded,
-                  label: 'Sales',
-                  isSelected: _currentIndex == 4,
-                  onTap: () => _onNavigate(4),
-                  color: AppTheme.salesColor,
-                ),
-                _NavItem(
-                  icon: Icons.shopping_cart_rounded,
-                  label: 'Purchases',
-                  isSelected: _currentIndex == 5,
-                  onTap: () => _onNavigate(5),
-                  color: AppTheme.purchaseColor,
-                ),
+                if (companyState.isFeatureEnabled('stock'))
+                  _NavItem(
+                    icon: Icons.inventory_2_rounded,
+                    label: 'Stock',
+                    isSelected: _currentIndex == 1,
+                    onTap: () => _onNavigate(1),
+                    color: AppTheme.stockColor,
+                  ),
+                if (companyState.isFeatureEnabled('ledgers'))
+                  _NavItem(
+                    icon: Icons.people_alt_rounded,
+                    label: 'Ledgers',
+                    isSelected: _currentIndex == 2,
+                    onTap: () => _onNavigate(2),
+                    color: AppTheme.primaryColor,
+                  ),
+                if (companyState.isFeatureEnabled('outstanding'))
+                  _NavItem(
+                    icon: outstandingIcon,
+                    label: outstandingLabel,
+                    isSelected: _currentIndex == 3,
+                    onTap: () => _onNavigate(3),
+                    color: AppTheme.receivableColor,
+                  ),
+                if (companyState.isFeatureEnabled('sales'))
+                  _NavItem(
+                    icon: Icons.receipt_long_rounded,
+                    label: 'Sales',
+                    isSelected: _currentIndex == 4,
+                    onTap: () => _onNavigate(4),
+                    color: AppTheme.salesColor,
+                  ),
+                if (companyState.isFeatureEnabled('purchases'))
+                  _NavItem(
+                    icon: Icons.shopping_cart_rounded,
+                    label: 'Purchases',
+                    isSelected: _currentIndex == 5,
+                    onTap: () => _onNavigate(5),
+                    color: AppTheme.purchaseColor,
+                  ),
               ],
             ),
           ),
@@ -258,6 +327,59 @@ class _CompanyBanner extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+class FadeIndexedStack extends StatefulWidget {
+  final int index;
+  final List<Widget> children;
+  final Duration duration;
+
+  const FadeIndexedStack({
+    super.key,
+    required this.index,
+    required this.children,
+    this.duration = const Duration(milliseconds: 200),
+  });
+
+  @override
+  State<FadeIndexedStack> createState() => _FadeIndexedStackState();
+}
+
+class _FadeIndexedStackState extends State<FadeIndexedStack> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    _controller = AnimationController(vsync: this, duration: widget.duration);
+    _controller.forward();
+    super.initState();
+  }
+
+  @override
+  void didUpdateWidget(FadeIndexedStack oldWidget) {
+    if (widget.index != oldWidget.index) {
+      _controller.forward(from: 0.0);
+    }
+    super.didUpdateWidget(oldWidget);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: IndexedStack(
+        index: widget.index,
+        children: widget.children,
       ),
     );
   }

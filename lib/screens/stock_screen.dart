@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import '../utils/error_handler.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../config/app_theme.dart';
 import '../models/stock_item.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
+import '../services/user_preferences_service.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
@@ -12,7 +14,8 @@ import '../widgets/error_state_widget.dart';
 
 class StockScreen extends StatefulWidget {
   final VoidCallback? onBack;
-  const StockScreen({super.key, this.onBack});
+  final bool showSalesValue;
+  const StockScreen({super.key, this.onBack, this.showSalesValue = false});
 
   @override
   State<StockScreen> createState() => _StockScreenState();
@@ -20,26 +23,35 @@ class StockScreen extends StatefulWidget {
 
 class _StockScreenState extends State<StockScreen> {
   final SupabaseService _service = SupabaseService();
+  Map<String, double> _productSales = {};
   List<StockItem> _products = [];
   List<StockItem> _filteredProducts = [];
   bool _isLoading = true;
   String? _error;
   final TextEditingController _searchController = TextEditingController();
 
-  // Search filter flags
-  bool _searchInName = true;
-  bool _searchInPartNumber = true;
-  bool _searchInRate = true;
-  bool _searchInQuantity = true;
-
+  String _sortBy = 'qty_desc'; // 'qty_desc', 'qty_asc'
   String _stockFilter = 'All'; // 'All', 'Low Stock', 'Zero Stock'
 
   bool _initialized = false;
+  late bool _showSalesValue;
 
   @override
   void initState() {
     super.initState();
+    _showSalesValue = widget.showSalesValue;
     _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void didUpdateWidget(StockScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.showSalesValue != oldWidget.showSalesValue) {
+      setState(() {
+        _showSalesValue = widget.showSalesValue;
+      });
+      _loadData();
+    }
   }
 
   @override
@@ -52,26 +64,35 @@ class _StockScreenState extends State<StockScreen> {
   void _onSearchChanged() {
     final query = _searchController.text.toLowerCase();
 
+    final filtered = _products.where((item) {
+      bool matchesSearch = true;
+      if (query.isNotEmpty) {
+        final matchesName = item.name.toLowerCase().contains(query);
+        final matchesPart = item.partNumber?.toLowerCase().contains(query) ?? false;
+        final matchesRate = item.rate.toString().contains(query);
+        final matchesQty = item.quantity.toString().contains(query);
+        matchesSearch = matchesName || matchesPart || matchesRate || matchesQty;
+      }
+
+      bool matchesFilter = true;
+      if (_stockFilter == 'Zero Stock') {
+        matchesFilter = item.quantity <= 0;
+      } else if (_stockFilter == 'Low Stock') {
+        matchesFilter = item.quantity > 0 && item.quantity <= 10;
+      }
+
+      return matchesSearch && matchesFilter;
+    }).toList();
+
+    // Sort products based on user choice
+    if (_sortBy == 'qty_asc') {
+      filtered.sort((a, b) => a.quantity.compareTo(b.quantity));
+    } else {
+      filtered.sort((a, b) => b.quantity.compareTo(a.quantity));
+    }
+
     setState(() {
-      _filteredProducts = _products.where((item) {
-        bool matchesSearch = true;
-        if (query.isNotEmpty) {
-          final matchesName = _searchInName && item.name.toLowerCase().contains(query);
-          final matchesPart = _searchInPartNumber && (item.partNumber?.toLowerCase().contains(query) ?? false);
-          final matchesRate = _searchInRate && item.rate.toString().contains(query);
-          final matchesQty = _searchInQuantity && item.quantity.toString().contains(query);
-          matchesSearch = matchesName || matchesPart || matchesRate || matchesQty;
-        }
-
-        bool matchesFilter = true;
-        if (_stockFilter == 'Zero Stock') {
-          matchesFilter = item.quantity <= 0;
-        } else if (_stockFilter == 'Low Stock') {
-          matchesFilter = item.quantity > 0 && item.quantity <= 10;
-        }
-
-        return matchesSearch && matchesFilter;
-      }).toList();
+      _filteredProducts = filtered;
     });
   }
 
@@ -80,8 +101,20 @@ class _StockScreenState extends State<StockScreen> {
     super.didChangeDependencies();
     if (!_initialized) {
       _initialized = true;
-      _loadData();
+      _loadPreferencesAndData();
     }
+  }
+
+  Future<void> _loadPreferencesAndData() async {
+    final savedSort = await UserPreferencesService.loadStockSort();
+    final savedFilter = await UserPreferencesService.loadStockStatusFilter();
+    if (mounted) {
+      setState(() {
+        _sortBy = savedSort;
+        _stockFilter = savedFilter;
+      });
+    }
+    _loadData();
   }
 
   Future<void> _loadData() async {
@@ -92,10 +125,17 @@ class _StockScreenState extends State<StockScreen> {
     try {
       final company = CompanyProvider.of(context).selectedCompany;
       final items = await _service.getProducts(companyName: company);
+      
+      Map<String, double> salesMap = {};
+      if (company != null) {
+        salesMap = await _service.getProductSalesTotals(companyName: company);
+      }
+      
       if (mounted) {
         setState(() {
           _products = items;
           _filteredProducts = items;
+          _productSales = salesMap;
           _isLoading = false;
         });
         _onSearchChanged(); // Re-apply current search if any
@@ -103,7 +143,7 @@ class _StockScreenState extends State<StockScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = AppErrorHandler.getFriendlyError(e);
           _isLoading = false;
         });
       }
@@ -112,6 +152,9 @@ class _StockScreenState extends State<StockScreen> {
 
   double get _totalValue {
     try {
+      if (_showSalesValue) {
+        return _filteredProducts.fold(0.0, (sum, item) => sum + (_productSales[item.name] ?? 0.0));
+      }
       return _filteredProducts.fold(0.0, (sum, item) => sum + item.stockValue);
     } catch (_) {
       return 0.0;
@@ -119,18 +162,23 @@ class _StockScreenState extends State<StockScreen> {
   }
   int get _totalItems => _filteredProducts.length;
 
+  @override
   Widget build(BuildContext context) {
+    final companyState = CompanyProvider.of(context);
+    final showCostPrice = companyState.isFeatureEnabled('stock_cost');
+
     return Scaffold(
       primary: false,
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
+        toolbarHeight: 46.0,
         leading: widget.onBack != null
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
                 onPressed: widget.onBack,
               )
             : null,
-        title: const Text('Products / Stock'),
+        title: Text(_showSalesValue ? 'Products Sales Value' : 'Products'),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         actions: [
@@ -145,33 +193,93 @@ class _StockScreenState extends State<StockScreen> {
         color: AppTheme.primaryColor,
         child: Column(
           children: [
-            _buildHeader(),
-            SearchBarWidget(
-              hintText: 'Search by name, part no, rate...',
-              controller: _searchController,
-              onChanged: (_) {}, // Handled by listener
-              trailing: PopupMenuButton<String>(
-                icon: Icon(Icons.tune_rounded, color: AppTheme.primaryColor),
-                onSelected: (value) {
-                  setState(() {
-                    if (value == 'name') _searchInName = !_searchInName;
-                    if (value == 'part') _searchInPartNumber = !_searchInPartNumber;
-                    if (value == 'rate') _searchInRate = !_searchInRate;
-                    if (value == 'qty') _searchInQuantity = !_searchInQuantity;
-                  });
-                  _onSearchChanged();
-                },
-                itemBuilder: (context) => [
-                  _buildFilterItem('Item Name', _searchInName, 'name'),
-                  _buildFilterItem('Part Number', _searchInPartNumber, 'part'),
-                  _buildFilterItem('Rate', _searchInRate, 'rate'),
-                  _buildFilterItem('Quantity', _searchInQuantity, 'qty'),
+            // Only show Stock Value toggle if cost is permitted
+            if (showCostPrice) _buildModeToggle(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SearchBarWidget(
+                      margin: EdgeInsets.zero,
+                      hintText: 'Search by name, part no, rate...',
+                      controller: _searchController,
+                      onChanged: (_) {}, // Handled by listener
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.grey.shade200),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: PopupMenuButton<String>(
+                      icon: const Icon(Icons.sort_rounded, color: AppTheme.primaryColor),
+                      tooltip: 'Sort Options',
+                      onSelected: (value) {
+                        setState(() {
+                          _sortBy = value;
+                        });
+                        UserPreferencesService.saveStockSort(value);
+                        _onSearchChanged();
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'qty_desc',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.arrow_downward_rounded,
+                                size: 18,
+                                color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.grey,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Quantity: High to Low',
+                                style: TextStyle(
+                                  fontWeight: _sortBy == 'qty_desc' ? FontWeight.bold : FontWeight.normal,
+                                  color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.black,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'qty_asc',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.arrow_upward_rounded,
+                                size: 18,
+                                color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.grey,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Quantity: Low to High',
+                                style: TextStyle(
+                                  fontWeight: _sortBy == 'qty_asc' ? FontWeight.bold : FontWeight.normal,
+                                  color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.black,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
             _buildStockFilter(),
-            const SizedBox(height: 4),
-            Expanded(child: _buildBody()),
+            Expanded(child: _buildBody(showCostPrice: showCostPrice)),
           ],
         ),
       ),
@@ -181,11 +289,13 @@ class _StockScreenState extends State<StockScreen> {
   Widget _buildHeader() {
     if (_isLoading) return const SizedBox.shrink();
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      margin: const EdgeInsets.only(top: 8, bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF9C27B0), Color(0xFF7B1FA2)],
+        gradient: LinearGradient(
+          colors: _showSalesValue
+              ? [const Color(0xFF00BCD4), const Color(0xFF00838F)]
+              : [const Color(0xFF9C27B0), const Color(0xFF7B1FA2)],
         ),
         borderRadius: BorderRadius.circular(14),
       ),
@@ -195,9 +305,9 @@ class _StockScreenState extends State<StockScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Total Stock Value',
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                Text(
+                  _showSalesValue ? 'Total Sales Value' : 'Total Stock Value',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -234,7 +344,7 @@ class _StockScreenState extends State<StockScreen> {
   Widget _buildStockFilter() {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 2),
       child: Row(
         children: ['All', 'Low Stock', 'Zero Stock'].map((filter) {
           final isSelected = _stockFilter == filter;
@@ -248,6 +358,7 @@ class _StockScreenState extends State<StockScreen> {
               onSelected: (selected) {
                 if (selected) {
                   setState(() => _stockFilter = filter);
+                  UserPreferencesService.saveStockStatusFilter(filter);
                   _onSearchChanged();
                 }
               },
@@ -258,24 +369,9 @@ class _StockScreenState extends State<StockScreen> {
     );
   }
 
-  PopupMenuItem<String> _buildFilterItem(String label, bool isSelected, String value) {
-    return PopupMenuItem(
-      value: value,
-      child: Row(
-        children: [
-          Icon(
-            isSelected ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
-            color: isSelected ? AppTheme.primaryColor : Colors.grey,
-            size: 20,
-          ),
-          const SizedBox(width: 12),
-          Text(label, style: const TextStyle(fontSize: 14)),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildBody() {
+
+  Widget _buildBody({bool showCostPrice = true}) {
     if (_isLoading) return const ShimmerLoading();
     if (_error != null) return ErrorStateWidget(error: _error, onRetry: _loadData);
     if (_filteredProducts.isEmpty) {
@@ -292,16 +388,25 @@ class _StockScreenState extends State<StockScreen> {
     return AnimationLimiter(
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        itemCount: _filteredProducts.length,
+        itemCount: _filteredProducts.length + 1,
         itemBuilder: (context, index) {
-          final item = _filteredProducts[index];
+          if (index == 0) {
+            // Only show stock value header if cost is visible
+            return showCostPrice ? _buildHeader() : const SizedBox.shrink();
+          }
+          final item = _filteredProducts[index - 1];
           return AnimationConfiguration.staggeredList(
             position: index,
             duration: const Duration(milliseconds: 350),
             child: SlideAnimation(
               verticalOffset: 30,
               child: FadeInAnimation(
-                child: _ProductCard(item: item),
+                child: _ProductCard(
+                  item: item,
+                  salesValue: _productSales[item.name] ?? 0.0,
+                  showSalesValue: _showSalesValue,
+                  showCostPrice: showCostPrice,
+                ),
               ),
             ),
           );
@@ -309,11 +414,110 @@ class _StockScreenState extends State<StockScreen> {
       ),
     );
   }
+
+  void _toggleViewMode(bool showSales) {
+    if (showSales == _showSalesValue) return;
+    setState(() {
+      _showSalesValue = showSales;
+    });
+  }
+
+  Widget _buildModeToggle() {
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 320),
+        margin: const EdgeInsets.fromLTRB(16, 2, 16, 2),
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(30),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: _buildToggleTab(
+                label: 'Stock Value',
+                icon: Icons.inventory_2_rounded,
+                isSelected: !_showSalesValue,
+                selectedColor: AppTheme.stockColor,
+                onTap: () => _toggleViewMode(false),
+              ),
+            ),
+            Expanded(
+              child: _buildToggleTab(
+                label: 'Sales Value',
+                icon: Icons.trending_up_rounded,
+                isSelected: _showSalesValue,
+                selectedColor: AppTheme.salesColor,
+                onTap: () => _toggleViewMode(true),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildToggleTab({
+    required String label,
+    required IconData icon,
+    required bool isSelected,
+    required Color selectedColor,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  )
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected ? selectedColor : const Color(0xFF64748B),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                color: isSelected ? const Color(0xFF1E293B) : const Color(0xFF64748B),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _ProductCard extends StatelessWidget {
   final StockItem item;
-  const _ProductCard({required this.item});
+  final double salesValue;
+  final bool showSalesValue;
+  final bool showCostPrice;
+  const _ProductCard({
+    required this.item,
+    this.salesValue = 0.0,
+    this.showSalesValue = false,
+    this.showCostPrice = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -334,10 +538,14 @@ class _ProductCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: AppTheme.stockColor.withValues(alpha: 0.1),
+                  color: (showSalesValue ? AppTheme.salesColor : AppTheme.stockColor).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.medication_rounded, color: AppTheme.stockColor, size: 20),
+                child: Icon(
+                  showSalesValue ? Icons.trending_up_rounded : Icons.medication_rounded,
+                  color: showSalesValue ? AppTheme.salesColor : AppTheme.stockColor,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -364,13 +572,13 @@ class _ProductCard extends StatelessWidget {
                 ),
               ),
               Text(
-                formatCurrency(item.stockValue),
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1A1F36),
-                ),
+              formatCurrency(showSalesValue ? salesValue : item.stockValue),
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: showSalesValue ? AppTheme.salesColor : const Color(0xFF1A1F36),
               ),
+            ),
             ],
           ),
           const SizedBox(height: 12),
@@ -384,8 +592,10 @@ class _ProductCard extends StatelessWidget {
               children: [
                 _DetailChip(label: 'Qty', value: '${item.quantity}'),
                 _divider(),
-                _DetailChip(label: 'Rate', value: '\u20B9${item.rate.toStringAsFixed(2)}'),
-                _divider(),
+                if (showCostPrice) ...[
+                  _DetailChip(label: 'Rate', value: '\u20B9${item.rate.toStringAsFixed(2)}'),
+                  _divider(),
+                ],
                 _DetailChip(label: 'MRP', value: '\u20B9${item.mrp.toStringAsFixed(2)}'),
                 _divider(),
                 _DetailChip(label: 'Unit', value: item.unit ?? '-'),

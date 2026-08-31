@@ -262,6 +262,19 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- High Value Items
+CREATE OR REPLACE FUNCTION get_high_value_items(p_company_name TEXT)
+RETURNS TABLE (product_name TEXT, quantity INTEGER, stock_value NUMERIC) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT s."ItemName" as product_name, s."ItemQuantity" as quantity, (s."ItemQuantity" * s."ItemRate") as stock_value
+  FROM stock_items s
+  WHERE s."ItemQuantity" > 0
+  AND (p_company_name IS NULL OR s.company_name = p_company_name)
+  ORDER BY stock_value DESC;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Unused Ledgers
 CREATE OR REPLACE FUNCTION get_unused_ledgers(p_company_name TEXT, p_days INT DEFAULT 180)
 RETURNS TABLE (customer_name TEXT, mobile_number TEXT, city TEXT) AS $$
@@ -317,3 +330,73 @@ BEGIN
   ORDER BY sale_date DESC;
 END;
 $$ LANGUAGE plpgsql;
+
+-- 14. Company Features and Gating Table
+CREATE TABLE IF NOT EXISTS public.company_features (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL UNIQUE,
+  company_name text NOT NULL,
+  is_dashboard_enabled boolean NOT NULL DEFAULT true,
+  is_stock_enabled boolean NOT NULL DEFAULT true,
+  is_ledgers_enabled boolean NOT NULL DEFAULT true,
+  is_outstanding_enabled boolean NOT NULL DEFAULT true,
+  is_sales_enabled boolean NOT NULL DEFAULT true,
+  is_purchases_enabled boolean NOT NULL DEFAULT true,
+  is_analytics_enabled boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT company_features_pkey PRIMARY KEY (id),
+  CONSTRAINT company_features_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.tally_companies(id) ON DELETE CASCADE
+);
+
+-- Trigger to automatically populate company_features when a new company is created
+CREATE OR REPLACE FUNCTION public.handle_new_company_features()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.company_features (company_id, company_name)
+  VALUES (NEW.id, NEW.company_name)
+  ON CONFLICT (company_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Hook trigger to tally_companies table
+DROP TRIGGER IF EXISTS on_company_created ON public.tally_companies;
+CREATE TRIGGER on_company_created
+  AFTER INSERT ON public.tally_companies
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_company_features();
+
+
+-- 15. Migration: Add Sub-Features Columns to company_features Table
+ALTER TABLE public.company_features 
+  -- Dashboard sub-features
+  ADD COLUMN IF NOT EXISTS is_db_net_position_enabled boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS is_db_summary_cards_enabled boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS is_db_daybook_enabled boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS is_db_quick_actions_enabled boolean NOT NULL DEFAULT true,
+
+  -- Outstanding sub-features
+  ADD COLUMN IF NOT EXISTS is_out_receivables_enabled boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS is_out_payables_enabled boolean NOT NULL DEFAULT true,
+
+  -- Reports sub-features
+  ADD COLUMN IF NOT EXISTS is_rep_sales_enabled boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS is_rep_purchases_enabled boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS is_rep_ledgers_enabled boolean NOT NULL DEFAULT true,
+
+  -- Stock sub-features
+  ADD COLUMN IF NOT EXISTS is_stock_cost_enabled boolean NOT NULL DEFAULT true;
+
+-- 16. Migration: Add dashboard_config JSONB column for individual card/button gating
+-- Stores fine-grained visibility settings (individual cards, quick action buttons)
+-- without requiring new boolean columns for each new UI element added in future.
+ALTER TABLE public.company_features
+  ADD COLUMN IF NOT EXISTS dashboard_config JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- Comment on the new column
+COMMENT ON COLUMN public.company_features.dashboard_config IS
+  'JSONB config for individual dashboard item visibility.
+   Structure: { "cards": { "cash_bank": bool, "stock_value": bool, "today_sales": bool,
+   "today_purchases": bool, "overdue_receivables": bool, "overdue_payables": bool },
+   "quick_actions": { "stock": bool, "ledgers": bool, "sales": bool, "reports": bool } }
+   Missing keys default to true (visible) in application code.';

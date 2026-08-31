@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/supabase_config.dart';
 import '../models/stock_item.dart';
 import '../models/ledger.dart';
 import '../models/receivable_payable.dart';
@@ -125,6 +126,72 @@ class SupabaseService {
             mobileNumber: tenDigits,
           );
         } catch (_) {}
+      }
+    }
+
+    return res;
+  }
+
+  Future<AuthResponse> adminRegisterUser({
+    required String fullName,
+    required String phone,
+    required String password,
+  }) async {
+    final allDigits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    final tenDigits = allDigits.length >= 10 ? allDigits.substring(allDigits.length - 10) : allDigits;
+    if (tenDigits.length < 10) throw 'Please enter a valid 10-digit mobile number.';
+    if (password.length < 6) throw 'Password must be at least 6 characters.';
+
+    final emailAlias = '$tenDigits@tallylive.app';
+
+    final tempClient = SupabaseClient(
+      SupabaseConfig.supabaseUrl,
+      SupabaseConfig.supabaseAnonKey,
+      authOptions: const AuthClientOptions(
+        authFlowType: AuthFlowType.implicit,
+      ),
+    );
+
+    AuthResponse res;
+    try {
+      res = await tempClient.auth.signUp(
+        email: emailAlias,
+        password: password,
+        data: {
+          'full_name': fullName.trim(),
+          'phone_number': tenDigits,
+        },
+      );
+    } catch (e) {
+      final errStr = e.toString().toLowerCase();
+      if (errStr.contains('user_already_exists')) {
+        throw 'An account with this mobile number already exists.';
+      } else if (errStr.contains('email_provider_disabled') || errStr.contains('email signups are disabled')) {
+        throw 'Account registration is temporarily unavailable.';
+      } else if (errStr.contains('rate limit') || errStr.contains('429') || errStr.contains('over_email_send_rate_limit')) {
+        throw 'Registration limit exceeded. Please wait a few minutes and try again.';
+      } else {
+        rethrow;
+      }
+    } finally {
+      // Clean up temporary client auth session to avoid leaks
+      try {
+        await tempClient.auth.signOut();
+      } catch (_) {}
+    }
+
+    final user = res.user;
+    if (user != null) {
+      try {
+        await _client.from('users').upsert({
+          'id': user.id,
+          'full_name': fullName.trim(),
+          'phone_number': tenDigits,
+          'company_name': '',
+          'role': 'owner',
+        });
+      } catch (err) {
+        print('Profile upsert warning: $err');
       }
     }
 
@@ -356,6 +423,258 @@ class SupabaseService {
     }
   }
 
+  // ─── Company Features & Subscription Gating ───────────────────
+  Future<Map<String, bool>> getCompanyFeatures(String companyName) async {
+    try {
+      final response = await _client
+          .from('company_features')
+          .select()
+          .ilike('company_name', companyName)
+          .maybeSingle();
+
+      if (response == null) {
+        // Fallback: If not found, look up company ID and insert on-the-fly
+        final comp = await _client
+            .from('tally_companies')
+            .select('id')
+            .ilike('company_name', companyName)
+            .maybeSingle();
+        if (comp != null) {
+          final compId = comp['id'];
+          final inserted = await _client
+              .from('company_features')
+              .insert({
+                'company_id': compId,
+                'company_name': companyName,
+              })
+              .select()
+              .maybeSingle();
+          if (inserted != null) {
+            return _parseFeatureMap(inserted);
+          }
+        }
+        return _defaultFeatureMap();
+      }
+      return _parseFeatureMap(response);
+    } catch (e, st) {
+      print('getCompanyFeatures error for $companyName: $e\n$st');
+      return _defaultFeatureMap();
+    }
+  }
+
+  Stream<Map<String, bool>> streamCompanyFeatures(String companyName) {
+    return _client
+        .from('company_features')
+        .stream(primaryKey: ['id'])
+        .eq('company_name', companyName)
+        .map((events) {
+      if (events.isEmpty) return _defaultFeatureMap();
+      return _parseFeatureMap(events.first);
+    });
+  }
+
+  Future<void> updateCompanyFeatures(String companyName, Map<String, bool> features) async {
+    try {
+      // First ensure the record exists (in case it is missing)
+      await getCompanyFeatures(companyName);
+      
+      await _client.from('company_features').update({
+        'is_dashboard_enabled': features['dashboard'] ?? true,
+        'is_stock_enabled': features['stock'] ?? true,
+        'is_ledgers_enabled': features['ledgers'] ?? true,
+        'is_outstanding_enabled': features['outstanding'] ?? true,
+        'is_sales_enabled': features['sales'] ?? true,
+        'is_purchases_enabled': features['purchases'] ?? true,
+        'is_analytics_enabled': features['analytics'] ?? true,
+        // Dashboard JSONB — storing all sub-features and configurations
+        'dashboard_config': {
+          'db_net_position': features['db_net_position'] ?? true,
+          'db_summary_cards': features['db_summary_cards'] ?? true,
+          'db_daybook': features['db_daybook'] ?? true,
+          'db_quick_actions': features['db_quick_actions'] ?? true,
+          'out_receivables': features['out_receivables'] ?? true,
+          'out_payables': features['out_payables'] ?? true,
+          'rep_sales': features['rep_sales'] ?? true,
+          'rep_purchases': features['rep_purchases'] ?? true,
+          'rep_ledgers': features['rep_ledgers'] ?? true,
+          'stock_cost': features['stock_cost'] ?? true,
+          'cards': {
+            'cash_bank':           features['db_card_cash_bank']           ?? true,
+            'stock_value':         features['db_card_stock_value']         ?? true,
+            'today_sales':         features['db_card_today_sales']         ?? true,
+            'today_purchases':     features['db_card_today_purchases']     ?? true,
+            'overdue_receivables': features['db_card_overdue_receivables'] ?? true,
+            'overdue_payables':    features['db_card_overdue_payables']    ?? true,
+          },
+          'quick_actions': {
+            'stock':   features['db_qa_stock']   ?? true,
+            'ledgers': features['db_qa_ledgers'] ?? true,
+            'sales':   features['db_qa_sales']   ?? true,
+            'reports': features['db_qa_reports'] ?? true,
+          },
+          'net_position': {
+            'stock':       features['db_np_stock']       ?? true,
+            'receivables': features['db_np_receivables'] ?? true,
+            'payables':    features['db_np_payables']    ?? true,
+            'cash':        features['db_np_cash']        ?? true,
+            'bank':        features['db_np_bank']        ?? true,
+          },
+        },
+      }).ilike('company_name', companyName);
+    } catch (e) {
+      throw Exception('Failed to update company features: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getAllCompaniesFeatures() async {
+    try {
+      // 1. Fetch all active companies
+      final companiesRes = await _client
+          .from('tally_companies')
+          .select('id, company_name')
+          .eq('is_active', true);
+      
+      final companies = (companiesRes as List).cast<Map<String, dynamic>>();
+      
+      // 2. Fetch all configuration rows in company_features
+      final featuresRes = await _client.from('company_features').select();
+      final featuresList = (featuresRes as List).cast<Map<String, dynamic>>();
+
+      final results = <Map<String, dynamic>>[];
+
+      for (var comp in companies) {
+        final compName = comp['company_name']?.toString() ?? '';
+        if (compName.isEmpty) continue;
+
+        var feat = featuresList.firstWhere(
+          (f) => f['company_id'] == comp['id'] || f['company_name'] == compName,
+          orElse: () => {},
+        );
+
+        if (feat.isEmpty) {
+          // Self-heal: insert missing entry
+          try {
+            final newFeat = await _client
+                .from('company_features')
+                .insert({
+                  'company_id': comp['id'],
+                  'company_name': compName,
+                })
+                .select()
+                .maybeSingle();
+            if (newFeat != null) {
+              feat = newFeat;
+            }
+          } catch (_) {}
+        }
+
+        results.add({
+          'company_name': compName,
+          'features': feat.isNotEmpty ? _parseFeatureMap(feat) : _defaultFeatureMap(),
+        });
+      }
+
+      results.sort((a, b) => a['company_name'].toString().compareTo(b['company_name'].toString()));
+      return results;
+    } catch (e) {
+      throw Exception('Failed to fetch all companies features: $e');
+    }
+  }
+
+  Map<String, bool> _parseFeatureMap(Map<dynamic, dynamic> row) {
+    // Parse dashboard JSONB config — flatten nested JSON into prefixed keys
+    final dashCfg = (row['dashboard_config'] as Map<String, dynamic>?) ?? {};
+    final cards   = (dashCfg['cards']         as Map<String, dynamic>?) ?? {};
+    final qa      = (dashCfg['quick_actions'] as Map<String, dynamic>?) ?? {};
+    final netPos  = (dashCfg['net_position']  as Map<String, dynamic>?) ?? {};
+
+    return {
+      'dashboard': row['is_dashboard_enabled'] ?? true,
+      'stock': row['is_stock_enabled'] ?? true,
+      'ledgers': row['is_ledgers_enabled'] ?? true,
+      'outstanding': row['is_outstanding_enabled'] ?? true,
+      'sales': row['is_sales_enabled'] ?? true,
+      'purchases': row['is_purchases_enabled'] ?? true,
+      'analytics': row['is_analytics_enabled'] ?? true,
+      // Dashboard sub-features (read from JSONB instead of separate columns)
+      'db_net_position': dashCfg['db_net_position'] as bool? ?? true,
+      'db_summary_cards': dashCfg['db_summary_cards'] as bool? ?? true,
+      'db_daybook': dashCfg['db_daybook'] as bool? ?? true,
+      'db_quick_actions': dashCfg['db_quick_actions'] as bool? ?? true,
+      // Outstanding sub-features (read from JSONB instead of separate columns)
+      'out_receivables': dashCfg['out_receivables'] as bool? ?? true,
+      'out_payables': dashCfg['out_payables'] as bool? ?? true,
+      // Reports sub-features (read from JSONB instead of separate columns)
+      'rep_sales': dashCfg['rep_sales'] as bool? ?? true,
+      'rep_purchases': dashCfg['rep_purchases'] as bool? ?? true,
+      'rep_ledgers': dashCfg['rep_ledgers'] as bool? ?? true,
+      // Stock sub-features (read from JSONB instead of separate columns)
+      'stock_cost': dashCfg['stock_cost'] as bool? ?? true,
+      // Dashboard JSONB — individual cards (default true when key absent)
+      'db_card_cash_bank':           cards['cash_bank']           as bool? ?? true,
+      'db_card_stock_value':         cards['stock_value']         as bool? ?? true,
+      'db_card_today_sales':         cards['today_sales']         as bool? ?? true,
+      'db_card_today_purchases':     cards['today_purchases']     as bool? ?? true,
+      'db_card_overdue_receivables': cards['overdue_receivables'] as bool? ?? true,
+      'db_card_overdue_payables':    cards['overdue_payables']    as bool? ?? true,
+      // Dashboard JSONB — quick action buttons
+      'db_qa_stock':   qa['stock']   as bool? ?? true,
+      'db_qa_ledgers': qa['ledgers'] as bool? ?? true,
+      'db_qa_sales':   qa['sales']   as bool? ?? true,
+      'db_qa_reports': qa['reports'] as bool? ?? true,
+      // Dashboard JSONB — Net Position detail rows
+      'db_np_stock':       netPos['stock']       as bool? ?? true,
+      'db_np_receivables': netPos['receivables'] as bool? ?? true,
+      'db_np_payables':    netPos['payables']    as bool? ?? true,
+      'db_np_cash':        netPos['cash']        as bool? ?? true,
+      'db_np_bank':        netPos['bank']        as bool? ?? true,
+    };
+  }
+
+  Map<String, bool> _defaultFeatureMap() {
+    return {
+      'dashboard': true,
+      'stock': true,
+      'ledgers': true,
+      'outstanding': true,
+      'sales': true,
+      'purchases': true,
+      'analytics': true,
+      // Dashboard sub-features
+      'db_net_position': true,
+      'db_summary_cards': true,
+      'db_daybook': true,
+      'db_quick_actions': true,
+      // Outstanding sub-features
+      'out_receivables': true,
+      'out_payables': true,
+      // Reports sub-features
+      'rep_sales': true,
+      'rep_purchases': true,
+      'rep_ledgers': true,
+      // Stock sub-features
+      'stock_cost': true,
+      // Dashboard JSONB — individual cards
+      'db_card_cash_bank': true,
+      'db_card_stock_value': true,
+      'db_card_today_sales': true,
+      'db_card_today_purchases': true,
+      'db_card_overdue_receivables': true,
+      'db_card_overdue_payables': true,
+      // Dashboard JSONB — quick action buttons
+      'db_qa_stock': true,
+      'db_qa_ledgers': true,
+      'db_qa_sales': true,
+      'db_qa_reports': true,
+      // Dashboard JSONB — Net Position detail rows
+      'db_np_stock': true,
+      'db_np_receivables': true,
+      'db_np_payables': true,
+      'db_np_cash': true,
+      'db_np_bank': true,
+    };
+  }
+
   // ─── Products (Stock) ──────────────────────────────────────────
   Future<List<StockItem>> getProducts({String? searchQuery, String? companyName}) async {
     try {
@@ -411,6 +730,83 @@ class SupabaseService {
     }
   }
 
+  Future<double> getTotalCash({String? companyName}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
+    try {
+      final response = await _client
+          .from('customers')
+          .select('closing_balance')
+          .ilike('company_name', companyName)
+          .or('ledger_type.ilike.%cash%') as List;
+      double total = 0;
+      for (var item in response) {
+        total += _toDouble(item['closing_balance']);
+      }
+      return total;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  Future<double> getTotalBank({String? companyName}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
+    try {
+      final response = await _client
+          .from('customers')
+          .select('closing_balance')
+          .ilike('company_name', companyName)
+          .or('ledger_type.ilike.%bank%') as List;
+      double total = 0;
+      for (var item in response) {
+        total += _toDouble(item['closing_balance']);
+      }
+      return total;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  Future<List<Ledger>> getCashBankLedgers({String? companyName}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
+    try {
+      final response = await _client
+          .from('customers')
+          .select()
+          .ilike('company_name', companyName)
+          .or('ledger_type.ilike.%bank%,ledger_type.ilike.%cash%') as List;
+      return response.map((e) => Ledger.fromJson(e)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<DateTime?> getLastSyncTime({String? companyName}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return null;
+    try {
+      final response = await _client
+          .from('sync_logs')
+          .select('finished_at, updated_at')
+          .ilike('company_name', companyName)
+          .or('status.ilike.%success%,status.ilike.%completed%')
+          .order('finished_at', ascending: false)
+          .limit(1) as List;
+          
+      if (response.isNotEmpty) {
+        final finishedAt = response[0]['finished_at'];
+        if (finishedAt != null) {
+          return DateTime.tryParse(finishedAt.toString());
+        }
+        final updatedAt = response[0]['updated_at'];
+        if (updatedAt != null) {
+          return DateTime.tryParse(updatedAt.toString());
+        }
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   Future<int> getCustomerCount({String? companyName}) async {
     return _fetchCount('customers', companyName: companyName);
   }
@@ -446,6 +842,82 @@ class SupabaseService {
     }
   }
 
+  Future<double> getTotalOverdueReceivables({String? companyName}) async {
+    try {
+      final data = await _fetchAll(
+        'outstanding_receivables',
+        select: 'amount, closing_balance, overdue_days, duedate',
+        companyName: companyName,
+      );
+      double total = 0;
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      for (var item in data) {
+        final amount = _toDouble(item['amount']);
+        final closing = _toDouble(item['closing_balance']);
+        final val = closing != 0 ? closing.abs() : amount.abs();
+
+        final overdueDays = item['overdue_days'] != null
+            ? (item['overdue_days'] is num
+                ? (item['overdue_days'] as num).toInt()
+                : int.tryParse(item['overdue_days'].toString()))
+            : null;
+
+        final dueDate = item['duedate'] != null
+            ? DateTime.tryParse(item['duedate'].toString())
+            : null;
+
+        bool isOverdue = (overdueDays != null && overdueDays > 0) ||
+            (dueDate != null && dueDate.isBefore(today));
+
+        if (isOverdue) {
+          total += val;
+        }
+      }
+      return total;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+
+  Future<double> getTotalOverduePayables({String? companyName}) async {
+    try {
+      final data = await _fetchAll(
+        'outstanding_payables',
+        select: 'amount, closing_balance, overdue_days, duedate',
+        companyName: companyName,
+      );
+      double total = 0;
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      for (var item in data) {
+        final amount = _toDouble(item['amount']);
+        final closing = _toDouble(item['closing_balance']);
+        final val = closing != 0 ? closing.abs() : amount.abs();
+
+        final overdueDays = item['overdue_days'] != null
+            ? (item['overdue_days'] is num
+                ? (item['overdue_days'] as num).toInt()
+                : int.tryParse(item['overdue_days'].toString()))
+            : null;
+
+        final dueDate = item['duedate'] != null
+            ? DateTime.tryParse(item['duedate'].toString())
+            : null;
+
+        bool isOverdue = (overdueDays != null && overdueDays > 0) ||
+            (dueDate != null && dueDate.isBefore(today));
+
+        if (isOverdue) {
+          total += val;
+        }
+      }
+      return total;
+    } catch (e) {
+      return 0;
+    }
+  }
   Future<double> getTotalReceivables({String? companyName}) async {
     try {
       final data = await _fetchAll(
@@ -500,6 +972,86 @@ class SupabaseService {
     }
   }
 
+
+  Future<int> getTodaysSalesCount({String? companyName}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
+    try {
+      final today = DateTime.now();
+      final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      final data = await _client
+          .from('sales_invoices')
+          .select('id')
+          .ilike('company_name', companyName)
+          .gte('invoice_date', dateStr)
+          .lte('invoice_date', dateStr)
+          .limit(5000) as List;
+      return data.length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  Future<int> getTodaysPurchasesCount({String? companyName}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
+    try {
+      final today = DateTime.now();
+      final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      final data = await _client
+          .from('purchase_invoices')
+          .select('id')
+          .ilike('company_name', companyName)
+          .gte('invoice_date', dateStr)
+          .lte('invoice_date', dateStr)
+          .limit(5000) as List;
+      return data.length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  Future<double> getTodaysSales({String? companyName}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
+    try {
+      final today = DateTime.now();
+      final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      final data = await _client
+          .from('sales_invoices')
+          .select('net_amount')
+          .ilike('company_name', companyName)
+          .gte('invoice_date', dateStr)
+          .lte('invoice_date', dateStr)
+          .limit(5000) as List;
+      double total = 0;
+      for (var item in data) {
+        total += _toDouble(item['net_amount']);
+      }
+      return total;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  Future<double> getTodaysPurchases({String? companyName}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
+    try {
+      final today = DateTime.now();
+      final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      final data = await _client
+          .from('purchase_invoices')
+          .select('net_amount')
+          .ilike('company_name', companyName)
+          .gte('invoice_date', dateStr)
+          .lte('invoice_date', dateStr)
+          .limit(5000) as List;
+      double total = 0;
+      for (var item in data) {
+        total += _toDouble(item['net_amount']);
+      }
+      return total;
+    } catch (e) {
+      return 0;
+    }
+  }
   Future<double> getTotalSales({String? companyName}) async {
     try {
       final data = await _fetchAll(
@@ -530,6 +1082,28 @@ class SupabaseService {
       return (response as List).map((e) => InvoiceItem.fromJson(e)).toList();
     } catch (e) {
       return [];
+    }
+  }
+
+  Future<Map<String, double>> getProductSalesTotals({required String companyName}) async {
+    if (companyName.isEmpty || companyName == 'No Company Linked') return {};
+    try {
+      final response = await _client
+          .from('invoice_items')
+          .select('product_name, total_amount')
+          .ilike('company_name', companyName);
+          
+      final Map<String, double> salesTotals = {};
+      for (var item in response as List) {
+        final String name = item['product_name'] ?? '';
+        if (name.isNotEmpty) {
+          final double amount = _toDouble(item['total_amount']);
+          salesTotals[name] = (salesTotals[name] ?? 0.0) + amount;
+        }
+      }
+      return salesTotals;
+    } catch (e) {
+      return {};
     }
   }
 
@@ -584,12 +1158,9 @@ class SupabaseService {
 
   // ─── Daybook ───────────────────────────────────────────────────
   Future<List<DaybookEntry>> getDaybookEntries({DateTime? date, String? companyName, String? searchQuery}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      dynamic query = _client.from('tally_daybook').select();
-      
-      if (companyName != null && companyName.isNotEmpty) {
-        query = query.ilike('company_name', companyName);
-      }
+      dynamic query = _client.from('tally_daybook').select().ilike('company_name', companyName);
       
       if (date != null) {
         // Filter by specific date (ignore time)
@@ -654,6 +1225,17 @@ class SupabaseService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getHighValueItems({String? companyName}) async {
+    try {
+      final response = await _client.rpc('get_high_value_items', params: {
+        'p_company_name': companyName,
+      });
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      return [];
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getUnusedLedgers({String? companyName, int days = 180}) async {
     try {
       final response = await _client.rpc('get_unused_ledgers', params: {
@@ -675,6 +1257,30 @@ class SupabaseService {
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       return [];
+    }
+  }
+
+  Future<int> getUnusedLedgersCount({String? companyName, int days = 180}) async {
+    try {
+      final response = await _client.rpc('get_unused_ledgers', params: {
+        'p_company_name': companyName,
+        'p_days': days,
+      }).count(CountOption.exact);
+      return response.count;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  Future<int> getUnusedItemsCount({String? companyName, int days = 180}) async {
+    try {
+      final response = await _client.rpc('get_unused_items', params: {
+        'p_company_name': companyName,
+        'p_days': days,
+      }).count(CountOption.exact);
+      return response.count;
+    } catch (e) {
+      return 0;
     }
   }
 
@@ -701,18 +1307,14 @@ class SupabaseService {
     String? orderColumn,
     bool ascending = true,
   }) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     List<dynamic> allData = [];
     int offset = 0;
     const int limit = 1000;
     bool hasMore = true;
 
     while (hasMore) {
-      dynamic query = _client.from(table).select(select);
-      
-      if (companyName != null && companyName.isNotEmpty) {
-        if (companyName == 'No Company Linked') return [];
-        query = query.ilike('company_name', companyName);
-      }
+      dynamic query = _client.from(table).select(select).ilike('company_name', companyName);
       
       if (searchQuery != null && searchQuery.isNotEmpty) {
         if (table == 'sales_invoices') {
@@ -749,13 +1351,13 @@ class SupabaseService {
   }
 
   Future<int> _fetchCount(String table, {String? companyName}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
     try {
-      dynamic query = _client.from(table).select('id');
-      if (companyName != null && companyName.isNotEmpty) {
-        if (companyName == 'No Company Linked') return 0;
-        query = query.ilike('company_name', companyName);
-      }
-      final response = await query.count(CountOption.exact);
+      final response = await _client
+          .from(table)
+          .select('id')
+          .ilike('company_name', companyName)
+          .count(CountOption.exact);
       return response.count;
     } catch (e) {
       return 0;

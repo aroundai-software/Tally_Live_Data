@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/error_handler.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:intl/intl.dart';
 import '../config/app_theme.dart';
@@ -68,7 +69,7 @@ class _DaybookScreenState extends State<DaybookScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = AppErrorHandler.getFriendlyError(e);
           _isLoading = false;
         });
       }

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import '../utils/error_handler.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../config/app_theme.dart';
 import '../models/ledger.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
+import '../services/user_preferences_service.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
@@ -25,12 +27,10 @@ class _LedgerScreenState extends State<LedgerScreen> {
   String? _error;
   final TextEditingController _searchController = TextEditingController();
 
-  // Search filter flags
-  bool _searchInName = true;
-  bool _searchInCategory = true;
-  bool _searchInPlace = true;
+
 
   String _typeFilter = 'All';
+  String _sortOption = 'Recently Active';
 
   bool _initialized = false;
 
@@ -54,12 +54,10 @@ class _LedgerScreenState extends State<LedgerScreen> {
       _filteredCustomers = _customers.where((customer) {
         bool matchesSearch = true;
         if (query.isNotEmpty) {
-          final matchesName = _searchInName && customer.name.toLowerCase().contains(query);
-          final matchesCategory = _searchInCategory && (customer.categoryName?.toLowerCase().contains(query) ?? false);
-          final matchesPlace = _searchInPlace && (
-            (customer.city?.toLowerCase().contains(query) ?? false) || 
-            (customer.fullAddress.toLowerCase().contains(query))
-          );
+          final matchesName = customer.name.toLowerCase().contains(query);
+          final matchesCategory = customer.categoryName?.toLowerCase().contains(query) ?? false;
+          final matchesPlace = (customer.city?.toLowerCase().contains(query) ?? false) || 
+            customer.fullAddress.toLowerCase().contains(query);
           matchesSearch = matchesName || matchesCategory || matchesPlace;
         }
 
@@ -72,6 +70,14 @@ class _LedgerScreenState extends State<LedgerScreen> {
 
         return matchesSearch && matchesType;
       }).toList();
+
+      if (_sortOption == 'Recently Active') {
+        _filteredCustomers.sort((a, b) => (b.updatedAt ?? DateTime(2000)).compareTo(a.updatedAt ?? DateTime(2000)));
+      } else if (_sortOption == 'Highest Balance') {
+        _filteredCustomers.sort((a, b) => b.closingBalance.abs().compareTo(a.closingBalance.abs()));
+      } else {
+        _filteredCustomers.sort((a, b) => a.name.compareTo(b.name));
+      }
     });
   }
 
@@ -80,8 +86,16 @@ class _LedgerScreenState extends State<LedgerScreen> {
     super.didChangeDependencies();
     if (!_initialized) {
       _initialized = true;
-      _loadData();
+      _loadPreferencesAndData();
     }
+  }
+
+  Future<void> _loadPreferencesAndData() async {
+    final savedFilter = await UserPreferencesService.loadLedgerTypeFilter();
+    if (mounted) {
+      setState(() => _typeFilter = savedFilter);
+    }
+    _loadData();
   }
 
   Future<void> _loadData() async {
@@ -98,10 +112,11 @@ class _LedgerScreenState extends State<LedgerScreen> {
         _onSearchChanged();
       }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _isLoading = false; });
+      if (mounted) setState(() { _error = AppErrorHandler.getFriendlyError(e); _isLoading = false; });
     }
   }
 
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       primary: false,
@@ -113,10 +128,32 @@ class _LedgerScreenState extends State<LedgerScreen> {
                 onPressed: widget.onBack,
               )
             : null,
-        title: const Text('Customers / Ledgers'),
+        title: const Text('Ledgers'),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.sort_rounded, color: AppTheme.primaryColor),
+            tooltip: 'Sort By',
+            onSelected: (value) {
+              setState(() => _sortOption = value);
+              _onSearchChanged();
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'Recently Active',
+                child: Text('Recently Active', style: TextStyle(fontWeight: FontWeight.w500)),
+              ),
+              const PopupMenuItem(
+                value: 'Highest Balance',
+                child: Text('Highest Balance', style: TextStyle(fontWeight: FontWeight.w500)),
+              ),
+              const PopupMenuItem(
+                value: 'Alphabetical',
+                child: Text('Alphabetical (A-Z)', style: TextStyle(fontWeight: FontWeight.w500)),
+              ),
+            ],
+          ),
           IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
@@ -130,22 +167,6 @@ class _LedgerScreenState extends State<LedgerScreen> {
               hintText: 'Search customers...',
               controller: _searchController,
               onChanged: (_) {}, // Handled by listener
-              trailing: PopupMenuButton<String>(
-                icon: const Icon(Icons.tune_rounded, color: AppTheme.primaryColor),
-                onSelected: (value) {
-                  setState(() {
-                    if (value == 'name') _searchInName = !_searchInName;
-                    if (value == 'category') _searchInCategory = !_searchInCategory;
-                    if (value == 'place') _searchInPlace = !_searchInPlace;
-                  });
-                  _onSearchChanged();
-                },
-                itemBuilder: (context) => [
-                  _buildFilterItem('Customer Name', _searchInName, 'name'),
-                  _buildFilterItem('Category Name', _searchInCategory, 'category'),
-                  _buildFilterItem('Place / City', _searchInPlace, 'place'),
-                ],
-              ),
             ),
             _buildTypeFilter(),
             const SizedBox(height: 4),
@@ -209,6 +230,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
               onSelected: (selected) {
                 if (selected) {
                   setState(() => _typeFilter = type);
+                  UserPreferencesService.saveLedgerTypeFilter(type);
                   _onSearchChanged();
                 }
               },
@@ -249,22 +271,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
     );
   }
 
-  PopupMenuItem<String> _buildFilterItem(String label, bool isSelected, String value) {
-    return PopupMenuItem(
-      value: value,
-      child: Row(
-        children: [
-          Icon(
-            isSelected ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
-            color: isSelected ? AppTheme.primaryColor : Colors.grey,
-            size: 20,
-          ),
-          const SizedBox(width: 12),
-          Text(label, style: const TextStyle(fontSize: 14)),
-        ],
-      ),
-    );
-  }
+
 }
 
 class _CustomerCard extends StatelessWidget {
@@ -300,24 +307,20 @@ class _CustomerCard extends StatelessWidget {
           customer.categoryName ?? customer.city ?? '',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
         ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (customer.openingBalance != 0)
-              Text(
-                formatCurrency(customer.openingBalance.abs()),
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36)),
-              ),
-            if (!customer.isActive)
-              Container(
-                margin: const EdgeInsets.only(top: 2),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4)),
-                child: Text('Inactive', style: TextStyle(fontSize: 10, color: Colors.red.shade700, fontWeight: FontWeight.w600)),
-              ),
-          ],
-        ),
+        trailing: !customer.isActive
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4)),
+                    child: Text('Inactive', style: TextStyle(fontSize: 10, color: Colors.red.shade700, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              )
+            : null,
         children: [
           Container(
             padding: const EdgeInsets.all(12),
@@ -327,6 +330,8 @@ class _CustomerCard extends StatelessWidget {
             ),
             child: Column(
               children: [
+                if (customer.closingBalance != 0)
+                  _detailRow('Closing Bal', formatCurrency(customer.closingBalance.abs())),
                 if (customer.openingBalance != 0)
                   _detailRow('Opening Bal', formatCurrency(customer.openingBalance.abs())),
                 if (customer.gstNumber != null && customer.gstNumber!.isNotEmpty)
