@@ -15,22 +15,26 @@ class PdfService {
 
   static Future<void> shareSalesInvoice(SalesInvoice invoice, List<InvoiceItem> items) async {
     final pdf = await _generateSalesPdf(invoice, items);
-    await _sharePdf(pdf, 'Invoice_${invoice.invoiceNumber}.pdf');
+    final safeName = invoice.invoiceNumber.replaceAll(RegExp(r'[/\\]'), '_');
+    await _sharePdf(pdf, 'Invoice_$safeName.pdf');
   }
 
   static Future<void> downloadSalesInvoice(SalesInvoice invoice, List<InvoiceItem> items) async {
     final pdf = await _generateSalesPdf(invoice, items);
-    await _downloadPdf(pdf, 'Invoice_${invoice.invoiceNumber}.pdf');
+    final safeName = invoice.invoiceNumber.replaceAll(RegExp(r'[/\\]'), '_');
+    await _downloadPdf(pdf, 'Invoice_$safeName.pdf');
   }
 
   static Future<void> sharePurchaseInvoice(PurchaseInvoice invoice, List<PurchaseInvoiceItem> items) async {
     final pdf = await _generatePurchasePdf(invoice, items);
-    await _sharePdf(pdf, 'Purchase_${invoice.invoiceNumber}.pdf');
+    final safeName = invoice.invoiceNumber.replaceAll(RegExp(r'[/\\]'), '_');
+    await _sharePdf(pdf, 'Purchase_$safeName.pdf');
   }
 
   static Future<void> downloadPurchaseInvoice(PurchaseInvoice invoice, List<PurchaseInvoiceItem> items) async {
     final pdf = await _generatePurchasePdf(invoice, items);
-    await _downloadPdf(pdf, 'Purchase_${invoice.invoiceNumber}.pdf');
+    final safeName = invoice.invoiceNumber.replaceAll(RegExp(r'[/\\]'), '_');
+    await _downloadPdf(pdf, 'Purchase_$safeName.pdf');
   }
 
   // ── PDF generators ────────────────────────────────────────────────────────

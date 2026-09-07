@@ -60,6 +60,25 @@ class _DaybookScreenState extends State<DaybookScreen> {
         date: _selectedDate,
         searchQuery: query.isNotEmpty ? query : null,
       );
+      
+      // Sort items to match Tally's Daybook order: Date -> Voucher Type -> Voucher No
+      items.sort((a, b) {
+        if (a.date == null) return 1;
+        if (b.date == null) return -1;
+        
+        final dateA = DateTime(a.date!.year, a.date!.month, a.date!.day);
+        final dateB = DateTime(b.date!.year, b.date!.month, b.date!.day);
+        int dateComp = dateB.compareTo(dateA); // Newest first
+        if (dateComp != 0) return dateComp;
+        
+        int typeComp = a.voucherType.compareTo(b.voucherType); // Ascending alphabetical
+        if (typeComp != 0) return typeComp;
+        
+        final numA = a.voucherNumber ?? '';
+        final numB = b.voucherNumber ?? '';
+        return numA.compareTo(numB); // Ascending sequential
+      });
+
       if (mounted) {
         setState(() {
           _entries = items;

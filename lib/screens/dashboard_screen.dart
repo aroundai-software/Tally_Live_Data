@@ -10,6 +10,7 @@ import '../widgets/error_state_widget.dart';
 import '../models/ledger.dart';
 import 'daybook_screen.dart';
 import 'reports_screen.dart';
+import 'money_flow_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Function(int, {
@@ -505,6 +506,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (companyState.isFeatureEnabled('sales') && companyState.isFeatureEnabled('db_qa_sales'))
         {'icon': Icons.receipt_long_rounded, 'label': 'Sales', 'color': AppTheme.salesColor, 'index': 4},
       if (companyState.isFeatureEnabled('analytics') && companyState.isFeatureEnabled('db_qa_reports'))
+        {'icon': Icons.account_balance_wallet_rounded, 'label': 'Cash Flow', 'color': Colors.green.shade600, 'index': 98},
+      if (companyState.isFeatureEnabled('analytics') && companyState.isFeatureEnabled('db_qa_reports'))
         {'icon': Icons.analytics_rounded, 'label': 'Reports', 'color': Colors.purple.shade500, 'index': 99},
     ];
 
@@ -514,7 +517,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: actions.map((action) {
         final label = action['label']?.toString().toLowerCase() ?? '';
-        final featureKey = label == 'reports' ? 'analytics' : label;
+        final featureKey = (label == 'reports' || label == 'cash flow') ? 'analytics' : label;
 
         return Expanded(
           child: GestureDetector(
@@ -522,6 +525,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _checkFeatureAndRun(featureKey, () {
                 if (action['index'] == 99) {
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ReportsScreen()));
+                } else if (action['index'] == 98) {
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MoneyFlowScreen()));
                 } else {
                   widget.onNavigate(action['index'] as int);
                 }

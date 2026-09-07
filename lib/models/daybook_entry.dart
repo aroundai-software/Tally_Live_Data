@@ -7,6 +7,7 @@ class DaybookEntry {
   final double amount;
   final bool isDebit;
   final String? narration;
+  final String? particulars;
   final String? companyName;
 
   DaybookEntry({
@@ -18,19 +19,21 @@ class DaybookEntry {
     required this.amount,
     this.isDebit = true,
     this.narration,
+    this.particulars,
     this.companyName,
   });
 
   factory DaybookEntry.fromJson(Map<String, dynamic> json) {
     return DaybookEntry(
       id: json['id']?.toString(),
-      date: json['date'] != null ? DateTime.tryParse(json['date']) : null,
+      date: json['date'] != null ? DateTime.tryParse(json['date'])?.toLocal() : null,
       voucherNumber: json['voucher_number'],
       voucherType: json['voucher_type'] ?? 'Unknown',
       ledgerName: json['ledger_name'] ?? 'Unknown',
       amount: _toDouble(json['amount']),
       isDebit: json['is_debit'] ?? true,
       narration: json['narration'],
+      particulars: json['particulars'],
       companyName: json['company_name'],
     );
   }

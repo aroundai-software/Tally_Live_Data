@@ -3,6 +3,7 @@ import '../utils/error_handler.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../config/app_theme.dart';
 import '../models/ledger.dart';
+import 'ledger_statement_screen.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
 import '../services/user_preferences_service.dart';
@@ -26,8 +27,6 @@ class _LedgerScreenState extends State<LedgerScreen> {
   bool _isLoading = true;
   String? _error;
   final TextEditingController _searchController = TextEditingController();
-
-
 
   String _typeFilter = 'All';
   String _sortOption = 'Recently Active';
@@ -160,17 +159,19 @@ class _LedgerScreenState extends State<LedgerScreen> {
       body: RefreshIndicator(
         onRefresh: _loadData,
         color: AppTheme.primaryColor,
-        child: Column(
-          children: [
-            _buildHeader(),
-            SearchBarWidget(
-              hintText: 'Search customers...',
-              controller: _searchController,
-              onChanged: (_) {}, // Handled by listener
+        child: CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(child: _buildHeader()),
+            SliverToBoxAdapter(
+              child: SearchBarWidget(
+                hintText: 'Search customers...',
+                controller: _searchController,
+                onChanged: (_) {}, // Handled by listener
+              ),
             ),
-            _buildTypeFilter(),
-            const SizedBox(height: 4),
-            Expanded(child: _buildBody()),
+            SliverToBoxAdapter(child: _buildTypeFilter()),
+            const SliverToBoxAdapter(child: SizedBox(height: 4)),
+            _buildBody(),
           ],
         ),
       ),
@@ -242,36 +243,38 @@ class _LedgerScreenState extends State<LedgerScreen> {
   }
 
   Widget _buildBody() {
-    if (_isLoading) return const ShimmerLoading();
-    if (_error != null) return ErrorState(message: _error!, onRetry: _loadData);
+    if (_isLoading) return const SliverFillRemaining(child: ShimmerLoading());
+    if (_error != null) return SliverFillRemaining(child: ErrorState(message: _error!, onRetry: _loadData));
     if (_filteredCustomers.isEmpty) {
-      return EmptyState(
-        icon: Icons.people_outlined,
-        title: 'No Customers Found',
-        subtitle: _searchController.text.isNotEmpty ? 'Try a different search term or check filters' : 'Customer data will appear here once synced from Tally',
-        onRetry: _loadData,
+      return SliverFillRemaining(
+        child: EmptyState(
+          icon: Icons.people_outlined,
+          title: 'No Customers Found',
+          subtitle: _searchController.text.isNotEmpty ? 'Try a different search term or check filters' : 'Customer data will appear here once synced from Tally',
+          onRetry: _loadData,
+        ),
       );
     }
-    return AnimationLimiter(
-      child: ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        itemCount: _filteredCustomers.length,
-        itemBuilder: (context, index) {
-          final customer = _filteredCustomers[index];
-          return AnimationConfiguration.staggeredList(
-            position: index,
-            duration: const Duration(milliseconds: 350),
-            child: SlideAnimation(
-              verticalOffset: 30,
-              child: FadeInAnimation(child: _CustomerCard(customer: customer)),
-            ),
-          );
-        },
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final customer = _filteredCustomers[index];
+            return AnimationConfiguration.staggeredList(
+              position: index,
+              duration: const Duration(milliseconds: 350),
+              child: SlideAnimation(
+                verticalOffset: 30,
+                child: FadeInAnimation(child: _CustomerCard(customer: customer)),
+              ),
+            );
+          },
+          childCount: _filteredCustomers.length,
+        ),
       ),
     );
   }
-
-
 }
 
 class _CustomerCard extends StatelessWidget {
@@ -287,75 +290,50 @@ class _CustomerCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.grey.shade200),
       ),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        shape: const Border(),
-        leading: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: AppTheme.primaryColor.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: const Icon(Icons.person_rounded, color: AppTheme.primaryColor, size: 18),
-        ),
-        title: Text(
-          customer.name,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)),
-        ),
-        subtitle: Text(
-          customer.categoryName ?? customer.city ?? '',
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-        ),
-        trailing: !customer.isActive
-            ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Container(
-                    margin: const EdgeInsets.only(top: 2),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                    decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4)),
-                    child: Text('Inactive', style: TextStyle(fontSize: 10, color: Colors.red.shade700, fontWeight: FontWeight.w600)),
-                  ),
-                ],
-              )
-            : null,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8F9FE),
-              borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => LedgerStatementScreen(ledger: customer),
             ),
-            child: Column(
-              children: [
-                if (customer.closingBalance != 0)
-                  _detailRow('Closing Bal', formatCurrency(customer.closingBalance.abs())),
-                if (customer.openingBalance != 0)
-                  _detailRow('Opening Bal', formatCurrency(customer.openingBalance.abs())),
-                if (customer.gstNumber != null && customer.gstNumber!.isNotEmpty)
-                  _detailRow('GSTIN', customer.gstNumber!),
-                if (customer.panNumber != null && customer.panNumber!.isNotEmpty)
-                  _detailRow('PAN', customer.panNumber!),
-                if (customer.phone != null && customer.phone!.isNotEmpty)
-                  _detailRow('Mobile', customer.phone!),
-                if (customer.email != null && customer.email!.isNotEmpty)
-                  _detailRow('Email', customer.email!),
-                if (customer.contactPerson != null && customer.contactPerson!.isNotEmpty)
-                  _detailRow('Contact', customer.contactPerson!),
-                if (customer.fullAddress.isNotEmpty)
-                  _detailRow('Address', customer.fullAddress),
-                if (customer.creditPeriod != null && customer.creditPeriod!.isNotEmpty)
-                  _detailRow('Credit Period', customer.creditPeriod!),
-                if (customer.creditLimit != null && customer.creditLimit! > 0)
-                  _detailRow('Credit Limit', formatCurrency(customer.creditLimit!)),
-                if (customer.discountPercentage > 0)
-                  _detailRow('Discount', '${customer.discountPercentage.toStringAsFixed(1)}%'),
-              ],
-            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.person_rounded, color: AppTheme.primaryColor, size: 18),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      customer.name,
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)),
+                    ),
+                  ],
+                ),
+              ),
+              if (!customer.isActive)
+                Container(
+                  margin: const EdgeInsets.only(left: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4)),
+                  child: Text('Inactive', style: TextStyle(fontSize: 10, color: Colors.red.shade700, fontWeight: FontWeight.w600)),
+                ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

@@ -49,7 +49,7 @@ class PurchaseInvoice {
     return PurchaseInvoice(
       id: json['id']?.toString(),
       invoiceNumber: json['invoice_number'] ?? '',
-      invoiceDate: json['invoice_date'] != null ? DateTime.tryParse(json['invoice_date']) : null,
+      invoiceDate: json['invoice_date'] != null ? DateTime.tryParse(json['invoice_date'])?.toLocal() : null,
       supplierName: json['supplier_name'] ?? 'Walk-in Vendor',
       supplierId: json['supplier_id']?.toString(),
       totalAmount: _toDouble(json['total_amount']),
@@ -67,7 +67,7 @@ class PurchaseInvoice {
       supplierCategoryName: json['supplier_category_name'],
       roundOff: _toDoubleNullable(json['round_off']),
       syncedToTally: json['synced_to_tally'] ?? false,
-      updatedAt: json['updated_at'] != null ? DateTime.tryParse(json['updated_at']) : null,
+      updatedAt: json['updated_at'] != null ? DateTime.tryParse(json['updated_at'])?.toLocal() : null,
     );
   }
 

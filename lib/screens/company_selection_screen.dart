@@ -69,7 +69,7 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _appVersion = 'v2.0.0';
+        _appVersion = 'v2.0.2';
       });
     }
   }
@@ -330,7 +330,7 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Text(
-                '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v2.0.0'}',
+                '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v2.0.2'}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,

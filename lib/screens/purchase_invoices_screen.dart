@@ -140,13 +140,30 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     filtered.sort((a, b) {
       switch (_currentSort) {
         case InvoiceSortOption.dateNewest:
-          if (a.invoiceDate == null) return 1;
-          if (b.invoiceDate == null) return -1;
-          return b.invoiceDate!.compareTo(a.invoiceDate!);
         case InvoiceSortOption.dateOldest:
           if (a.invoiceDate == null) return 1;
           if (b.invoiceDate == null) return -1;
-          return a.invoiceDate!.compareTo(b.invoiceDate!);
+
+          // Compare strictly by date (ignoring time)
+          final dateA = DateTime(a.invoiceDate!.year, a.invoiceDate!.month, a.invoiceDate!.day);
+          final dateB = DateTime(b.invoiceDate!.year, b.invoiceDate!.month, b.invoiceDate!.day);
+          
+          int dateComp = _currentSort == InvoiceSortOption.dateNewest 
+              ? dateB.compareTo(dateA) 
+              : dateA.compareTo(dateB);
+              
+          if (dateComp != 0) return dateComp;
+
+          // If same date, group by Voucher Type (ascending alphabetical)
+          final typeA = a.type ?? '';
+          final typeB = b.type ?? '';
+          int typeComp = typeA.compareTo(typeB);
+          
+          if (typeComp != 0) return typeComp;
+
+          // If same date and same type, sort sequentially by Invoice Number (ascending)
+          return a.invoiceNumber.compareTo(b.invoiceNumber);
+
         case InvoiceSortOption.amountHighest:
           return b.netAmount.compareTo(a.netAmount);
         case InvoiceSortOption.amountLowest:
@@ -220,7 +237,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     double total = 0;
-    for (var inv in _filteredInvoices) {
+    for (var inv in _invoices) {
       if (inv.invoiceDate != null) {
         final d = DateTime(inv.invoiceDate!.year, inv.invoiceDate!.month, inv.invoiceDate!.day);
         if (d.isAtSameMomentAs(today)) {
@@ -235,7 +252,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     int count = 0;
-    for (var inv in _filteredInvoices) {
+    for (var inv in _invoices) {
       if (inv.invoiceDate != null) {
         final d = DateTime(inv.invoiceDate!.year, inv.invoiceDate!.month, inv.invoiceDate!.day);
         if (d.isAtSameMomentAs(today)) {
@@ -691,6 +708,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   }
 
   Widget _buildDateFilterPills() {
+    String customLabel = 'Custom Range';
+    if (_dateRangeOption == DateRangeOption.custom && _selectedDateRange != null) {
+      customLabel = '${DateFormat('d MMM').format(_selectedDateRange!.start)} - ${DateFormat('d MMM').format(_selectedDateRange!.end)}';
+    }
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
@@ -700,7 +722,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           _buildPill('This Month', DateRangeOption.thisMonth),
           _buildPill('All Time', DateRangeOption.all),
           if (_dateRangeOption == DateRangeOption.custom)
-            _buildPill('Custom Range', DateRangeOption.custom),
+            _buildPill(customLabel, DateRangeOption.custom),
         ],
       ),
     );
@@ -792,25 +814,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                           if (invoice.type != null && invoice.type!.isNotEmpty)
                             _detailItem('Type', invoice.type!),
                         ]),
-                        const SizedBox(height: 16),
-                        _detailSection('Amount Details', [
-                          if (invoice.subtotalBeforeDiscount > 0)
-                            _detailItem('Subtotal', formatCurrency(invoice.subtotalBeforeDiscount)),
-                          if (invoice.discountAmount > 0)
-                            _detailItem('Discount (${invoice.discountPercentage.toStringAsFixed(1)}%)', formatCurrency(invoice.discountAmount)),
-                          _detailItem('Total Amount', formatCurrency(invoice.totalAmount)),
-                          _detailItem('GST Amount', formatCurrency(invoice.gstAmount)),
-                          _detailItem('Net Amount', formatCurrency(invoice.netAmount)),
-                          if (invoice.roundOff != null && invoice.roundOff! != 0)
-                            _detailItem('Round Off', formatCurrency(invoice.roundOff!)),
-                        ]),
-                        const SizedBox(height: 16),
-                        _detailSection('Status', [
-                          if (invoice.status != null) _detailItem('Status', invoice.status!),
-                          _detailItem('Tally Synced', invoice.syncedToTally ? 'Yes' : 'No'),
-                          if (invoice.remarks != null && invoice.remarks!.isNotEmpty)
-                            _detailItem('Remarks', invoice.remarks!),
-                        ]),
                         if (invoice.id != null) ...[
                           const SizedBox(height: 16),
                           FutureBuilder<List<PurchaseInvoiceItem>>(
@@ -824,6 +827,25 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                             },
                           ),
                         ],
+                        const SizedBox(height: 16),
+                        _detailSection('Amount Details', [
+                          if (invoice.subtotalBeforeDiscount > 0)
+                            _detailItem('Subtotal', formatCurrency(invoice.subtotalBeforeDiscount)),
+                          if (invoice.discountAmount > 0)
+                            _detailItem('Discount (${invoice.discountPercentage.toStringAsFixed(1)}%)', formatCurrency(invoice.discountAmount)),
+                          _detailItem('Net Amount', formatCurrency(invoice.netAmount)),
+                          _detailItem('GST Amount', formatCurrency(invoice.gstAmount)),
+                          if (invoice.roundOff != null && invoice.roundOff! != 0)
+                            _detailItem('Round Off', formatCurrency(invoice.roundOff!)),
+                          _detailItem('Total Amount', formatCurrency(invoice.totalAmount)),
+                        ]),
+                        const SizedBox(height: 16),
+                        _detailSection('Status', [
+                          if (invoice.status != null) _detailItem('Status', invoice.status!),
+                          _detailItem('Tally Synced', invoice.syncedToTally ? 'Yes' : 'No'),
+                          if (invoice.remarks != null && invoice.remarks!.isNotEmpty)
+                            _detailItem('Remarks', invoice.remarks!),
+                        ]),
                       ],
                     ),
                   ),
@@ -934,7 +956,7 @@ class _InvoiceCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(formatCurrency(invoice.netAmount), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.purchaseColor)),
+                    Text(formatCurrency(invoice.totalAmount), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.purchaseColor)),
                     if (invoice.invoiceDate != null)
                       Padding(padding: const EdgeInsets.only(top: 2), child: Text(dateFormat.format(invoice.invoiceDate!), style: TextStyle(fontSize: 11, color: Colors.grey.shade500))),
                   ],

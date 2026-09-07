@@ -24,7 +24,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _companyName = '';
   String _role = 'owner';
   String? _userId;
-  String _appVersion = 'v2.0.0';
+  String _appVersion = 'v2.0.2';
 
   @override
   void initState() {

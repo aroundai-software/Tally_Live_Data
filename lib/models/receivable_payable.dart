@@ -33,12 +33,12 @@ class OutstandingRecord {
     return OutstandingRecord(
       id: json['id']?.toString(),
       customerName: json['customer_name']?.toString() ?? '',
-      date: json['date'] != null ? DateTime.tryParse(json['date'].toString()) : null,
+      date: json['date'] != null ? DateTime.tryParse(json['date'].toString())?.toLocal() : null,
       invoiceNumber: json['invoicenumber']?.toString() ?? '',
       openingBalance: _toDouble(json['opening_balance']),
       closingBalance: _toDouble(json['closing_balance']),
       amount: _toDouble(json['amount']),
-      dueDate: json['duedate'] != null ? DateTime.tryParse(json['duedate'].toString()) : null,
+      dueDate: json['duedate'] != null ? DateTime.tryParse(json['duedate'].toString())?.toLocal() : null,
       overdueDays: json['overdue_days'] != null
           ? (json['overdue_days'] is num
               ? (json['overdue_days'] as num).toInt()
@@ -47,7 +47,7 @@ class OutstandingRecord {
       billType: json['bill_type']?.toString(),
       companyName: json['company_name']?.toString(),
       guid: json['guid']?.toString() ?? json['Guid']?.toString(),
-      updatedAt: json['updated_at'] != null ? DateTime.tryParse(json['updated_at'].toString()) : null,
+      updatedAt: json['updated_at'] != null ? DateTime.tryParse(json['updated_at'].toString())?.toLocal() : null,
     );
   }
 

@@ -251,7 +251,6 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 12),
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
                                         borderRadius: BorderRadius.circular(16),
                                         boxShadow: [
                                           BoxShadow(
@@ -261,19 +260,23 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
                                           ),
                                         ],
                                       ),
-                                      child: ListTile(
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                        leading: Container(
-                                          padding: const EdgeInsets.all(10),
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              colors: [AppTheme.primaryColor.withOpacity(0.15), AppTheme.primaryColor.withOpacity(0.05)],
+                                      child: Material(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(16),
+                                        clipBehavior: Clip.antiAlias,
+                                        child: ListTile(
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                          leading: Container(
+                                            padding: const EdgeInsets.all(10),
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                colors: [AppTheme.primaryColor.withOpacity(0.15), AppTheme.primaryColor.withOpacity(0.05)],
+                                              ),
+                                              borderRadius: BorderRadius.circular(12),
                                             ),
-                                            borderRadius: BorderRadius.circular(12),
+                                            child: const Icon(Icons.business_rounded, color: AppTheme.primaryColor),
                                           ),
-                                          child: const Icon(Icons.business_rounded, color: AppTheme.primaryColor),
-                                        ),
-                                        title: Text(companyName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+                                          title: Text(companyName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                                         trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: AppTheme.textSecondary),
                                         onTap: () async {
                                           final updatedFeatures = await Navigator.of(context).push<Map<String, bool>>(
@@ -290,11 +293,12 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
                                             });
                                           }
                                         },
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
+                                      ), // closes ListTile
+                                    ), // closes Material
+                                  ), // closes Container
+                                ), // closes FadeInAnimation
+                              ), // closes SlideAnimation
+                            ); // closes AnimationConfiguration.staggeredList
                             },
                           ),
                         ),
@@ -317,7 +321,7 @@ class AdminProfileTab extends StatefulWidget {
 class _AdminProfileTabState extends State<AdminProfileTab> {
   final SupabaseService _service = SupabaseService();
   String _adminPhone = '';
-  String _appVersion = 'v2.0.0';
+  String _appVersion = 'v2.0.2';
   bool _isLoading = true;
 
   @override

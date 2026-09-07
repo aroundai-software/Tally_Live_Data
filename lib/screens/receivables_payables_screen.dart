@@ -43,6 +43,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   late String _activeFilter;
   bool _sortByAmount = true;
   bool _sortByDate = false;
+  DateTime? _selectedDateFilter;
 
 
 
@@ -101,6 +102,33 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     return false;
   }
 
+  Future<void> _pickDateFilter() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDateFilter ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF2453FF),
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedDateFilter = picked;
+      });
+      _onSearchChanged();
+    }
+  }
+
   void _onSearchChanged() {
     final query = _searchController.text.toLowerCase();
     final dateFormat = DateFormat('dd MMM yyyy');
@@ -125,6 +153,12 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
 
     bool passesFilter(OutstandingRecord o) {
       if (!matchesQuery(o)) return false;
+      if (_selectedDateFilter != null) {
+        if (o.date == null) return false;
+        final d1 = DateTime(o.date!.year, o.date!.month, o.date!.day);
+        final d2 = DateTime(_selectedDateFilter!.year, _selectedDateFilter!.month, _selectedDateFilter!.day);
+        if (!d1.isAtSameMomentAs(d2)) return false;
+      }
       if (_activeFilter == 'today') return _isRecordToday(o);
       if (_activeFilter == 'overdue') return _isRecordOverdue(o);
       return true;
@@ -138,7 +172,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
         if (a.dueDate != null || b.dueDate != null) {
           if (a.dueDate == null) return 1;
           if (b.dueDate == null) return -1;
-          final dateCompare = a.dueDate!.compareTo(b.dueDate!);
+          final dateCompare = b.dueDate!.compareTo(a.dueDate!);
           if (dateCompare != 0) return dateCompare;
         }
         final aVal = a.closingBalance != 0 ? a.closingBalance.abs() : a.amount.abs();
@@ -154,7 +188,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
         if (a.dueDate == null && b.dueDate == null) return 0;
         if (a.dueDate == null) return 1;
         if (b.dueDate == null) return -1;
-        return a.dueDate!.compareTo(b.dueDate!);
+        return b.dueDate!.compareTo(a.dueDate!);
       }
       return a.customerName.toLowerCase().compareTo(b.customerName.toLowerCase());
     }
@@ -332,6 +366,18 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         actions: [
+          IconButton(
+            onPressed: _pickDateFilter,
+            icon: Icon(Icons.calendar_today_rounded, color: _selectedDateFilter != null ? const Color(0xFF2453FF) : Colors.black87),
+          ),
+          if (_selectedDateFilter != null)
+            IconButton(
+              onPressed: () {
+                setState(() => _selectedDateFilter = null);
+                _onSearchChanged();
+              },
+              icon: const Icon(Icons.clear_rounded, color: Colors.red),
+            ),
           IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),

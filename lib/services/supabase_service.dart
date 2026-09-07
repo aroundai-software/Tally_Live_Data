@@ -6,6 +6,7 @@ import '../models/receivable_payable.dart';
 import '../models/sales_invoice.dart';
 import '../models/purchase_invoice.dart';
 import '../models/daybook_entry.dart';
+import '../models/ledger_bill_settlement.dart';
 
 class SupabaseService {
   final SupabaseClient _client = Supabase.instance.client;
@@ -959,13 +960,13 @@ class SupabaseService {
   // ─── Sales Invoices ────────────────────────────────────────────
   Future<List<SalesInvoice>> getSalesInvoices({String? searchQuery, String? companyName}) async {
     try {
-      final data = await _fetchAll(
-        'sales_invoices',
-        companyName: companyName,
-        searchQuery: searchQuery,
-        orderColumn: 'invoice_date',
-        ascending: false,
-      );
+      if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
+      var query = _client.from('sales_invoices').select().ilike('company_name', companyName);
+      if (searchQuery != null && searchQuery.isNotEmpty) {
+        query = query.or('customer_name.ilike.%$searchQuery%,invoice_number.ilike.%$searchQuery%');
+      }
+      final response = await query.order('invoice_date', ascending: false).limit(5000);
+      final data = response as List;
       return data.map((e) => SalesInvoice.fromJson(e)).toList();
     } catch (e) {
       throw Exception('Failed to fetch sales invoices: $e');
@@ -1110,13 +1111,13 @@ class SupabaseService {
   // ─── Purchase Invoices ─────────────────────────────────────────
   Future<List<PurchaseInvoice>> getPurchaseInvoices({String? searchQuery, String? companyName}) async {
     try {
-      final data = await _fetchAll(
-        'purchase_invoices',
-        companyName: companyName,
-        searchQuery: searchQuery,
-        orderColumn: 'invoice_date',
-        ascending: false,
-      );
+      if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
+      var query = _client.from('purchase_invoices').select().ilike('company_name', companyName);
+      if (searchQuery != null && searchQuery.isNotEmpty) {
+        query = query.or('supplier_name.ilike.%$searchQuery%,invoice_number.ilike.%$searchQuery%');
+      }
+      final response = await query.order('invoice_date', ascending: false).limit(5000);
+      final data = response as List;
       return data.map((e) => PurchaseInvoice.fromJson(e)).toList();
     } catch (e) {
       throw Exception('Failed to fetch purchase invoices: $e');
@@ -1174,6 +1175,36 @@ class SupabaseService {
       }
 
       final response = await query.order('date', ascending: false).limit(1000);
+      return (response as List).map((e) => DaybookEntry.fromJson(e)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<List<DaybookEntry>> getLedgerVouchers({
+    required String companyName,
+    required String ledgerName,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      dynamic query = _client
+          .from('tally_daybook')
+          .select()
+          .ilike('company_name', companyName)
+          .ilike('ledger_name', ledgerName);
+
+      if (startDate != null) {
+        final start = DateTime(startDate.year, startDate.month, startDate.day).toUtc().toIso8601String();
+        query = query.gte('date', start);
+      }
+      if (endDate != null) {
+        final end = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59, 999).toUtc().toIso8601String();
+        query = query.lte('date', end);
+      }
+
+      // Order ascending to calculate running balances
+      final response = await query.order('date', ascending: true).limit(1000);
       return (response as List).map((e) => DaybookEntry.fromJson(e)).toList();
     } catch (e) {
       return [];
@@ -1362,6 +1393,58 @@ class SupabaseService {
     } catch (e) {
       return 0;
     }
+  }
+
+  // ── Money Flow / Settlements ────────────────────────────────────────────────
+  
+  Future<List<LedgerBillSettlement>> getBillSettlements(String companyName) async {
+    // Fetch all pages of settlement data
+    List<dynamic> allData = [];
+    int offset = 0;
+    const int pageSize = 1000;
+    bool hasMore = true;
+
+    while (hasMore) {
+      final response = await _client
+          .from('ledger_bill_settlements')
+          .select()
+          .ilike('company_name', companyName)
+          .order('cleared_date', ascending: false)
+          .range(offset, offset + pageSize - 1);
+      final page = response as List;
+      allData.addAll(page);
+      hasMore = page.length == pageSize;
+      offset += pageSize;
+    }
+    return allData.map((json) => LedgerBillSettlement.fromJson(json)).toList();
+  }
+
+  Future<List<Ledger>> getLedgersByName({required String companyName, required String ledgerName}) async {
+    try {
+      final response = await _client
+          .from('customers')
+          .select()
+          .ilike('company_name', companyName)
+          .ilike('customer_name', ledgerName)
+          .limit(5);
+      return (response as List).map((e) => Ledger.fromJson(e)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<List<LedgerBillSettlement>> getBillSettlementsForLedger(String companyName, String ledgerName) async {
+    final data = await _fetchAll(
+      'ledger_bill_settlements',
+      companyName: companyName,
+      orderColumn: 'cleared_date',
+      ascending: false,
+    );
+    
+    return data
+        .map((json) => LedgerBillSettlement.fromJson(json))
+        .where((s) => s.ledgerName.toLowerCase() == ledgerName.toLowerCase())
+        .toList();
   }
 
   static double _toDouble(dynamic val) {
