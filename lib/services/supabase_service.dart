@@ -474,6 +474,25 @@ class SupabaseService {
     });
   }
 
+  Stream<Map<String, dynamic>> streamSyncLogUpdates(String companyName) {
+    return _client
+        .from('sync_logs')
+        .stream(primaryKey: ['id'])
+        .eq('company_name', companyName)
+        .map((events) {
+      // Filter only completed syncs in Dart (stream builder only supports eq on primary key)
+      final completed = events.where((e) => e['status'] == 'completed').toList();
+      if (completed.isEmpty) return {};
+      // Sort to get the most recent completed sync
+      completed.sort((a, b) {
+        final aTime = DateTime.tryParse(a['finished_at'] ?? a['updated_at'] ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bTime = DateTime.tryParse(b['finished_at'] ?? b['updated_at'] ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bTime.compareTo(aTime);
+      });
+      return completed.first;
+    });
+  }
+
   Future<void> updateCompanyFeatures(String companyName, Map<String, bool> features) async {
     try {
       // First ensure the record exists (in case it is missing)
@@ -498,6 +517,19 @@ class SupabaseService {
           'rep_sales': features['rep_sales'] ?? true,
           'rep_purchases': features['rep_purchases'] ?? true,
           'rep_ledgers': features['rep_ledgers'] ?? true,
+          'cash_flow': features['cash_flow'] ?? true,
+          'cf_summary': features['cf_summary'] ?? true,
+          'cf_overview': features['cf_overview'] ?? true,
+          'cf_pie_chart': features['cf_pie_chart'] ?? true,
+          'cf_trend': features['cf_trend'] ?? true,
+          'cf_fastest': features['cf_fastest'] ?? true,
+          'cf_slowest': features['cf_slowest'] ?? true,
+          'ls_transactions': features['ls_transactions'] ?? true,
+          'ls_performance': features['ls_performance'] ?? true,
+          'ls_perf_speed': features['ls_perf_speed'] ?? true,
+          'ls_perf_delay': features['ls_perf_delay'] ?? true,
+          'ls_perf_trend': features['ls_perf_trend'] ?? true,
+          'ls_perf_history': features['ls_perf_history'] ?? true,
           'stock_cost': features['stock_cost'] ?? true,
           'cards': {
             'cash_bank':           features['db_card_cash_bank']           ?? true,
@@ -609,6 +641,19 @@ class SupabaseService {
       'rep_sales': dashCfg['rep_sales'] as bool? ?? true,
       'rep_purchases': dashCfg['rep_purchases'] as bool? ?? true,
       'rep_ledgers': dashCfg['rep_ledgers'] as bool? ?? true,
+      'cash_flow': dashCfg['cash_flow'] as bool? ?? true,
+      'cf_summary': dashCfg['cf_summary'] as bool? ?? true,
+      'cf_overview': dashCfg['cf_overview'] as bool? ?? true,
+      'cf_pie_chart': dashCfg['cf_pie_chart'] as bool? ?? true,
+      'cf_trend': dashCfg['cf_trend'] as bool? ?? true,
+      'cf_fastest': dashCfg['cf_fastest'] as bool? ?? true,
+      'cf_slowest': dashCfg['cf_slowest'] as bool? ?? true,
+      'ls_transactions': dashCfg['ls_transactions'] as bool? ?? true,
+      'ls_performance': dashCfg['ls_performance'] as bool? ?? true,
+      'ls_perf_speed': dashCfg['ls_perf_speed'] as bool? ?? true,
+      'ls_perf_delay': dashCfg['ls_perf_delay'] as bool? ?? true,
+      'ls_perf_trend': dashCfg['ls_perf_trend'] as bool? ?? true,
+      'ls_perf_history': dashCfg['ls_perf_history'] as bool? ?? true,
       // Stock sub-features (read from JSONB instead of separate columns)
       'stock_cost': dashCfg['stock_cost'] as bool? ?? true,
       // Dashboard JSONB — individual cards (default true when key absent)
@@ -653,6 +698,19 @@ class SupabaseService {
       'rep_sales': true,
       'rep_purchases': true,
       'rep_ledgers': true,
+      'cash_flow': true,
+      'cf_summary': true,
+      'cf_overview': true,
+      'cf_pie_chart': true,
+      'cf_trend': true,
+      'cf_fastest': true,
+      'cf_slowest': true,
+      'ls_transactions': true,
+      'ls_performance': true,
+      'ls_perf_speed': true,
+      'ls_perf_delay': true,
+      'ls_perf_trend': true,
+      'ls_perf_history': true,
       // Stock sub-features
       'stock_cost': true,
       // Dashboard JSONB — individual cards

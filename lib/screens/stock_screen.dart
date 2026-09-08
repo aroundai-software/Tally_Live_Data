@@ -24,11 +24,14 @@ class StockScreen extends StatefulWidget {
 class _StockScreenState extends State<StockScreen> {
   final SupabaseService _service = SupabaseService();
   Map<String, double> _productSales = {};
+  List<StockItem>? _pendingProducts;
+  Map<String, double>? _pendingSalesMap;
   List<StockItem> _products = [];
   List<StockItem> _filteredProducts = [];
   bool _isLoading = true;
   String? _error;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   String _sortBy = 'qty_desc'; // 'qty_desc', 'qty_asc'
   String _stockFilter = 'All'; // 'All', 'Low Stock', 'Zero Stock'
@@ -41,6 +44,7 @@ class _StockScreenState extends State<StockScreen> {
     super.initState();
     _showSalesValue = widget.showSalesValue;
     _searchController.addListener(_onSearchChanged);
+    _scrollController.addListener(_onScroll);
   }
 
   @override
@@ -58,7 +62,28 @@ class _StockScreenState extends State<StockScreen> {
   void dispose() {
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _pendingProducts = null;
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (_pendingProducts == null) return;
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels <= 0 || pos.pixels >= pos.maxScrollExtent) {
+      _applyPendingData();
+    }
+  }
+
+  void _applyPendingData() {
+    if (_pendingProducts == null) return;
+    _products = _pendingProducts!;
+    _productSales = _pendingSalesMap ?? {};
+    _pendingProducts = null;
+    _pendingSalesMap = null;
+    _onSearchChanged();
   }
 
   void _onSearchChanged() {
@@ -96,12 +121,19 @@ class _StockScreenState extends State<StockScreen> {
     });
   }
 
+  int? _lastSyncTrigger;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final syncTrigger = CompanyProvider.of(context).syncTrigger;
     if (!_initialized) {
       _initialized = true;
+      _lastSyncTrigger = syncTrigger;
       _loadPreferencesAndData();
+    } else if (_lastSyncTrigger != syncTrigger) {
+      _lastSyncTrigger = syncTrigger;
+      _silentRefresh();
     }
   }
 
@@ -118,27 +150,23 @@ class _StockScreenState extends State<StockScreen> {
   }
 
   Future<void> _loadData() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    setState(() { _isLoading = true; _error = null; });
     try {
       final company = CompanyProvider.of(context).selectedCompany;
       final items = await _service.getProducts(companyName: company);
-      
       Map<String, double> salesMap = {};
       if (company != null) {
         salesMap = await _service.getProductSalesTotals(companyName: company);
       }
-      
       if (mounted) {
         setState(() {
           _products = items;
           _filteredProducts = items;
           _productSales = salesMap;
+          _pendingProducts = null;
           _isLoading = false;
         });
-        _onSearchChanged(); // Re-apply current search if any
+        _onSearchChanged();
       }
     } catch (e) {
       if (mounted) {
@@ -147,6 +175,31 @@ class _StockScreenState extends State<StockScreen> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _silentRefresh() async {
+    if (!mounted) return;
+    try {
+      final company = CompanyProvider.of(context).selectedCompany;
+      final items = await _service.getProducts(companyName: company);
+      Map<String, double> salesMap = {};
+      if (company != null) {
+        salesMap = await _service.getProductSalesTotals(companyName: company);
+      }
+      if (!mounted) return;
+      _pendingProducts = items;
+      _pendingSalesMap = salesMap;
+      if (!_scrollController.hasClients) {
+        _applyPendingData();
+      } else {
+        final pos = _scrollController.position;
+        if (pos.pixels <= 0 || pos.pixels >= pos.maxScrollExtent) {
+          _applyPendingData();
+        }
+      }
+    } catch (_) {
+      // Fail silently
     }
   }
 
@@ -387,6 +440,7 @@ class _StockScreenState extends State<StockScreen> {
 
     return AnimationLimiter(
       child: ListView.builder(
+        controller: _scrollController,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         itemCount: _filteredProducts.length + 1,
         itemBuilder: (context, index) {

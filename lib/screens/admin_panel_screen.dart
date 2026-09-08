@@ -936,6 +936,12 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           _features['db_np_cash'] = false;
           _features['db_np_bank'] = false;
           _features['db_qa_ledgers'] = false;
+          _features['ls_transactions'] = false;
+          _features['ls_performance'] = false;
+          _features['ls_perf_speed'] = false;
+          _features['ls_perf_delay'] = false;
+          _features['ls_perf_trend'] = false;
+          _features['ls_perf_history'] = false;
         } else if (featureKey == 'stock') {
           _features['db_card_stock_value'] = false;
           _features['db_np_stock'] = false;
@@ -964,6 +970,12 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           _features['db_np_cash'] = true;
           _features['db_np_bank'] = true;
           _features['db_qa_ledgers'] = true;
+          _features['ls_transactions'] = true;
+          _features['ls_performance'] = true;
+          _features['ls_perf_speed'] = true;
+          _features['ls_perf_delay'] = true;
+          _features['ls_perf_trend'] = true;
+          _features['ls_perf_history'] = true;
         } else if (featureKey == 'stock') {
           _features['db_card_stock_value'] = true;
           _features['db_np_stock'] = true;
@@ -1089,10 +1101,30 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
                         initialFeatures: _features,
                       ),
                     ),
+                    const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                    _buildNavCategoryItem(
+                      'Cash Flow Insights',
+                      'cash_flow',
+                      'Overview & Charts',
+                      Icons.waterfall_chart_outlined,
+                      CashFlowFeaturesScreen(
+                        companyName: widget.companyName,
+                        initialFeatures: _features,
+                      ),
+                    ),
                     
                     // Simple Toggles for other screens
                     const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
-                    _buildToggleItem('Ledgers & Transactions', 'ledgers', Icons.receipt_long_outlined),
+                    _buildNavCategoryItem(
+                      'Ledgers & Transactions',
+                      'ledgers',
+                      'Tabs & Performance Sections',
+                      Icons.receipt_long_outlined,
+                      LedgerFeaturesScreen(
+                        companyName: widget.companyName,
+                        initialFeatures: _features,
+                      ),
+                    ),
                     const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
                     _buildToggleItem('Sales Invoices', 'sales', Icons.description_outlined),
                     const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
@@ -2141,6 +2173,13 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
           _features['rep_ledgers'] = true;
         }
       }
+      
+      if (featureKey != 'analytics') {
+        final anySubEnabled = (_features['rep_sales'] ?? false) ||
+            (_features['rep_purchases'] ?? false) ||
+            (_features['rep_ledgers'] ?? false);
+        _features['analytics'] = anySubEnabled;
+      }
     });
 
     try {
@@ -2258,6 +2297,419 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
                 color: Color(0xFF3A4A63),
               ),
             ),
+          ),
+          Switch.adaptive(
+            value: isEnabled,
+            activeColor: const Color(0xFF2453FF),
+            onChanged: (_) => _toggleFeature(featureKey, isEnabled),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavSubItem(String title, String featureKey, String subtitleText, IconData icon, Widget targetScreen) {
+    final isEnabled = _features[featureKey] ?? true;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, size: 20, color: const Color(0xFF6B7A94)),
+      title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF3A4A63))),
+      subtitle: Text(
+        isEnabled ? 'Enabled • $subtitleText' : 'Disabled',
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: isEnabled ? const Color(0xFF2453FF) : const Color(0xFF6B7A94)),
+      ),
+      trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF6B7A94)),
+      onTap: () async {
+        final updatedFeatures = await Navigator.of(context).push<Map<String, bool>>(
+          MaterialPageRoute(builder: (_) => targetScreen),
+        );
+        if (updatedFeatures != null) {
+          setState(() { _features = updatedFeatures; });
+        }
+      },
+    );
+  }
+}
+
+// ─── Sub-features: Cash Flow Insights ─────────────────────────
+class CashFlowFeaturesScreen extends StatefulWidget {
+  final String companyName;
+  final Map<String, bool> initialFeatures;
+
+  const CashFlowFeaturesScreen({
+    super.key,
+    required this.companyName,
+    required this.initialFeatures,
+  });
+
+  @override
+  State<CashFlowFeaturesScreen> createState() => _CashFlowFeaturesScreenState();
+}
+
+class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
+  final SupabaseService _service = SupabaseService();
+  late Map<String, bool> _features;
+
+  @override
+  void initState() {
+    super.initState();
+    _features = Map<String, bool>.from(widget.initialFeatures);
+  }
+
+  Future<void> _toggleFeature(String featureKey, bool currentValue) async {
+    final updatedValue = !currentValue;
+    setState(() {
+      _features[featureKey] = updatedValue;
+      // If main cash_flow is toggled off, disable all sub-features
+      if (featureKey == 'cash_flow' && !updatedValue) {
+        _features['cf_summary'] = false;
+        _features['cf_overview'] = false;
+        _features['cf_pie_chart'] = false;
+        _features['cf_trend'] = false;
+        _features['cf_fastest'] = false;
+        _features['cf_slowest'] = false;
+      }
+      // If main cash_flow is toggled on, enable all sub-features
+      if (featureKey == 'cash_flow' && updatedValue) {
+        _features['cf_summary'] = true;
+        _features['cf_overview'] = true;
+        _features['cf_pie_chart'] = true;
+        _features['cf_trend'] = true;
+        _features['cf_fastest'] = true;
+        _features['cf_slowest'] = true;
+      }
+      
+      // Auto-toggle main feature based on sub-features
+      if (featureKey != 'cash_flow') {
+        final anySubEnabled = (_features['cf_summary'] ?? false) ||
+            (_features['cf_overview'] ?? false) ||
+            (_features['cf_pie_chart'] ?? false) ||
+            (_features['cf_trend'] ?? false) ||
+            (_features['cf_fastest'] ?? false) ||
+            (_features['cf_slowest'] ?? false);
+        _features['cash_flow'] = anySubEnabled;
+      }
+    });
+
+    try {
+      await _service.updateCompanyFeatures(widget.companyName, Map<String, bool>.from(_features));
+    } catch (e) {
+      if (mounted) {
+        setState(() { _features[featureKey] = currentValue; });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update setting: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isCashFlowEnabled = _features['cash_flow'] ?? true;
+
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        Navigator.of(context).pop(_features);
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F7FB),
+        appBar: AppBar(
+          title: const Text('Cash Flow Settings',
+              style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0F1A2B), fontSize: 16)),
+          elevation: 0,
+          backgroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
+            onPressed: () => Navigator.of(context).pop(_features),
+          ),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          children: [
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 0,
+              color: Colors.white,
+              child: ListTile(
+                title: const Text('Cash Flow Insights Screen',
+                    style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0F1A2B))),
+                subtitle: const Text('Enable or disable the entire Cash Flow screen'),
+                trailing: Switch.adaptive(
+                  value: isCashFlowEnabled,
+                  activeColor: const Color(0xFF2453FF),
+                  onChanged: (_) => _toggleFeature('cash_flow', isCashFlowEnabled),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'SECTION VISIBILITY',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF6B7A94), letterSpacing: 1.0),
+            ),
+            const SizedBox(height: 12),
+            IgnorePointer(
+              ignoring: !isCashFlowEnabled,
+              child: Opacity(
+                opacity: isCashFlowEnabled ? 1.0 : 0.5,
+                child: Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                  color: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
+                    child: Column(
+                      children: [
+                        _buildSubToggleItem('Summary Cards (Total Bills & Amount)', 'cf_summary', Icons.grid_view_rounded),
+                        const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                        _buildSubToggleItem('Global Overview Banner', 'cf_overview', Icons.bar_chart_rounded),
+                        const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                        _buildSubToggleItem('Speed Distribution Chart', 'cf_pie_chart', Icons.pie_chart_rounded),
+                        const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                        _buildSubToggleItem('Monthly Trend Chart', 'cf_trend', Icons.show_chart_rounded),
+                        const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                        _buildSubToggleItem('Fastest Paying Customers', 'cf_fastest', Icons.emoji_events_rounded),
+                        const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                        _buildSubToggleItem('Slowest Paying Customers', 'cf_slowest', Icons.warning_amber_rounded),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubToggleItem(String label, String featureKey, IconData icon) {
+    final isEnabled = _features[featureKey] ?? true;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: const Color(0xFF6B7A94)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF3A4A63))),
+          ),
+          Switch.adaptive(
+            value: isEnabled,
+            activeColor: const Color(0xFF2453FF),
+            onChanged: (_) => _toggleFeature(featureKey, isEnabled),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Sub-features: Ledger Statement Screen ─────────────────────
+class LedgerFeaturesScreen extends StatefulWidget {
+  final String companyName;
+  final Map<String, bool> initialFeatures;
+
+  const LedgerFeaturesScreen({
+    super.key,
+    required this.companyName,
+    required this.initialFeatures,
+  });
+
+  @override
+  State<LedgerFeaturesScreen> createState() => _LedgerFeaturesScreenState();
+}
+
+class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
+  final SupabaseService _service = SupabaseService();
+  late Map<String, bool> _features;
+
+  @override
+  void initState() {
+    super.initState();
+    _features = Map<String, bool>.from(widget.initialFeatures);
+  }
+
+  Future<void> _toggleFeature(String featureKey, bool currentValue) async {
+    final updatedValue = !currentValue;
+    setState(() {
+      _features[featureKey] = updatedValue;
+      // Master ledgers toggle cascades
+      if (featureKey == 'ledgers' && !updatedValue) {
+        _features['ls_transactions'] = false;
+        _features['ls_performance'] = false;
+        _features['ls_perf_speed'] = false;
+        _features['ls_perf_delay'] = false;
+        _features['ls_perf_trend'] = false;
+        _features['ls_perf_history'] = false;
+      }
+      if (featureKey == 'ledgers' && updatedValue) {
+        _features['ls_transactions'] = true;
+        _features['ls_performance'] = true;
+        _features['ls_perf_speed'] = true;
+        _features['ls_perf_delay'] = true;
+        _features['ls_perf_trend'] = true;
+        _features['ls_perf_history'] = true;
+      }
+      // Performance tab toggle cascades its sub-sections
+      if (featureKey == 'ls_performance' && !updatedValue) {
+        _features['ls_perf_speed'] = false;
+        _features['ls_perf_delay'] = false;
+        _features['ls_perf_trend'] = false;
+        _features['ls_perf_history'] = false;
+      }
+      if (featureKey == 'ls_performance' && updatedValue) {
+        _features['ls_perf_speed'] = true;
+        _features['ls_perf_delay'] = true;
+        _features['ls_perf_trend'] = true;
+        _features['ls_perf_history'] = true;
+      }
+
+      // Auto-toggle main features based on sub-features
+      if (featureKey != 'ledgers') {
+        // Auto-toggle performance tab based on its sections
+        if (featureKey.startsWith('ls_perf_')) {
+          final anyPerfSubEnabled = (_features['ls_perf_speed'] ?? false) ||
+              (_features['ls_perf_delay'] ?? false) ||
+              (_features['ls_perf_trend'] ?? false) ||
+              (_features['ls_perf_history'] ?? false);
+          _features['ls_performance'] = anyPerfSubEnabled;
+        }
+
+        // Auto-toggle master ledgers based on tabs
+        final anyLedgerSubEnabled = (_features['ls_transactions'] ?? false) ||
+            (_features['ls_performance'] ?? false);
+        _features['ledgers'] = anyLedgerSubEnabled;
+      }
+    });
+
+    try {
+      await _service.updateCompanyFeatures(widget.companyName, Map<String, bool>.from(_features));
+    } catch (e) {
+      if (mounted) {
+        setState(() { _features[featureKey] = currentValue; });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update setting: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isLedgersEnabled = _features['ledgers'] ?? true;
+    final isPerfEnabled = (_features['ls_performance'] ?? true) && isLedgersEnabled;
+
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        Navigator.of(context).pop(_features);
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F7FB),
+        appBar: AppBar(
+          title: const Text('Ledger Settings',
+              style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0F1A2B), fontSize: 16)),
+          elevation: 0,
+          backgroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
+            onPressed: () => Navigator.of(context).pop(_features),
+          ),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          children: [
+            // Master switch
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 0,
+              color: Colors.white,
+              child: ListTile(
+                title: const Text('Ledgers & Transactions Screen',
+                    style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0F1A2B))),
+                subtitle: const Text('Enable or disable the entire Ledgers section'),
+                trailing: Switch.adaptive(
+                  value: isLedgersEnabled,
+                  activeColor: const Color(0xFF2453FF),
+                  onChanged: (_) => _toggleFeature('ledgers', isLedgersEnabled),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Tabs section
+            const Text('TAB VISIBILITY', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF6B7A94), letterSpacing: 1.0)),
+            const SizedBox(height: 12),
+            IgnorePointer(
+              ignoring: !isLedgersEnabled,
+              child: Opacity(
+                opacity: isLedgersEnabled ? 1.0 : 0.5,
+                child: Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                  color: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
+                    child: Column(
+                      children: [
+                        _buildSubToggleItem('Transactions Tab', 'ls_transactions', Icons.receipt_long_rounded),
+                        const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                        _buildSubToggleItem('Performance Tab', 'ls_performance', Icons.insights_rounded),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Performance sub-sections
+            const Text('PERFORMANCE TAB SECTIONS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF6B7A94), letterSpacing: 1.0)),
+            const SizedBox(height: 12),
+            IgnorePointer(
+              ignoring: !isPerfEnabled,
+              child: Opacity(
+                opacity: isPerfEnabled ? 1.0 : 0.5,
+                child: Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                  color: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
+                    child: Column(
+                      children: [
+                        _buildSubToggleItem('Avg Collection Speed Card', 'ls_perf_speed', Icons.speed_rounded),
+                        const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                        _buildSubToggleItem('Avg Payment Delay Card', 'ls_perf_delay', Icons.timer_rounded),
+                        const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                        _buildSubToggleItem('Payment Delay Trend Chart', 'ls_perf_trend', Icons.show_chart_rounded),
+                        const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                        _buildSubToggleItem('Settlement History List', 'ls_perf_history', Icons.history_rounded),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubToggleItem(String label, String featureKey, IconData icon) {
+    final isEnabled = _features[featureKey] ?? true;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: const Color(0xFF6B7A94)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF3A4A63))),
           ),
           Switch.adaptive(
             value: isEnabled,

@@ -56,6 +56,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTime? _lastSyncedTime;
 
   bool _initialized = false;
+  int? _lastSyncTrigger;
   bool _isNetPositionExpanded = false;
   bool _isCashBankDetailsOpen = false;
 
@@ -67,19 +68,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final syncTrigger = CompanyProvider.of(context).syncTrigger;
     if (!_initialized) {
       _initialized = true;
+      _lastSyncTrigger = syncTrigger;
       _loadDashboardData();
+    } else if (_lastSyncTrigger != syncTrigger) {
+      _lastSyncTrigger = syncTrigger;
+      _loadDashboardData(silent: true);
     }
   }
 
   String? get _company => CompanyProvider.of(context).selectedCompany;
 
-  Future<void> _loadDashboardData() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+  Future<void> _loadDashboardData({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
     try {
       final c = _company;
       final results = await Future.wait<dynamic>([
@@ -134,7 +142,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         });
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && !silent) {
         setState(() {
           _error = e;
           _isLoading = false;
@@ -505,7 +513,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         {'icon': Icons.people_alt_rounded, 'label': 'Ledgers', 'color': AppTheme.primaryColor, 'index': 2},
       if (companyState.isFeatureEnabled('sales') && companyState.isFeatureEnabled('db_qa_sales'))
         {'icon': Icons.receipt_long_rounded, 'label': 'Sales', 'color': AppTheme.salesColor, 'index': 4},
-      if (companyState.isFeatureEnabled('analytics') && companyState.isFeatureEnabled('db_qa_reports'))
+      if (companyState.isFeatureEnabled('cash_flow'))
         {'icon': Icons.account_balance_wallet_rounded, 'label': 'Cash Flow', 'color': Colors.green.shade600, 'index': 98},
       if (companyState.isFeatureEnabled('analytics') && companyState.isFeatureEnabled('db_qa_reports'))
         {'icon': Icons.analytics_rounded, 'label': 'Reports', 'color': Colors.purple.shade500, 'index': 99},
@@ -517,7 +525,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: actions.map((action) {
         final label = action['label']?.toString().toLowerCase() ?? '';
-        final featureKey = (label == 'reports' || label == 'cash flow') ? 'analytics' : label;
+        final featureKey = label == 'cash flow' ? 'cash_flow' : (label == 'reports' ? 'analytics' : label);
 
         return Expanded(
           child: GestureDetector(

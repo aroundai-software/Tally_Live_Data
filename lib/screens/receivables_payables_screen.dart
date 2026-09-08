@@ -202,6 +202,8 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     });
   }
 
+  int? _lastSyncTrigger;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -209,6 +211,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     final companyState = CompanyProvider.of(context);
     final showReceivables = companyState.isFeatureEnabled('out_receivables');
     final showPayables = companyState.isFeatureEnabled('out_payables');
+    final syncTrigger = companyState.syncTrigger;
 
     int tabCount = 0;
     if (showReceivables) tabCount++;
@@ -227,7 +230,11 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
 
     if (!_initialized) {
       _initialized = true;
+      _lastSyncTrigger = syncTrigger;
       _loadPreferencesAndData();
+    } else if (_lastSyncTrigger != syncTrigger) {
+      _lastSyncTrigger = syncTrigger;
+      _silentRefresh();
     }
   }
 
@@ -240,6 +247,21 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
       });
     }
     _loadData();
+  }
+
+  Future<void> _silentRefresh() async {
+    try {
+      final company = CompanyProvider.of(context).selectedCompany;
+      final recs = await _service.getOutstandingReceivables(companyName: company);
+      final pays = await _service.getOutstandingPayables(companyName: company);
+      if (mounted) {
+        setState(() {
+          _allReceivables = recs;
+          _allPayables = pays;
+        });
+        _onSearchChanged();
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadData() async {

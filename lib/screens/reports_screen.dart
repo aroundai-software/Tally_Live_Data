@@ -76,10 +76,21 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     }
   }
 
+  bool _initialized = false;
+  int? _lastSyncTrigger;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _loadData();
+    final syncTrigger = CompanyProvider.of(context).syncTrigger;
+    if (!_initialized) {
+      _initialized = true;
+      _lastSyncTrigger = syncTrigger;
+      _loadData();
+    } else if (_lastSyncTrigger != syncTrigger) {
+      _lastSyncTrigger = syncTrigger;
+      _loadData(silent: true);
+    }
   }
 
   @override
@@ -88,8 +99,8 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     super.dispose();
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadData({bool silent = false}) async {
+    if (!silent) setState(() => _isLoading = true);
     try {
       final company = CompanyProvider.of(context).selectedCompany;
       final results = await Future.wait([
@@ -121,7 +132,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     } catch (e, st) {
       print('Error loading data: $e');
       print(st);
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && !silent) setState(() => _isLoading = false);
     }
   }
 

@@ -24,9 +24,11 @@ class _LedgerScreenState extends State<LedgerScreen> {
   final SupabaseService _service = SupabaseService();
   List<Ledger> _customers = [];
   List<Ledger> _filteredCustomers = [];
+  List<Ledger>? _pendingCustomers;
   bool _isLoading = true;
   String? _error;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   String _typeFilter = 'All';
   String _sortOption = 'Recently Active';
@@ -37,13 +39,33 @@ class _LedgerScreenState extends State<LedgerScreen> {
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _pendingCustomers = null;
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (_pendingCustomers == null) return;
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels <= 0 || pos.pixels >= pos.maxScrollExtent) {
+      _applyPendingData();
+    }
+  }
+
+  void _applyPendingData() {
+    if (_pendingCustomers == null) return;
+    _customers = _pendingCustomers!;
+    _pendingCustomers = null;
+    _onSearchChanged();
   }
 
   void _onSearchChanged() {
@@ -80,12 +102,19 @@ class _LedgerScreenState extends State<LedgerScreen> {
     });
   }
 
+  int? _lastSyncTrigger;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final syncTrigger = CompanyProvider.of(context).syncTrigger;
     if (!_initialized) {
       _initialized = true;
+      _lastSyncTrigger = syncTrigger;
       _loadPreferencesAndData();
+    } else if (_lastSyncTrigger != syncTrigger) {
+      _lastSyncTrigger = syncTrigger;
+      _silentRefresh();
     }
   }
 
@@ -106,12 +135,33 @@ class _LedgerScreenState extends State<LedgerScreen> {
         setState(() { 
           _customers = items; 
           _filteredCustomers = items;
+          _pendingCustomers = null;
           _isLoading = false; 
         });
         _onSearchChanged();
       }
     } catch (e) {
-      if (mounted) setState(() { _error = AppErrorHandler.getFriendlyError(e); _isLoading = false; });
+      if (mounted) setState(() { _error = e.toString(); _isLoading = false; });
+    }
+  }
+
+  Future<void> _silentRefresh() async {
+    if (!mounted) return;
+    try {
+      final company = CompanyProvider.of(context).selectedCompany;
+      final items = await _service.getCustomers(companyName: company);
+      if (!mounted) return;
+      _pendingCustomers = items;
+      if (!_scrollController.hasClients) {
+        _applyPendingData();
+      } else {
+        final pos = _scrollController.position;
+        if (pos.pixels <= 0 || pos.pixels >= pos.maxScrollExtent) {
+          _applyPendingData();
+        }
+      }
+    } catch (_) {
+      // Fail silently
     }
   }
 
@@ -160,6 +210,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
         onRefresh: _loadData,
         color: AppTheme.primaryColor,
         child: CustomScrollView(
+          controller: _scrollController,
           slivers: [
             SliverToBoxAdapter(child: _buildHeader()),
             SliverToBoxAdapter(

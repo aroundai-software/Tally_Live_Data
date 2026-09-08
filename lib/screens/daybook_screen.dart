@@ -20,23 +20,58 @@ class DaybookScreen extends StatefulWidget {
 
 class _DaybookScreenState extends State<DaybookScreen> {
   final SupabaseService _service = SupabaseService();
+  List<DaybookEntry> _allEntries = [];
   List<DaybookEntry> _entries = [];
+  List<DaybookEntry>? _pendingAllEntries; // Holds data fetched silently
   bool _isLoading = true;
   String? _error;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   DateTime _selectedDate = DateTime.now();
+
+  String _selectedCategory = 'All';
+  final List<String> _categories = [
+    'All',
+    'Sales',
+    'Purchases',
+    'Receipts',
+    'Payments',
+    'Journals & Contras'
+  ];
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _pendingAllEntries = null;
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (_pendingAllEntries == null) return;
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    final atTop = pos.pixels <= 0;
+    final atBottom = pos.pixels >= pos.maxScrollExtent;
+    if (atTop || atBottom) {
+      _applyPendingData();
+    }
+  }
+
+  void _applyPendingData() {
+    if (_pendingAllEntries == null) return;
+    _allEntries = _pendingAllEntries!;
+    _pendingAllEntries = null;
+    _applyFilter();
   }
 
   void _onSearchChanged() {
@@ -44,10 +79,63 @@ class _DaybookScreenState extends State<DaybookScreen> {
     _loadData();
   }
 
+  bool _initialized = false;
+  int? _lastSyncTrigger;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _loadData();
+    final syncTrigger = CompanyProvider.of(context).syncTrigger;
+    if (!_initialized) {
+      _initialized = true;
+      _lastSyncTrigger = syncTrigger;
+      _loadData();
+    } else if (_lastSyncTrigger != syncTrigger) {
+      _lastSyncTrigger = syncTrigger;
+      _silentRefresh();
+    }
+  }
+
+  void _applyFilter() {
+    if (_selectedCategory == 'All') {
+      setState(() => _entries = List.from(_allEntries));
+      return;
+    }
+    
+    setState(() {
+      _entries = _allEntries.where((entry) {
+        final type = entry.voucherType.toLowerCase();
+        switch (_selectedCategory) {
+          case 'Sales':
+            return type.contains('sales') || type.contains('invoice');
+          case 'Purchases':
+            return type.contains('purchase') || type.contains('bill');
+          case 'Receipts':
+            return type.contains('receipt');
+          case 'Payments':
+            return type.contains('payment');
+          case 'Journals & Contras':
+            return type.contains('journal') || type.contains('contra');
+          default:
+            return true;
+        }
+      }).toList();
+    });
+  }
+
+  List<DaybookEntry> _sortItems(List<DaybookEntry> items) {
+    items.sort((a, b) {
+      if (a.date == null) return 1;
+      if (b.date == null) return -1;
+      final dateA = DateTime(a.date!.year, a.date!.month, a.date!.day);
+      final dateB = DateTime(b.date!.year, b.date!.month, b.date!.day);
+      int dateComp = dateB.compareTo(dateA);
+      if (dateComp != 0) return dateComp;
+      int typeComp = a.voucherType.compareTo(b.voucherType);
+      if (typeComp != 0) return typeComp;
+      return (a.voucherNumber ?? '').compareTo(b.voucherNumber ?? '');
+    });
+    return items;
   }
 
   Future<void> _loadData() async {
@@ -60,30 +148,11 @@ class _DaybookScreenState extends State<DaybookScreen> {
         date: _selectedDate,
         searchQuery: query.isNotEmpty ? query : null,
       );
-      
-      // Sort items to match Tally's Daybook order: Date -> Voucher Type -> Voucher No
-      items.sort((a, b) {
-        if (a.date == null) return 1;
-        if (b.date == null) return -1;
-        
-        final dateA = DateTime(a.date!.year, a.date!.month, a.date!.day);
-        final dateB = DateTime(b.date!.year, b.date!.month, b.date!.day);
-        int dateComp = dateB.compareTo(dateA); // Newest first
-        if (dateComp != 0) return dateComp;
-        
-        int typeComp = a.voucherType.compareTo(b.voucherType); // Ascending alphabetical
-        if (typeComp != 0) return typeComp;
-        
-        final numA = a.voucherNumber ?? '';
-        final numB = b.voucherNumber ?? '';
-        return numA.compareTo(numB); // Ascending sequential
-      });
-
       if (mounted) {
-        setState(() {
-          _entries = items;
-          _isLoading = false;
-        });
+        _allEntries = _sortItems(items);
+        _pendingAllEntries = null;
+        _applyFilter();
+        setState(() { _isLoading = false; });
       }
     } catch (e) {
       if (mounted) {
@@ -92,6 +161,32 @@ class _DaybookScreenState extends State<DaybookScreen> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _silentRefresh() async {
+    if (!mounted) return;
+    try {
+      final company = CompanyProvider.of(context).selectedCompany;
+      final query = _searchController.text.toLowerCase();
+      final items = await _service.getDaybookEntries(
+        companyName: company,
+        date: _selectedDate,
+        searchQuery: query.isNotEmpty ? query : null,
+      );
+      if (!mounted) return;
+      _pendingAllEntries = _sortItems(items);
+      // Apply immediately if at top or bottom of list
+      if (!_scrollController.hasClients) {
+        _applyPendingData();
+      } else {
+        final pos = _scrollController.position;
+        if (pos.pixels <= 0 || pos.pixels >= pos.maxScrollExtent) {
+          _applyPendingData();
+        }
+      }
+    } catch (_) {
+      // Fail silently — user can pull-to-refresh if needed
     }
   }
 
@@ -187,10 +282,43 @@ class _DaybookScreenState extends State<DaybookScreen> {
               controller: _searchController,
               onChanged: (_) {}, 
             ),
+            const SizedBox(height: 8),
+            _buildCategoryFilter(),
             const SizedBox(height: 4),
             Expanded(child: _buildBody()),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryFilter() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: _categories.map((c) {
+          final selected = _selectedCategory == c;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              label: Text(c),
+              selected: selected,
+              onSelected: (_) {
+                setState(() { _selectedCategory = c; });
+                _applyFilter();
+              },
+              selectedColor: AppTheme.primaryColor,
+              labelStyle: TextStyle(
+                color: selected ? Colors.white : Colors.grey.shade700,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                fontSize: 13,
+              ),
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -209,6 +337,7 @@ class _DaybookScreenState extends State<DaybookScreen> {
 
     return AnimationLimiter(
       child: ListView.builder(
+        controller: _scrollController,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         itemCount: _entries.length,
         itemBuilder: (context, index) {

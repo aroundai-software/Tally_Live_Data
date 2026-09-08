@@ -454,142 +454,17 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
 
     final displayTransactions = _sortAscending ? _transactions : _transactions.reversed.toList();
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        backgroundColor: AppTheme.surfaceColor,
-        appBar: AppBar(
-        title: Text(
-          widget.ledger.name, 
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            tooltip: 'More Options',
-            onSelected: (String result) {
-              if (result == 'view_toggle') {
-                setState(() => _isListView = !_isListView);
-              } else if (result == 'refresh') {
-                _loadData();
-              } else if (result == 'date_range') {
-                _selectDateRange();
-              } else if (result == 'clear_date') {
-                _clearDateRange();
-              } else if (result == 'filter_voucher') {
-                _showVoucherTypeFilterDialog();
-              } else if (result == 'sort') {
-                setState(() => _sortAscending = !_sortAscending);
-              } else if (result == 'share') {
-                _sharePdf();
-              } else if (result == 'download') {
-                _downloadPdf();
-              }
-            },
-            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              PopupMenuItem<String>(
-                value: 'view_toggle',
-                child: Row(
-                  children: [
-                    Icon(_isListView ? Icons.table_chart_outlined : Icons.view_list_outlined, size: 20),
-                    const SizedBox(width: 12),
-                    Text(_isListView ? 'Table View' : 'List View'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem<String>(
-                value: 'refresh',
-                child: Row(
-                  children: [
-                    Icon(Icons.refresh, size: 20),
-                    SizedBox(width: 12),
-                    Text('Refresh Data'),
-                  ],
-                ),
-              ),
-              const PopupMenuDivider(),
-              const PopupMenuItem<String>(
-                value: 'date_range',
-                child: Row(
-                  children: [
-                    Icon(Icons.calendar_month, size: 20),
-                    SizedBox(width: 12),
-                    Text('Filter by Date'),
-                  ],
-                ),
-              ),
-              if (_startDate != null || _endDate != null)
-                const PopupMenuItem<String>(
-                  value: 'clear_date',
-                  child: Row(
-                    children: [
-                      Icon(Icons.clear, size: 20, color: Colors.red),
-                      SizedBox(width: 12),
-                      Text('Clear Date Filter', style: TextStyle(color: Colors.red)),
-                    ],
-                  ),
-                ),
-              const PopupMenuItem<String>(
-                value: 'filter_voucher',
-                child: Row(
-                  children: [
-                    Icon(Icons.filter_alt_outlined, size: 20),
-                    SizedBox(width: 12),
-                    Text('Filter Voucher Type'),
-                  ],
-                ),
-              ),
-              const PopupMenuDivider(),
-              PopupMenuItem<String>(
-                value: 'sort',
-                child: Row(
-                  children: [
-                    Icon(Icons.swap_vert, size: 20),
-                    const SizedBox(width: 12),
-                    Text(_sortAscending ? 'Sort Newest First' : 'Sort Oldest First'),
-                  ],
-                ),
-              ),
-              const PopupMenuDivider(),
-              const PopupMenuItem<String>(
-                value: 'share',
-                child: Row(
-                  children: [
-                    Icon(Icons.share, size: 20, color: AppTheme.primaryColor),
-                    SizedBox(width: 12),
-                    Text('Share via...'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem<String>(
-                value: 'download',
-                child: Row(
-                  children: [
-                    Icon(Icons.download, size: 20, color: AppTheme.primaryColor),
-                    SizedBox(width: 12),
-                    Text('Save / Print'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-        bottom: const TabBar(
-          labelColor: AppTheme.primaryColor,
-          indicatorColor: AppTheme.primaryColor,
-          tabs: [
-            Tab(text: 'Transactions'),
-            Tab(text: 'Performance'),
-          ],
-        ),
-      ),
-      body: TabBarView(
-        children: [
-          Column(
+    final companyState = CompanyProvider.of(context);
+    final showTransactions = companyState.isFeatureEnabled('ls_transactions');
+    final showPerformance = companyState.isFeatureEnabled('ls_performance');
+
+    // Build the dynamic tab list
+    final tabs = <Tab>[];
+    final tabViews = <Widget>[];
+
+    if (showTransactions) {
+      tabs.add(const Tab(text: 'Transactions'));
+      tabViews.add(Column(
         children: [
           if (_isLoading)
             const Expanded(child: Center(child: CircularProgressIndicator()))
@@ -600,7 +475,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
             )))
           else
             Expanded(
-              child: _isListView 
+              child: _isListView
                 ? Column(
                     children: [
                       Expanded(
@@ -686,10 +561,158 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                   ),
             )
         ],
+      ));
+    }
+
+    if (showPerformance) {
+      tabs.add(const Tab(text: 'Performance'));
+      tabViews.add(LedgerPerformanceTab(ledgerName: widget.ledger.name));
+    }
+
+    // Neither tab is enabled — show lock screen
+    if (tabs.isEmpty) {
+      return Scaffold(
+        backgroundColor: AppTheme.surfaceColor,
+        appBar: AppBar(
+          title: Text(widget.ledger.name,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+        ),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2453FF)),
+              SizedBox(height: 12),
+              Text('Feature Locked', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+              SizedBox(height: 8),
+              Text('All tabs are disabled for this company.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF6B7A94))),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Single tab — no tab bar needed
+    if (tabs.length == 1) {
+      return Scaffold(
+        backgroundColor: AppTheme.surfaceColor,
+        appBar: AppBar(
+          title: Text(widget.ledger.name,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          actions: [
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              tooltip: 'More Options',
+              onSelected: (String result) {
+                if (result == 'view_toggle') {
+                  setState(() => _isListView = !_isListView);
+                } else if (result == 'refresh') {
+                  _loadData();
+                } else if (result == 'date_range') {
+                  _selectDateRange();
+                } else if (result == 'clear_date') {
+                  _clearDateRange();
+                } else if (result == 'filter_voucher') {
+                  _showVoucherTypeFilterDialog();
+                } else if (result == 'sort') {
+                  setState(() => _sortAscending = !_sortAscending);
+                } else if (result == 'share') {
+                  _sharePdf();
+                } else if (result == 'download') {
+                  _downloadPdf();
+                }
+              },
+              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                PopupMenuItem<String>(value: 'view_toggle', child: Row(children: [Icon(_isListView ? Icons.table_chart_outlined : Icons.view_list_outlined, size: 20), const SizedBox(width: 12), Text(_isListView ? 'Table View' : 'List View')])),
+                const PopupMenuItem<String>(value: 'refresh', child: Row(children: [Icon(Icons.refresh, size: 20), SizedBox(width: 12), Text('Refresh Data')])),
+                const PopupMenuDivider(),
+                const PopupMenuItem<String>(value: 'date_range', child: Row(children: [Icon(Icons.calendar_month, size: 20), SizedBox(width: 12), Text('Filter by Date')])),
+                if (_startDate != null || _endDate != null)
+                  const PopupMenuItem<String>(value: 'clear_date', child: Row(children: [Icon(Icons.clear, size: 20, color: Colors.red), SizedBox(width: 12), Text('Clear Date Filter', style: TextStyle(color: Colors.red))])),
+                const PopupMenuItem<String>(value: 'filter_voucher', child: Row(children: [Icon(Icons.filter_alt_outlined, size: 20), SizedBox(width: 12), Text('Filter Voucher Type')])),
+                const PopupMenuDivider(),
+                PopupMenuItem<String>(value: 'sort', child: Row(children: [const Icon(Icons.swap_vert, size: 20), const SizedBox(width: 12), Text(_sortAscending ? 'Sort Newest First' : 'Sort Oldest First')])),
+                const PopupMenuDivider(),
+                const PopupMenuItem<String>(value: 'share', child: Row(children: [Icon(Icons.share, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Share via...')])),
+                const PopupMenuItem<String>(value: 'download', child: Row(children: [Icon(Icons.download, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Save / Print')])),
+              ],
+            ),
+          ],
+        ),
+        body: tabViews.first,
+      );
+    }
+
+    return DefaultTabController(
+      length: tabs.length,
+      child: Scaffold(
+        backgroundColor: AppTheme.surfaceColor,
+        appBar: AppBar(
+        title: Text(
+          widget.ledger.name, 
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'More Options',
+            onSelected: (String result) {
+              if (result == 'view_toggle') {
+                setState(() => _isListView = !_isListView);
+              } else if (result == 'refresh') {
+                _loadData();
+              } else if (result == 'date_range') {
+                _selectDateRange();
+              } else if (result == 'clear_date') {
+                _clearDateRange();
+              } else if (result == 'filter_voucher') {
+                _showVoucherTypeFilterDialog();
+              } else if (result == 'sort') {
+                setState(() => _sortAscending = !_sortAscending);
+              } else if (result == 'share') {
+                _sharePdf();
+              } else if (result == 'download') {
+                _downloadPdf();
+              }
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(
+                value: 'view_toggle',
+                child: Row(children: [Icon(_isListView ? Icons.table_chart_outlined : Icons.view_list_outlined, size: 20), const SizedBox(width: 12), Text(_isListView ? 'Table View' : 'List View')]),
+              ),
+              const PopupMenuItem<String>(value: 'refresh', child: Row(children: [Icon(Icons.refresh, size: 20), SizedBox(width: 12), Text('Refresh Data')])),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(value: 'date_range', child: Row(children: [Icon(Icons.calendar_month, size: 20), SizedBox(width: 12), Text('Filter by Date')])),
+              if (_startDate != null || _endDate != null)
+                const PopupMenuItem<String>(value: 'clear_date', child: Row(children: [Icon(Icons.clear, size: 20, color: Colors.red), SizedBox(width: 12), Text('Clear Date Filter', style: TextStyle(color: Colors.red))])),
+              const PopupMenuItem<String>(value: 'filter_voucher', child: Row(children: [Icon(Icons.filter_alt_outlined, size: 20), SizedBox(width: 12), Text('Filter Voucher Type')])),
+              const PopupMenuDivider(),
+              PopupMenuItem<String>(value: 'sort', child: Row(children: [const Icon(Icons.swap_vert, size: 20), const SizedBox(width: 12), Text(_sortAscending ? 'Sort Newest First' : 'Sort Oldest First')])),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(value: 'share', child: Row(children: [Icon(Icons.share, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Share via...')])),
+              const PopupMenuItem<String>(value: 'download', child: Row(children: [Icon(Icons.download, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Save / Print')])),
+            ],
+          ),
+        ],
+        bottom: TabBar(
+          labelColor: AppTheme.primaryColor,
+          indicatorColor: AppTheme.primaryColor,
+          tabs: tabs,
+        ),
       ),
-      LedgerPerformanceTab(ledgerName: widget.ledger.name),
-      ],
-      ),
+      body: TabBarView(children: tabViews),
       ),
     );
   }

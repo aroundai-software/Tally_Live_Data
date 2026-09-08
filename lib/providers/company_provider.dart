@@ -4,8 +4,11 @@ class CompanyState extends ChangeNotifier {
   String? _selectedCompany;
   Map<String, bool> _enabledFeatures = {};
 
+  int _syncTrigger = 0;
+
   String? get selectedCompany => _selectedCompany;
   Map<String, bool> get enabledFeatures => _enabledFeatures;
+  int get syncTrigger => _syncTrigger;
 
   bool isFeatureEnabled(String feature) {
     return _enabledFeatures[feature] ?? true;
@@ -21,9 +24,15 @@ class CompanyState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void notifySyncCompleted() {
+    _syncTrigger++;
+    notifyListeners();
+  }
+
   void clearCompany() {
     _selectedCompany = null;
     _enabledFeatures = {};
+    _syncTrigger = 0;
     notifyListeners();
   }
 }

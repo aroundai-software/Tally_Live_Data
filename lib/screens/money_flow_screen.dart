@@ -39,6 +39,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
   // Filter
   String _selectedPeriod = 'All';
   final List<String> _periods = ['All', 'Last 3 Months', 'Last 6 Months', 'This Year'];
+  bool _useDueDate = false;
 
   bool _hasLoaded = false;
   bool _trendIsLine = false;
@@ -96,9 +97,18 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
   }
 
   void _processData(List<LedgerBillSettlement> data) {
-    // Only consider bills with daysToClear > 0 to exclude instant/same-day payments from speed ranking
-    final billsWithDelay = data.where((s) => s.daysToClear != null).toList();
-    final billsForAvg = data.where((s) => s.daysToClear != null && s.daysToClear! > 0).toList();
+    // Only consider bills that have the required days value
+    final billsWithDelay = data.where((s) {
+      if (_useDueDate) return s.daysFromDueDate != null;
+      return s.daysToClear != null;
+    }).toList();
+
+    // For averages and charts, exclude same-day clears (delay <= 0) if using invoice date.
+    // If using due date, keep early/on-time payments (delay <= 0) because they represent adherence to terms.
+    final billsForAvg = data.where((s) {
+      if (_useDueDate) return s.daysFromDueDate != null;
+      return s.daysToClear != null && s.daysToClear! > 0;
+    }).toList();
 
     double totalDays = 0;
     _fastCount = 0;
@@ -110,7 +120,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
     Map<String, List<int>> ledgerDaysMap = {};
 
     for (var s in billsWithDelay) {
-      final days = s.daysToClear!;
+      final days = _useDueDate ? s.daysFromDueDate! : s.daysToClear!;
 
       if (days <= 7) {
         _fastCount++;
@@ -127,7 +137,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
     }
 
     for (var s in billsForAvg) {
-      totalDays += s.daysToClear!;
+      totalDays += _useDueDate ? s.daysFromDueDate! : s.daysToClear!;
     }
     _globalAvgDays = billsForAvg.isNotEmpty ? totalDays / billsForAvg.length : 0;
 
@@ -159,7 +169,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
       if (s.clearedDate == null) continue;
       final key = DateFormat('MMM').format(s.clearedDate!);
       if (monthlyMap.containsKey(key)) {
-        monthlyMap[key]!.add(s.daysToClear!);
+        monthlyMap[key]!.add(_useDueDate ? s.daysFromDueDate! : s.daysToClear!);
       }
     }
 
@@ -216,6 +226,37 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final companyState = CompanyProvider.of(context);
+    final isEnabled = companyState.isFeatureEnabled('cash_flow');
+
+    if (!isEnabled) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF4F6FB),
+        appBar: AppBar(
+          title: const Text('Cash Flow Insights',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: Color(0xFF1A1F36))),
+          backgroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: true,
+          iconTheme: const IconThemeData(color: Color(0xFF1A1F36)),
+        ),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2453FF)),
+              SizedBox(height: 12),
+              Text('Feature Locked', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+              SizedBox(height: 8),
+              Text('Cash Flow Insights is disabled for this company.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF6B7A94))),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FB),
       appBar: AppBar(
@@ -238,6 +279,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
       ),
       body: _buildBody(),
     );
+
   }
 
   Widget _buildBody() {
@@ -276,6 +318,14 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
       );
     }
 
+    final companyState = CompanyProvider.of(context);
+    final showSummary   = companyState.isFeatureEnabled('cf_summary');
+    final showOverview  = companyState.isFeatureEnabled('cf_overview');
+    final showPieChart  = companyState.isFeatureEnabled('cf_pie_chart');
+    final showTrend     = companyState.isFeatureEnabled('cf_trend');
+    final showFastest   = companyState.isFeatureEnabled('cf_fastest');
+    final showSlowest   = companyState.isFeatureEnabled('cf_slowest');
+
     return RefreshIndicator(
       onRefresh: _loadData,
       color: AppTheme.primaryColor,
@@ -283,51 +333,106 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
           _buildPeriodFilter(),
-          const SizedBox(height: 16),
-          _buildSummaryRow(),
-          const SizedBox(height: 16),
-          _buildGlobalOverview(),
-          const SizedBox(height: 16),
-          _buildDistributionChart(),
-          const SizedBox(height: 16),
-          _buildTrendChart(),
-          const SizedBox(height: 16),
-          _buildLeaderboard('🏆 Fastest Paying Customers', _fastestCustomers, _allFastestCustomers, const Color(0xFF22C55E)),
-          const SizedBox(height: 16),
-          _buildLeaderboard('⚠️ Slowest Paying Customers', _slowestCustomers, _allSlowestCustomers, const Color(0xFFEF4444)),
+          if (showSummary) ...[
+            const SizedBox(height: 16),
+            _buildSummaryRow(),
+          ],
+          if (showOverview) ...[
+            const SizedBox(height: 16),
+            _buildGlobalOverview(),
+          ],
+          if (showPieChart) ...[
+            const SizedBox(height: 16),
+            _buildDistributionChart(),
+          ],
+          if (showTrend) ...[
+            const SizedBox(height: 16),
+            _buildTrendChart(),
+          ],
+          if (showFastest) ...[
+            const SizedBox(height: 16),
+            _buildLeaderboard('🏆 Fastest Paying Customers', _fastestCustomers, _allFastestCustomers, const Color(0xFF22C55E)),
+          ],
+          if (showSlowest) ...[
+            const SizedBox(height: 16),
+            _buildLeaderboard('⚠️ Slowest Paying Customers', _slowestCustomers, _allSlowestCustomers, const Color(0xFFEF4444)),
+          ],
         ],
       ),
     );
   }
 
   Widget _buildPeriodFilter() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: _periods.map((p) {
-          final selected = _selectedPeriod == p;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ChoiceChip(
-              label: Text(p),
-              selected: selected,
-              onSelected: (_) {
-                setState(() { _selectedPeriod = p; });
-                _applyFilter(_allSettlements, p);
-                setState(() {});
-              },
-              selectedColor: AppTheme.primaryColor,
-              labelStyle: TextStyle(
-                color: selected ? Colors.white : Colors.grey.shade700,
-                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                fontSize: 13,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: _periods.map((p) {
+              final selected = _selectedPeriod == p;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(p),
+                  selected: selected,
+                  onSelected: (_) {
+                    setState(() { _selectedPeriod = p; });
+                    _applyFilter(_allSettlements, p);
+                    setState(() {});
+                  },
+                  selectedColor: AppTheme.primaryColor,
+                  labelStyle: TextStyle(
+                    color: selected ? Colors.white : Colors.grey.shade700,
+                    fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                    fontSize: 13,
+                  ),
+                  backgroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Calculate Speed From:',
+                style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF3A4A63), fontSize: 13),
               ),
-              backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            ),
-          );
-        }).toList(),
-      ),
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment<bool>(value: false, label: Text('Invoice Date', style: TextStyle(fontSize: 12))),
+                  ButtonSegment<bool>(value: true, label: Text('Due Date', style: TextStyle(fontSize: 12))),
+                ],
+                selected: {_useDueDate},
+                onSelectionChanged: (Set<bool> newSelection) {
+                  setState(() {
+                    _useDueDate = newSelection.first;
+                    _applyFilter(_allSettlements, _selectedPeriod);
+                  });
+                },
+                style: SegmentedButton.styleFrom(
+                  backgroundColor: Colors.grey.shade50,
+                  selectedForegroundColor: Colors.white,
+                  selectedBackgroundColor: AppTheme.primaryColor,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -390,8 +495,8 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Average Collection Speed',
-              style: TextStyle(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w500)),
+          Text(_useDueDate ? 'Average Payment Delay' : 'Average Collection Speed',
+              style: const TextStyle(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
           Text('${_globalAvgDays.toStringAsFixed(1)} Days',
               style: const TextStyle(fontSize: 38, fontWeight: FontWeight.w800, color: Colors.white)),
@@ -560,14 +665,14 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Monthly Trend',
+                    const Text('Monthly Trend',
                         style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36))),
-                    Text('Avg. collection days per month',
-                        style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    Text(_useDueDate ? 'Avg. delay days per month' : 'Avg. collection days per month',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   ],
                 ),
               ),

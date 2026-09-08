@@ -39,9 +39,11 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
   final SupabaseService _service = SupabaseService();
   List<SalesInvoice> _invoices = [];
   List<SalesInvoice> _filteredInvoices = [];
+  List<SalesInvoice>? _pendingInvoices; // Holds data fetched silently
   bool _isLoading = true;
   String? _error;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   InvoiceSortOption _currentSort = InvoiceSortOption.dateNewest;
   DateRangeOption _dateRangeOption = DateRangeOption.today;
@@ -53,13 +55,33 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _pendingInvoices = null;
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (_pendingInvoices == null) return;
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels <= 0 || pos.pixels >= pos.maxScrollExtent) {
+      _applyPendingData();
+    }
+  }
+
+  void _applyPendingData() {
+    if (_pendingInvoices == null) return;
+    _invoices = _pendingInvoices!;
+    _pendingInvoices = null;
+    _applyFiltersAndSort();
   }
 
   void _onSearchChanged() {
@@ -176,12 +198,19 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
     });
   }
 
+  int? _lastSyncTrigger;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final syncTrigger = CompanyProvider.of(context).syncTrigger;
     if (!_initialized) {
       _initialized = true;
+      _lastSyncTrigger = syncTrigger;
       _loadPreferencesAndData();
+    } else if (_lastSyncTrigger != syncTrigger) {
+      _lastSyncTrigger = syncTrigger;
+      _silentRefresh();
     }
   }
 
@@ -222,7 +251,8 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
       final items = await _service.getSalesInvoices(companyName: company);
       if (mounted) {
         setState(() { 
-          _invoices = items; 
+          _invoices = items;
+          _pendingInvoices = null;
           _isLoading = false; 
         });
         _applyFiltersAndSort();
@@ -232,7 +262,27 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
     }
   }
 
-  double get _totalSales => _filteredInvoices.fold(0, (sum, inv) => sum + inv.netAmount);
+  Future<void> _silentRefresh() async {
+    if (!mounted) return;
+    try {
+      final company = CompanyProvider.of(context).selectedCompany;
+      final items = await _service.getSalesInvoices(companyName: company);
+      if (!mounted) return;
+      _pendingInvoices = items;
+      if (!_scrollController.hasClients) {
+        _applyPendingData();
+      } else {
+        final pos = _scrollController.position;
+        if (pos.pixels <= 0 || pos.pixels >= pos.maxScrollExtent) {
+          _applyPendingData();
+        }
+      }
+    } catch (_) {
+      // Fail silently
+    }
+  }
+
+  double get _totalSales => _filteredInvoices.fold(0, (sum, inv) => sum + inv.totalAmount);
 
   double get _todaysSales {
     final now = DateTime.now();
@@ -242,7 +292,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
       if (inv.invoiceDate != null) {
         final d = DateTime(inv.invoiceDate!.year, inv.invoiceDate!.month, inv.invoiceDate!.day);
         if (d.isAtSameMomentAs(today)) {
-          total += inv.netAmount;
+          total += inv.totalAmount;
         }
       }
     }
@@ -351,13 +401,27 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            formatCurrency(amount),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                formatCurrency(amount),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Text(
+                '(inc gst)',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 10,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 6),
           Text(subtitle, style: const TextStyle(color: Colors.white70, fontSize: 11)),
@@ -407,6 +471,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
     }
     return AnimationLimiter(
       child: ListView.builder(
+        controller: _scrollController,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         itemCount: _filteredInvoices.length,
         itemBuilder: (context, index) {

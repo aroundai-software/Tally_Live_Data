@@ -107,28 +107,46 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab> {
       return const Center(child: Text("No settlement history available for this ledger."));
     }
 
+    final companyState = CompanyProvider.of(context);
+    final showSpeed   = companyState.isFeatureEnabled('ls_perf_speed');
+    final showDelay   = companyState.isFeatureEnabled('ls_perf_delay');
+    final showTrend   = companyState.isFeatureEnabled('ls_perf_trend');
+    final showHistory = companyState.isFeatureEnabled('ls_perf_history');
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _buildSummaryCard(),
-        const SizedBox(height: 24),
-        _buildTrendChart(),
-        const SizedBox(height: 24),
-        const Text('Settlement History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36))),
-        const SizedBox(height: 12),
-        ..._settlements.map((s) => _buildSettlementCard(s)).toList(),
+        if (showSpeed || showDelay) ...[
+          _buildSummaryCard(showSpeed: showSpeed, showDelay: showDelay),
+          const SizedBox(height: 24),
+        ],
+        if (showTrend) ...[
+          _buildTrendChart(),
+          const SizedBox(height: 24),
+        ],
+        if (showHistory) ...[
+          const Text('Settlement History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36))),
+          const SizedBox(height: 12),
+          ..._settlements.map((s) => _buildSettlementCard(s)).toList(),
+        ],
       ],
     );
   }
 
-  Widget _buildSummaryCard() {
-    return Row(
-      children: [
-        Expanded(child: _buildMetricCard('Avg Collection Speed', _avgDaysToClear, true)),
-        const SizedBox(width: 12),
-        Expanded(child: _buildMetricCard('Avg Payment Delay', _avgDelay, false)),
-      ],
-    );
+  Widget _buildSummaryCard({bool showSpeed = true, bool showDelay = true}) {
+    if (showSpeed && showDelay) {
+      return Row(
+        children: [
+          Expanded(child: _buildMetricCard('Avg Collection Speed', _avgDaysToClear, true)),
+          const SizedBox(width: 12),
+          Expanded(child: _buildMetricCard('Avg Payment Delay', _avgDelay, false)),
+        ],
+      );
+    } else if (showSpeed) {
+      return _buildMetricCard('Avg Collection Speed', _avgDaysToClear, true);
+    } else {
+      return _buildMetricCard('Avg Payment Delay', _avgDelay, false);
+    }
   }
 
   Widget _buildMetricCard(String title, double days, bool isCollectionSpeed) {

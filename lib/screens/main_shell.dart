@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
@@ -26,6 +26,7 @@ class _MainShellState extends State<MainShell> {
   int _receivablesPayablesTab = 0;
   String? _lastCompany;
   StreamSubscription<Map<String, bool>>? _featureSubscription;
+  StreamSubscription<Map<String, dynamic>>? _syncSubscription;
 
   @override
   void didChangeDependencies() {
@@ -36,9 +37,12 @@ class _MainShellState extends State<MainShell> {
       _lastCompany = currentCompany;
       if (currentCompany != null) {
         _listenToCompanyFeatures(currentCompany, companyState);
+        _listenToSyncLogs(currentCompany, companyState);
       } else {
         _featureSubscription?.cancel();
         _featureSubscription = null;
+        _syncSubscription?.cancel();
+        _syncSubscription = null;
       }
     }
   }
@@ -46,6 +50,7 @@ class _MainShellState extends State<MainShell> {
   @override
   void dispose() {
     _featureSubscription?.cancel();
+    _syncSubscription?.cancel();
     super.dispose();
   }
 
@@ -57,6 +62,17 @@ class _MainShellState extends State<MainShell> {
       }
     }, onError: (_) {
       // Keep existing features on error
+    });
+  }
+
+  void _listenToSyncLogs(String companyName, CompanyState companyState) {
+    _syncSubscription?.cancel();
+    _syncSubscription = SupabaseService().streamSyncLogUpdates(companyName).listen((event) {
+      if (mounted && event.isNotEmpty) {
+        companyState.notifySyncCompleted();
+      }
+    }, onError: (_) {
+      // Ignore errors
     });
   }
 
