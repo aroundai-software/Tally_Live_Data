@@ -39,7 +39,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
   // Filter
   String _selectedPeriod = 'All';
   final List<String> _periods = ['All', 'Last 3 Months', 'Last 6 Months', 'This Year'];
-  bool _useDueDate = false;
+  bool _useDueDate = true;
 
   bool _hasLoaded = false;
   bool _trendIsLine = false;
@@ -369,26 +369,29 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
+            mainAxisAlignment: MainAxisAlignment.start,
             children: _periods.map((p) {
               final selected = _selectedPeriod == p;
               return Padding(
-                padding: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.only(right: 4),
                 child: ChoiceChip(
                   label: Text(p),
                   selected: selected,
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  labelPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
                   onSelected: (_) {
                     setState(() { _selectedPeriod = p; });
                     _applyFilter(_allSettlements, p);
-                    setState(() {});
                   },
                   selectedColor: AppTheme.primaryColor,
                   labelStyle: TextStyle(
                     color: selected ? Colors.white : Colors.grey.shade700,
-                    fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.bold : FontWeight.w500,
+                    fontSize: 11.5,
                   ),
                   backgroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
               );
             }).toList(),
@@ -403,17 +406,13 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
             border: Border.all(color: Colors.grey.shade200),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Calculate Speed From:',
-                style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF3A4A63), fontSize: 13),
-              ),
-              SegmentedButton<bool>(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isSmall = constraints.maxWidth < 420;
+              final segmentedButton = SegmentedButton<bool>(
                 segments: const [
-                  ButtonSegment<bool>(value: false, label: Text('Invoice Date', style: TextStyle(fontSize: 12))),
                   ButtonSegment<bool>(value: true, label: Text('Due Date', style: TextStyle(fontSize: 12))),
+                  ButtonSegment<bool>(value: false, label: Text('Invoice Date', style: TextStyle(fontSize: 12))),
                 ],
                 selected: {_useDueDate},
                 onSelectionChanged: (Set<bool> newSelection) {
@@ -428,8 +427,36 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                   selectedBackgroundColor: AppTheme.primaryColor,
                   visualDensity: VisualDensity.compact,
                 ),
-              ),
-            ],
+              );
+
+              if (isSmall) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Calculate Speed From:',
+                      style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF3A4A63), fontSize: 13),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: segmentedButton,
+                    ),
+                  ],
+                );
+              }
+
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Calculate Speed From:',
+                    style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF3A4A63), fontSize: 13),
+                  ),
+                  segmentedButton,
+                ],
+              );
+            },
           ),
         ),
       ],
@@ -449,7 +476,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
 
   Widget _buildStatCard(String label, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -458,18 +485,25 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
             child: Icon(icon, color: color, size: 20),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36)),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36)),
+                  ),
+                ),
               ],
             ),
           ),

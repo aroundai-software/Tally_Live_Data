@@ -433,8 +433,15 @@ class _DaybookCard extends StatelessWidget {
                             Text('#${entry.voucherNumber}', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
                         ],
                       ),
+                      if (entry.particulars != null && entry.particulars!.isNotEmpty && entry.particulars != entry.ledgerName) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          entry.particulars!,
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
+                        ),
+                      ],
                       if (entry.narration != null && entry.narration!.isNotEmpty) ...[
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 4),
                         Text(entry.narration!, style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontStyle: FontStyle.italic)),
                       ],
                     ],
@@ -542,6 +549,10 @@ class _DetailsBottomSheet extends StatelessWidget {
             if (entry.voucherNumber != null && entry.voucherNumber!.isNotEmpty) ...[
               const SizedBox(height: 16),
               _buildDetailRow('Voucher Number', entry.voucherNumber!),
+            ],
+            if (entry.particulars != null && entry.particulars!.isNotEmpty && entry.particulars != entry.ledgerName) ...[
+              const SizedBox(height: 16),
+              _buildDetailRow('Particulars', entry.particulars!),
             ],
             if (entry.narration != null && entry.narration!.isNotEmpty) ...[
               const SizedBox(height: 16),

@@ -163,6 +163,30 @@ class SupabaseService {
           'phone_number': tenDigits,
         },
       );
+
+      final user = res.user;
+      if (user != null) {
+        try {
+          await tempClient.from('users').upsert({
+            'id': user.id,
+            'full_name': fullName.trim(),
+            'phone_number': tenDigits,
+            'company_name': '',
+            'role': 'owner',
+          });
+        } catch (err) {
+          print('Profile upsert warning via tempClient: $err');
+          try {
+            await _client.from('users').upsert({
+              'id': user.id,
+              'full_name': fullName.trim(),
+              'phone_number': tenDigits,
+              'company_name': '',
+              'role': 'owner',
+            });
+          } catch (_) {}
+        }
+      }
     } catch (e) {
       final errStr = e.toString().toLowerCase();
       if (errStr.contains('user_already_exists')) {
@@ -179,21 +203,6 @@ class SupabaseService {
       try {
         await tempClient.auth.signOut();
       } catch (_) {}
-    }
-
-    final user = res.user;
-    if (user != null) {
-      try {
-        await _client.from('users').upsert({
-          'id': user.id,
-          'full_name': fullName.trim(),
-          'phone_number': tenDigits,
-          'company_name': '',
-          'role': 'owner',
-        });
-      } catch (err) {
-        print('Profile upsert warning: $err');
-      }
     }
 
     return res;
@@ -1075,14 +1084,14 @@ class SupabaseService {
       final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
       final data = await _client
           .from('sales_invoices')
-          .select('net_amount')
+          .select('total_amount')
           .ilike('company_name', companyName)
           .gte('invoice_date', dateStr)
           .lte('invoice_date', dateStr)
           .limit(5000) as List;
       double total = 0;
       for (var item in data) {
-        total += _toDouble(item['net_amount']);
+        total += _toDouble(item['total_amount']);
       }
       return total;
     } catch (e) {
@@ -1097,14 +1106,14 @@ class SupabaseService {
       final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
       final data = await _client
           .from('purchase_invoices')
-          .select('net_amount')
+          .select('total_amount')
           .ilike('company_name', companyName)
           .gte('invoice_date', dateStr)
           .lte('invoice_date', dateStr)
           .limit(5000) as List;
       double total = 0;
       for (var item in data) {
-        total += _toDouble(item['net_amount']);
+        total += _toDouble(item['total_amount']);
       }
       return total;
     } catch (e) {
@@ -1115,12 +1124,12 @@ class SupabaseService {
     try {
       final data = await _fetchAll(
         'sales_invoices',
-        select: 'net_amount',
+        select: 'total_amount',
         companyName: companyName,
       );
       double total = 0;
       for (var item in data) {
-        total += _toDouble(item['net_amount']);
+        total += _toDouble(item['total_amount']);
       }
       return total;
     } catch (e) {
@@ -1186,12 +1195,12 @@ class SupabaseService {
     try {
       final data = await _fetchAll(
         'purchase_invoices',
-        select: 'net_amount',
+        select: 'total_amount',
         companyName: companyName,
       );
       double total = 0;
       for (var item in data) {
-        total += _toDouble(item['net_amount']);
+        total += _toDouble(item['total_amount']);
       }
       return total;
     } catch (e) {
@@ -1229,7 +1238,7 @@ class SupabaseService {
       }
       
       if (searchQuery != null && searchQuery.isNotEmpty) {
-         query = query.or('voucher_number.ilike.%$searchQuery%,ledger_name.ilike.%$searchQuery%,voucher_type.ilike.%$searchQuery%');
+        query = query.or('voucher_number.ilike.%$searchQuery%,ledger_name.ilike.%$searchQuery%,voucher_type.ilike.%$searchQuery%,particulars.ilike.%$searchQuery%,narration.ilike.%$searchQuery%');
       }
 
       final response = await query.order('date', ascending: false).limit(1000);

@@ -187,9 +187,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           return a.invoiceNumber.compareTo(b.invoiceNumber);
 
         case InvoiceSortOption.amountHighest:
-          return b.netAmount.compareTo(a.netAmount);
+          return b.totalAmount.compareTo(a.totalAmount);
         case InvoiceSortOption.amountLowest:
-          return a.netAmount.compareTo(b.netAmount);
+          return a.totalAmount.compareTo(b.totalAmount);
       }
     });
 
@@ -400,27 +400,31 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             ],
           ),
           const SizedBox(height: 4),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                formatCurrency(amount),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  formatCurrency(amount),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 4),
-              const Text(
-                '(inc gst)',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 10,
+                const SizedBox(width: 4),
+                const Text(
+                  '(inc gst)',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 10,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 6),
           Text(subtitle, style: const TextStyle(color: Colors.white70, fontSize: 11)),

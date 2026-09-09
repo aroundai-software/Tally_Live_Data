@@ -244,95 +244,98 @@ class _StockScreenState extends State<StockScreen> {
       body: RefreshIndicator(
         onRefresh: _loadData,
         color: AppTheme.primaryColor,
-        child: Column(
-          children: [
-            // Only show Stock Value toggle if cost is permitted
-            if (showCostPrice) _buildModeToggle(),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SearchBarWidget(
-                      margin: EdgeInsets.zero,
-                      hintText: 'Search by name, part no, rate...',
-                      controller: _searchController,
-                      onChanged: (_) {}, // Handled by listener
+        child: CustomScrollView(
+          controller: _scrollController,
+          slivers: [
+            if (showCostPrice) SliverToBoxAdapter(child: _buildModeToggle()),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SearchBarWidget(
+                        margin: EdgeInsets.zero,
+                        hintText: 'Search by name, part no, rate...',
+                        controller: _searchController,
+                        onChanged: (_) {}, // Handled by listener
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.grey.shade200),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: PopupMenuButton<String>(
-                      icon: const Icon(Icons.sort_rounded, color: AppTheme.primaryColor),
-                      tooltip: 'Sort Options',
-                      onSelected: (value) {
-                        setState(() {
-                          _sortBy = value;
-                        });
-                        UserPreferencesService.saveStockSort(value);
-                        _onSearchChanged();
-                      },
-                      itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: 'qty_desc',
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.arrow_downward_rounded,
-                                size: 18,
-                                color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.grey,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Quantity: High to Low',
-                                style: TextStyle(
-                                  fontWeight: _sortBy == 'qty_desc' ? FontWeight.bold : FontWeight.normal,
-                                  color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.black,
-                                ),
-                              ),
-                            ],
+                    const SizedBox(width: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.grey.shade200),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
                           ),
-                        ),
-                        PopupMenuItem(
-                          value: 'qty_asc',
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.arrow_upward_rounded,
-                                size: 18,
-                                color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.grey,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Quantity: Low to High',
-                                style: TextStyle(
-                                  fontWeight: _sortBy == 'qty_asc' ? FontWeight.bold : FontWeight.normal,
-                                  color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.black,
+                        ],
+                      ),
+                      child: PopupMenuButton<String>(
+                        icon: const Icon(Icons.sort_rounded, color: AppTheme.primaryColor),
+                        tooltip: 'Sort Options',
+                        onSelected: (value) {
+                          setState(() {
+                            _sortBy = value;
+                          });
+                          UserPreferencesService.saveStockSort(value);
+                          _onSearchChanged();
+                        },
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            value: 'qty_desc',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.arrow_downward_rounded,
+                                  size: 18,
+                                  color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.grey,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Quantity: High to Low',
+                                  style: TextStyle(
+                                    fontWeight: _sortBy == 'qty_desc' ? FontWeight.bold : FontWeight.normal,
+                                    color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.black,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                          PopupMenuItem(
+                            value: 'qty_asc',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.arrow_upward_rounded,
+                                  size: 18,
+                                  color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.grey,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Quantity: Low to High',
+                                  style: TextStyle(
+                                    fontWeight: _sortBy == 'qty_asc' ? FontWeight.bold : FontWeight.normal,
+                                    color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.black,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-            _buildStockFilter(),
-            Expanded(child: _buildBody(showCostPrice: showCostPrice)),
+            SliverToBoxAdapter(child: _buildStockFilter()),
+            if (showCostPrice) SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: _buildHeader())),
+            _buildSliverBody(showCostPrice: showCostPrice),
           ],
         ),
       ),
@@ -422,49 +425,57 @@ class _StockScreenState extends State<StockScreen> {
     );
   }
 
-
-
-  Widget _buildBody({bool showCostPrice = true}) {
-    if (_isLoading) return const ShimmerLoading();
-    if (_error != null) return ErrorStateWidget(error: _error, onRetry: _loadData);
+  Widget _buildSliverBody({bool showCostPrice = true}) {
+    if (_isLoading) {
+      return const SliverFillRemaining(
+        hasScrollBody: false,
+        child: ShimmerLoading(),
+      );
+    }
+    if (_error != null) {
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: ErrorStateWidget(error: _error, onRetry: _loadData),
+      );
+    }
     if (_filteredProducts.isEmpty) {
-      return EmptyState(
-        icon: Icons.inventory_2_outlined,
-        title: 'No Products Found',
-        subtitle: _searchController.text.isNotEmpty
-            ? 'Try a different search term or check filters'
-            : 'Product data will appear here once synced from Tally',
-        onRetry: _loadData,
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: EmptyState(
+          icon: Icons.inventory_2_outlined,
+          title: 'No Products Found',
+          subtitle: _searchController.text.isNotEmpty
+              ? 'Try a different search term or check filters'
+              : 'Product data will appear here once synced from Tally',
+          onRetry: _loadData,
+        ),
       );
     }
 
-    return AnimationLimiter(
-      child: ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        itemCount: _filteredProducts.length + 1,
-        itemBuilder: (context, index) {
-          if (index == 0) {
-            // Only show stock value header if cost is visible
-            return showCostPrice ? _buildHeader() : const SizedBox.shrink();
-          }
-          final item = _filteredProducts[index - 1];
-          return AnimationConfiguration.staggeredList(
-            position: index,
-            duration: const Duration(milliseconds: 350),
-            child: SlideAnimation(
-              verticalOffset: 30,
-              child: FadeInAnimation(
-                child: _ProductCard(
-                  item: item,
-                  salesValue: _productSales[item.name] ?? 0.0,
-                  showSalesValue: _showSalesValue,
-                  showCostPrice: showCostPrice,
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final item = _filteredProducts[index];
+            return AnimationConfiguration.staggeredList(
+              position: index,
+              duration: const Duration(milliseconds: 350),
+              child: SlideAnimation(
+                verticalOffset: 30,
+                child: FadeInAnimation(
+                  child: _ProductCard(
+                    item: item,
+                    salesValue: _productSales[item.name] ?? 0.0,
+                    showSalesValue: _showSalesValue,
+                    showCostPrice: showCostPrice,
+                  ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+          childCount: _filteredProducts.length,
+        ),
       ),
     );
   }

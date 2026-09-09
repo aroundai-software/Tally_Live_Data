@@ -772,22 +772,25 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
               }
             }
 
-            return AlertDialog(
+            return Dialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Row(
-                children: [
-                  Icon(Icons.person_add_rounded, color: Color(0xFF2453FF)),
-                  SizedBox(width: 8),
-                  Text('Create New User', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              content: SingleChildScrollView(
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
                 child: Form(
                   key: formKey,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.person_add_rounded, color: Color(0xFF2453FF)),
+                          SizedBox(width: 8),
+                          Text('Create New User', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
                       Text(
                         'Register a new business owner profile to let them access TallyLive analytics.',
                         style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
@@ -866,26 +869,32 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                           return null;
                         },
                       ),
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: isRegistering ? null : () => Navigator.of(ctx).pop(),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: isRegistering ? null : submitRegistration,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2453FF),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: isRegistering
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Text('Create User'),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: isRegistering ? null : () => Navigator.of(ctx).pop(),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: isRegistering ? null : submitRegistration,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2453FF),
-                    foregroundColor: Colors.white,
-                  ),
-                  child: isRegistering
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Create User'),
-                ),
-              ],
             );
           },
         );

@@ -608,6 +608,20 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.white,
           actions: [
+            IconButton(
+              icon: Icon(
+                Icons.calendar_month_rounded,
+                color: (_startDate != null || _endDate != null) ? AppTheme.primaryColor : null,
+              ),
+              tooltip: 'Filter by Date',
+              onPressed: _selectDateRange,
+            ),
+            if (_startDate != null || _endDate != null)
+              IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.red),
+                tooltip: 'Clear Date Filter',
+                onPressed: _clearDateRange,
+              ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
               tooltip: 'More Options',
@@ -616,10 +630,6 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                   setState(() => _isListView = !_isListView);
                 } else if (result == 'refresh') {
                   _loadData();
-                } else if (result == 'date_range') {
-                  _selectDateRange();
-                } else if (result == 'clear_date') {
-                  _clearDateRange();
                 } else if (result == 'filter_voucher') {
                   _showVoucherTypeFilterDialog();
                 } else if (result == 'sort') {
@@ -634,9 +644,6 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                 PopupMenuItem<String>(value: 'view_toggle', child: Row(children: [Icon(_isListView ? Icons.table_chart_outlined : Icons.view_list_outlined, size: 20), const SizedBox(width: 12), Text(_isListView ? 'Table View' : 'List View')])),
                 const PopupMenuItem<String>(value: 'refresh', child: Row(children: [Icon(Icons.refresh, size: 20), SizedBox(width: 12), Text('Refresh Data')])),
                 const PopupMenuDivider(),
-                const PopupMenuItem<String>(value: 'date_range', child: Row(children: [Icon(Icons.calendar_month, size: 20), SizedBox(width: 12), Text('Filter by Date')])),
-                if (_startDate != null || _endDate != null)
-                  const PopupMenuItem<String>(value: 'clear_date', child: Row(children: [Icon(Icons.clear, size: 20, color: Colors.red), SizedBox(width: 12), Text('Clear Date Filter', style: TextStyle(color: Colors.red))])),
                 const PopupMenuItem<String>(value: 'filter_voucher', child: Row(children: [Icon(Icons.filter_alt_outlined, size: 20), SizedBox(width: 12), Text('Filter Voucher Type')])),
                 const PopupMenuDivider(),
                 PopupMenuItem<String>(value: 'sort', child: Row(children: [const Icon(Icons.swap_vert, size: 20), const SizedBox(width: 12), Text(_sortAscending ? 'Sort Newest First' : 'Sort Oldest First')])),
@@ -665,6 +672,20 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         actions: [
+          IconButton(
+            icon: Icon(
+              Icons.calendar_month_rounded,
+              color: (_startDate != null || _endDate != null) ? AppTheme.primaryColor : null,
+            ),
+            tooltip: 'Filter by Date',
+            onPressed: _selectDateRange,
+          ),
+          if (_startDate != null || _endDate != null)
+            IconButton(
+              icon: const Icon(Icons.close_rounded, color: Colors.red),
+              tooltip: 'Clear Date Filter',
+              onPressed: _clearDateRange,
+            ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             tooltip: 'More Options',
@@ -673,10 +694,6 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                 setState(() => _isListView = !_isListView);
               } else if (result == 'refresh') {
                 _loadData();
-              } else if (result == 'date_range') {
-                _selectDateRange();
-              } else if (result == 'clear_date') {
-                _clearDateRange();
               } else if (result == 'filter_voucher') {
                 _showVoucherTypeFilterDialog();
               } else if (result == 'sort') {
@@ -694,9 +711,6 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
               ),
               const PopupMenuItem<String>(value: 'refresh', child: Row(children: [Icon(Icons.refresh, size: 20), SizedBox(width: 12), Text('Refresh Data')])),
               const PopupMenuDivider(),
-              const PopupMenuItem<String>(value: 'date_range', child: Row(children: [Icon(Icons.calendar_month, size: 20), SizedBox(width: 12), Text('Filter by Date')])),
-              if (_startDate != null || _endDate != null)
-                const PopupMenuItem<String>(value: 'clear_date', child: Row(children: [Icon(Icons.clear, size: 20, color: Colors.red), SizedBox(width: 12), Text('Clear Date Filter', style: TextStyle(color: Colors.red))])),
               const PopupMenuItem<String>(value: 'filter_voucher', child: Row(children: [Icon(Icons.filter_alt_outlined, size: 20), SizedBox(width: 12), Text('Filter Voucher Type')])),
               const PopupMenuDivider(),
               PopupMenuItem<String>(value: 'sort', child: Row(children: [const Icon(Icons.swap_vert, size: 20), const SizedBox(width: 12), Text(_sortAscending ? 'Sort Newest First' : 'Sort Oldest First')])),
