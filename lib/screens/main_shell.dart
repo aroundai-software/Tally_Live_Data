@@ -27,6 +27,53 @@ class _MainShellState extends State<MainShell> {
   String? _lastCompany;
   StreamSubscription<Map<String, bool>>? _featureSubscription;
   StreamSubscription<Map<String, dynamic>>? _syncSubscription;
+  StreamSubscription<Map<String, dynamic>>? _userProfileSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _listenToUserProfile();
+  }
+
+  void _listenToUserProfile() {
+    final user = SupabaseService().currentUser;
+    if (user != null) {
+      _userProfileSubscription = SupabaseService().streamUserProfile(user.id).listen((profile) {
+        if (mounted && profile.isNotEmpty) {
+          final isActive = profile['is_active'] == true;
+          if (!isActive) {
+            _forceLogout();
+          }
+        }
+      });
+    }
+  }
+
+  Future<void> _forceLogout() async {
+    await SupabaseService().signOut();
+    if (!mounted) return;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Access Suspended'),
+        content: const Text('Your session was terminated because your account was suspended. Please contact the administrator.'),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (route) => false,
+              );
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void didChangeDependencies() {
@@ -51,6 +98,7 @@ class _MainShellState extends State<MainShell> {
   void dispose() {
     _featureSubscription?.cancel();
     _syncSubscription?.cancel();
+    _userProfileSubscription?.cancel();
     super.dispose();
   }
 

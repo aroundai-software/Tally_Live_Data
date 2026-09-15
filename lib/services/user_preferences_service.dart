@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Centralized service for saving and restoring user preferences
@@ -14,6 +15,8 @@ class UserPreferencesService {
 
   static const _kStockSort           = 'pref_stock_sort';
   static const _kStockStatusFilter   = 'pref_stock_status_filter';
+  static const _kCategoryTrackingData = 'pref_category_tracking_data';
+  static const _kSeenProductParents  = 'pref_seen_product_parents';
 
   static const _kLedgerTypeFilter    = 'pref_ledger_type_filter';
 
@@ -97,6 +100,33 @@ class UserPreferencesService {
   static Future<String> loadStockStatusFilter() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_kStockStatusFilter) ?? 'All';
+  }
+
+  // Format: { "CategoryName": { "discoveredAt": 1690000000000, "isRead": true } }
+  static Future<Map<String, dynamic>> loadCategoryTrackingData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_kCategoryTrackingData);
+    if (jsonString != null && jsonString.isNotEmpty) {
+      try {
+        return json.decode(jsonString) as Map<String, dynamic>;
+      } catch (_) {}
+    }
+    return {};
+  }
+
+  static Future<void> saveCategoryTrackingData(Map<String, dynamic> data) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kCategoryTrackingData, json.encode(data));
+  }
+
+  static Future<void> saveSeenProductParents(List<String> parents) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kSeenProductParents, parents);
+  }
+
+  static Future<List<String>> loadSeenProductParents() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_kSeenProductParents) ?? [];
   }
 
   // ─── Ledger / Customers ─────────────────────────────────────────────────────

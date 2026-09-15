@@ -208,6 +208,79 @@ class SupabaseService {
     return res;
   }
 
+  Future<AuthResponse> adminRegisterAdminAccount({
+    required String fullName,
+    required String phone,
+    required String password,
+  }) async {
+    final allDigits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    final tenDigits = allDigits.length >= 10 ? allDigits.substring(allDigits.length - 10) : allDigits;
+    if (tenDigits.length < 10) throw 'Please enter a valid 10-digit mobile number.';
+    if (password.length < 6) throw 'Password must be at least 6 characters.';
+
+    final emailAlias = '$tenDigits@tallylive.app';
+
+    final tempClient = SupabaseClient(
+      SupabaseConfig.supabaseUrl,
+      SupabaseConfig.supabaseAnonKey,
+      authOptions: const AuthClientOptions(
+        authFlowType: AuthFlowType.implicit,
+      ),
+    );
+
+    AuthResponse res;
+    try {
+      res = await tempClient.auth.signUp(
+        email: emailAlias,
+        password: password,
+        data: {
+          'full_name': fullName.trim(),
+          'phone_number': tenDigits,
+        },
+      );
+
+      final user = res.user;
+      if (user != null) {
+        try {
+          await tempClient.from('users').upsert({
+            'id': user.id,
+            'full_name': fullName.trim(),
+            'phone_number': tenDigits,
+            'company_name': '',
+            'role': 'super_admin',
+          });
+        } catch (err) {
+          try {
+            await _client.from('users').upsert({
+              'id': user.id,
+              'full_name': fullName.trim(),
+              'phone_number': tenDigits,
+              'company_name': '',
+              'role': 'super_admin',
+            });
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      final errStr = e.toString().toLowerCase();
+      if (errStr.contains('user_already_exists')) {
+        throw 'An account with this mobile number already exists.';
+      } else if (errStr.contains('email_provider_disabled') || errStr.contains('email signups are disabled')) {
+        throw 'Account registration is temporarily unavailable.';
+      } else if (errStr.contains('rate limit') || errStr.contains('429') || errStr.contains('over_email_send_rate_limit')) {
+        throw 'Registration limit exceeded. Please wait a few minutes and try again.';
+      } else {
+        rethrow;
+      }
+    } finally {
+      try {
+        await tempClient.auth.signOut();
+      } catch (_) {}
+    }
+
+    return res;
+  }
+
   Future<Map<String, dynamic>?> getUserProfile(String userId) async {
     try {
       final response = await _client
@@ -219,6 +292,33 @@ class SupabaseService {
     } catch (e) {
       return null;
     }
+  }
+
+  Future<List<Map<String, dynamic>>> getAllUsers() async {
+    try {
+      final response = await _client.from('users').select();
+      final users = List<Map<String, dynamic>>.from(response);
+      users.sort((a, b) {
+        final nameA = (a['full_name'] ?? '').toString().toLowerCase();
+        final nameB = (b['full_name'] ?? '').toString().toLowerCase();
+        return nameA.compareTo(nameB);
+      });
+      return users;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<void> updateUserAccess(String userId, bool isActive) async {
+    await _client.from('users').update({'is_active': isActive}).eq('id', userId);
+  }
+
+  Stream<Map<String, dynamic>> streamUserProfile(String userId) {
+    return _client
+        .from('users')
+        .stream(primaryKey: ['id'])
+        .eq('id', userId)
+        .map((events) => events.isNotEmpty ? events.first : {});
   }
 
   Future<void> updatePassword(String newPassword) async {
@@ -539,7 +639,9 @@ class SupabaseService {
           'ls_perf_delay': features['ls_perf_delay'] ?? true,
           'ls_perf_trend': features['ls_perf_trend'] ?? true,
           'ls_perf_history': features['ls_perf_history'] ?? true,
+          'ls_perf_tally_formula': features['ls_perf_tally_formula'] ?? false,
           'stock_cost': features['stock_cost'] ?? true,
+          'stock_item_parents': features['stock_item_parents'] ?? true,
           'cards': {
             'cash_bank':           features['db_card_cash_bank']           ?? true,
             'stock_value':         features['db_card_stock_value']         ?? true,
@@ -663,8 +765,10 @@ class SupabaseService {
       'ls_perf_delay': dashCfg['ls_perf_delay'] as bool? ?? true,
       'ls_perf_trend': dashCfg['ls_perf_trend'] as bool? ?? true,
       'ls_perf_history': dashCfg['ls_perf_history'] as bool? ?? true,
+      'ls_perf_tally_formula': dashCfg['ls_perf_tally_formula'] as bool? ?? false,
       // Stock sub-features (read from JSONB instead of separate columns)
       'stock_cost': dashCfg['stock_cost'] as bool? ?? true,
+      'stock_item_parents': dashCfg['stock_item_parents'] as bool? ?? true,
       // Dashboard JSONB — individual cards (default true when key absent)
       'db_card_cash_bank':           cards['cash_bank']           as bool? ?? true,
       'db_card_stock_value':         cards['stock_value']         as bool? ?? true,
@@ -720,6 +824,7 @@ class SupabaseService {
       'ls_perf_delay': true,
       'ls_perf_trend': true,
       'ls_perf_history': true,
+      'ls_perf_tally_formula': false,
       // Stock sub-features
       'stock_cost': true,
       // Dashboard JSONB — individual cards
@@ -1512,6 +1617,61 @@ class SupabaseService {
         .map((json) => LedgerBillSettlement.fromJson(json))
         .where((s) => s.ledgerName.toLowerCase() == ledgerName.toLowerCase())
         .toList();
+  }
+
+  /// Tally-style Receivables Ratio Formula:
+  ///   (Closing Balance / Total Sales in Period) × Days in Period
+  ///
+  /// Returns the calculated days, or null if data is insufficient
+  /// (e.g. no sales recorded, or no closing balance found).
+  Future<double?> getLedgerRatioFormulaDays({
+    required String companyName,
+    required String ledgerName,
+  }) async {
+    try {
+      // 1. Get closing balance from customers table
+      final custRes = await _client
+          .from('customers')
+          .select('closing_balance')
+          .ilike('company_name', companyName)
+          .ilike('customer_name', ledgerName)
+          .limit(1) as List;
+
+      if (custRes.isEmpty) return null;
+      final closingBalance = _toDouble(custRes.first['closing_balance']);
+
+      // 2. Compute financial year start (April 1 of current/previous year)
+      final now = DateTime.now();
+      final fyStart = now.month >= 4
+          ? DateTime(now.year, 4, 1)
+          : DateTime(now.year - 1, 4, 1);
+      final daysInPeriod = now.difference(fyStart).inDays;
+      if (daysInPeriod <= 0) return null;
+
+      // 3. Sum all Sales debit entries from tally_daybook for this ledger
+      //    since the start of the financial year
+      final fyStartUtc = fyStart.toUtc().toIso8601String();
+      final salesRes = await _client
+          .from('tally_daybook')
+          .select('amount')
+          .ilike('company_name', companyName)
+          .ilike('ledger_name', ledgerName)
+          .ilike('voucher_type', '%Sales%')
+          .eq('is_debit', true)
+          .gte('date', fyStartUtc) as List;
+
+      double totalSales = 0;
+      for (final row in salesRes) {
+        totalSales += _toDouble(row['amount']);
+      }
+
+      if (totalSales <= 0) return null;
+
+      // 4. Formula: (Closing Balance / Total Sales) × Days in Period
+      return (closingBalance / totalSales) * daysInPeriod;
+    } catch (_) {
+      return null;
+    }
   }
 
   static double _toDouble(dynamic val) {

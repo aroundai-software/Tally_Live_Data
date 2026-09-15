@@ -55,6 +55,15 @@ class _LoginScreenState extends State<LoginScreen> {
       if (user != null) {
         final profile = await _service.getUserProfile(user.id);
         
+        final isActive = profile?['is_active'] ?? true;
+        if (!isActive) {
+          await _service.signOut();
+          if (!mounted) return;
+          _showError('Your account has been suspended. Please contact the administrator.', icon: Icons.block_rounded);
+          setState(() => _isLoading = false);
+          return;
+        }
+
         // Admin Redirection check
         final role = profile != null ? profile['role']?.toString() : null;
         final email = user.email;

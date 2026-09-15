@@ -335,25 +335,14 @@ class _DaybookScreenState extends State<DaybookScreen> {
       );
     }
 
-    return AnimationLimiter(
-      child: ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        itemCount: _entries.length,
-        itemBuilder: (context, index) {
-          final entry = _entries[index];
-          return AnimationConfiguration.staggeredList(
-            position: index,
-            duration: const Duration(milliseconds: 350),
-            child: SlideAnimation(
-              verticalOffset: 30,
-              child: FadeInAnimation(
-                child: _DaybookCard(entry: entry),
-              ),
-            ),
-          );
-        },
-      ),
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: _entries.length,
+      itemBuilder: (context, index) {
+        final entry = _entries[index];
+        return _DaybookCard(entry: entry);
+      },
     );
   }
 }

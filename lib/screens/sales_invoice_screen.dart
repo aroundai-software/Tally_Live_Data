@@ -317,6 +317,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       primary: false,
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
@@ -473,39 +474,33 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
         onRetry: _loadData,
       );
     }
-    return AnimationLimiter(
-      child: ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        itemCount: _filteredInvoices.length,
-        itemBuilder: (context, index) {
-          final invoice = _filteredInvoices[index];
-          final showHeader = index == 0 ||
-              invoice.invoiceDate == null ||
-              _filteredInvoices[index - 1].invoiceDate == null ||
-              invoice.invoiceDate!.month != _filteredInvoices[index - 1].invoiceDate!.month ||
-              invoice.invoiceDate!.year != _filteredInvoices[index - 1].invoiceDate!.year;
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      itemCount: _filteredInvoices.length,
+      itemBuilder: (context, index) {
+        final invoice = _filteredInvoices[index];
+        final showHeader = index == 0 ||
+            invoice.invoiceDate == null ||
+            _filteredInvoices[index - 1].invoiceDate == null ||
+            invoice.invoiceDate!.month != _filteredInvoices[index - 1].invoiceDate!.month ||
+            invoice.invoiceDate!.year != _filteredInvoices[index - 1].invoiceDate!.year;
 
-          Widget card = _InvoiceCard(invoice: invoice, onTap: () => _showInvoiceDetail(invoice));
-          
-          if (showHeader && invoice.invoiceDate != null) {
-            final monthStr = DateFormat('MMMM yyyy').format(invoice.invoiceDate!);
-            card = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildMonthHeader(monthStr),
-                card,
-              ],
-            );
-          }
-
-          return AnimationConfiguration.staggeredList(
-            position: index,
-            duration: const Duration(milliseconds: 350),
-            child: SlideAnimation(verticalOffset: 30, child: FadeInAnimation(child: card)),
+        Widget card = _InvoiceCard(invoice: invoice, onTap: () => _showInvoiceDetail(invoice));
+        
+        if (showHeader && invoice.invoiceDate != null) {
+          final monthStr = DateFormat('MMMM yyyy').format(invoice.invoiceDate!);
+          card = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildMonthHeader(monthStr),
+              card,
+            ],
           );
-        },
-      ),
+        }
+
+        return card;
+      },
     );
   }
 

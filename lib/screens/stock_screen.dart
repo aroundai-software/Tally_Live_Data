@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/error_handler.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
+
 import '../config/app_theme.dart';
 import '../models/stock_item.dart';
 import '../providers/company_provider.dart';
@@ -11,6 +12,9 @@ import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/error_state_widget.dart';
+import '../utils/error_handler.dart';
+import 'new_category_screen.dart';
+import 'item_parents_screen.dart';
 
 class StockScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -34,10 +38,12 @@ class _StockScreenState extends State<StockScreen> {
   final ScrollController _scrollController = ScrollController();
 
   String _sortBy = 'qty_desc'; // 'qty_desc', 'qty_asc'
-  String _stockFilter = 'All'; // 'All', 'Low Stock', 'Zero Stock'
-
-  bool _initialized = false;
+  String _stockFilter = 'All'; // All, Low Stock, Zero Stock
   late bool _showSalesValue;
+  List<String> _newParents = []; // Unread/New parents for badges
+  List<String> _allParents = []; // All item parents
+  bool _hasUnreadCategories = false;
+  bool _initialized = false;
 
   @override
   void initState() {
@@ -158,12 +164,77 @@ class _StockScreenState extends State<StockScreen> {
       if (company != null) {
         salesMap = await _service.getProductSalesTotals(companyName: company);
       }
+
+      // Count products per parent
+      Map<String, int> currentParentCounts = {};
+      for (var item in items) {
+        if (item.parent != null && item.parent!.isNotEmpty) {
+          currentParentCounts[item.parent!] = (currentParentCounts[item.parent!] ?? 0) + 1;
+        }
+      }
+
+      final categoryData = await UserPreferencesService.loadCategoryTrackingData();
+      bool dataChanged = false;
+
+      // Handle first run safety check (don't show a huge list of all existing categories as 'new')
+      if (categoryData.isEmpty && currentParentCounts.isNotEmpty) {
+        final oldTime = DateTime.now().subtract(const Duration(days: 8)).millisecondsSinceEpoch;
+        currentParentCounts.forEach((parent, count) {
+          categoryData[parent] = {'discoveredAt': oldTime, 'isRead': true, 'productCount': count};
+        });
+        dataChanged = true;
+      } else {
+        // Normal check for new categories or increased product count
+        currentParentCounts.forEach((parent, count) {
+          if (!categoryData.containsKey(parent)) {
+            // Completely new parent
+            categoryData[parent] = {'discoveredAt': DateTime.now().millisecondsSinceEpoch, 'isRead': false, 'productCount': count};
+            dataChanged = true;
+          } else {
+            // Existing parent, check if count increased
+            int oldCount = categoryData[parent]['productCount'] as int? ?? 0;
+            if (count > oldCount) {
+              // Product count increased! Flag it as new/unread.
+              categoryData[parent]['discoveredAt'] = DateTime.now().millisecondsSinceEpoch;
+              categoryData[parent]['isRead'] = false;
+              categoryData[parent]['productCount'] = count;
+              dataChanged = true;
+            } else if (count != oldCount) {
+              // If count decreased (deleted products), just update the count silently
+              categoryData[parent]['productCount'] = count;
+              dataChanged = true;
+            }
+          }
+        });
+      }
+
+      if (dataChanged) {
+        await UserPreferencesService.saveCategoryTrackingData(categoryData);
+      }
+
+      List<String> activeCategories = [];
+      bool hasUnread = false;
+      final now = DateTime.now();
+
+      categoryData.forEach((name, data) {
+        final discoveredAt = DateTime.fromMillisecondsSinceEpoch(data['discoveredAt'] as int);
+        if (now.difference(discoveredAt).inDays <= 4) {
+          activeCategories.add(name);
+          if (data['isRead'] == false) {
+            hasUnread = true;
+          }
+        }
+      });
+
       if (mounted) {
         setState(() {
           _products = items;
           _filteredProducts = items;
           _productSales = salesMap;
           _pendingProducts = null;
+          _allParents = currentParentCounts.keys.toList()..sort();
+          _newParents = activeCategories;
+          _hasUnreadCategories = hasUnread;
           _isLoading = false;
         });
         _onSearchChanged();
@@ -187,9 +258,71 @@ class _StockScreenState extends State<StockScreen> {
       if (company != null) {
         salesMap = await _service.getProductSalesTotals(companyName: company);
       }
+      
+      Map<String, int> currentParentCounts = {};
+      for (var item in items) {
+        if (item.parent != null && item.parent!.isNotEmpty) {
+          currentParentCounts[item.parent!] = (currentParentCounts[item.parent!] ?? 0) + 1;
+        }
+      }
+
+      final categoryData = await UserPreferencesService.loadCategoryTrackingData();
+      bool dataChanged = false;
+
+      if (categoryData.isEmpty && currentParentCounts.isNotEmpty) {
+        final oldTime = DateTime.now().subtract(const Duration(days: 8)).millisecondsSinceEpoch;
+        currentParentCounts.forEach((parent, count) {
+          categoryData[parent] = {'discoveredAt': oldTime, 'isRead': true, 'productCount': count};
+        });
+        dataChanged = true;
+      } else {
+        currentParentCounts.forEach((parent, count) {
+          if (!categoryData.containsKey(parent)) {
+            categoryData[parent] = {'discoveredAt': DateTime.now().millisecondsSinceEpoch, 'isRead': false, 'productCount': count};
+            dataChanged = true;
+          } else {
+            int oldCount = categoryData[parent]['productCount'] as int? ?? 0;
+            if (count > oldCount) {
+              categoryData[parent]['discoveredAt'] = DateTime.now().millisecondsSinceEpoch;
+              categoryData[parent]['isRead'] = false;
+              categoryData[parent]['productCount'] = count;
+              dataChanged = true;
+            } else if (count != oldCount) {
+              categoryData[parent]['productCount'] = count;
+              dataChanged = true;
+            }
+          }
+        });
+      }
+
+      if (dataChanged) {
+        await UserPreferencesService.saveCategoryTrackingData(categoryData);
+      }
+
+      List<String> activeCategories = [];
+      bool hasUnread = false;
+      final now = DateTime.now();
+
+      categoryData.forEach((name, data) {
+        final discoveredAt = DateTime.fromMillisecondsSinceEpoch(data['discoveredAt'] as int);
+        if (now.difference(discoveredAt).inDays <= 4) {
+          activeCategories.add(name);
+          if (data['isRead'] == false) {
+            hasUnread = true;
+          }
+        }
+      });
+
       if (!mounted) return;
       _pendingProducts = items;
       _pendingSalesMap = salesMap;
+      
+      // Update new parents silently
+      setState(() {
+        _allParents = currentParentCounts.keys.toList()..sort();
+        _newParents = activeCategories;
+        _hasUnreadCategories = hasUnread;
+      });
       if (!_scrollController.hasClients) {
         _applyPendingData();
       } else {
@@ -219,8 +352,10 @@ class _StockScreenState extends State<StockScreen> {
   Widget build(BuildContext context) {
     final companyState = CompanyProvider.of(context);
     final showCostPrice = companyState.isFeatureEnabled('stock_cost');
+    final showItemParents = companyState.isFeatureEnabled('stock_item_parents');
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       primary: false,
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
@@ -239,6 +374,72 @@ class _StockScreenState extends State<StockScreen> {
             onPressed: _loadData,
             icon: const Icon(Icons.refresh_rounded),
           ),
+          if (showItemParents)
+            PopupMenuButton<String>(
+              icon: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const Icon(Icons.more_vert),
+                  if (_hasUnreadCategories)
+                    Positioned(
+                      right: -2,
+                      top: -2,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              itemBuilder: (context) => [
+                const PopupMenuItem<String>(
+                  value: 'item_parents',
+                  child: Text('Item Parents'),
+                ),
+              ],
+              onSelected: (value) async {
+                if (value == 'item_parents') {
+                  // Mark active categories as read
+                  final categoryData = await UserPreferencesService.loadCategoryTrackingData();
+                  bool dataChanged = false;
+                  
+                  for (var cat in _newParents) {
+                    if (categoryData.containsKey(cat) && categoryData[cat]['isRead'] == false) {
+                      categoryData[cat]['isRead'] = true;
+                      dataChanged = true;
+                    }
+                  }
+                  
+                  if (dataChanged) {
+                    await UserPreferencesService.saveCategoryTrackingData(categoryData);
+                  }
+
+                  if (!mounted) return;
+                  
+                  // Hide the red dot immediately
+                  setState(() {
+                    _hasUnreadCategories = false;
+                  });
+
+                  // Pass all parents and new parents for badging
+                  final allParentsToView = List<String>.from(_allParents);
+                  final newParentsToView = List<String>.from(_newParents);
+
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ItemParentsScreen(
+                        allParents: allParentsToView,
+                        newParents: newParentsToView,
+                      ),
+                    ),
+                  );
+                }
+              },
+            ),
         ],
       ),
       body: RefreshIndicator(
@@ -427,8 +628,7 @@ class _StockScreenState extends State<StockScreen> {
 
   Widget _buildSliverBody({bool showCostPrice = true}) {
     if (_isLoading) {
-      return const SliverFillRemaining(
-        hasScrollBody: false,
+      return const SliverToBoxAdapter(
         child: ShimmerLoading(),
       );
     }
@@ -458,20 +658,11 @@ class _StockScreenState extends State<StockScreen> {
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final item = _filteredProducts[index];
-            return AnimationConfiguration.staggeredList(
-              position: index,
-              duration: const Duration(milliseconds: 350),
-              child: SlideAnimation(
-                verticalOffset: 30,
-                child: FadeInAnimation(
-                  child: _ProductCard(
-                    item: item,
-                    salesValue: _productSales[item.name] ?? 0.0,
-                    showSalesValue: _showSalesValue,
-                    showCostPrice: showCostPrice,
-                  ),
-                ),
-              ),
+            return _ProductCard(
+              item: item,
+              salesValue: _productSales[item.name] ?? 0.0,
+              showSalesValue: _showSalesValue,
+              showCostPrice: showCostPrice,
             );
           },
           childCount: _filteredProducts.length,

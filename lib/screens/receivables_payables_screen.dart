@@ -335,6 +335,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     // If both tabs are disabled, show a locked screen
     if (!showReceivables && !showPayables) {
       return Scaffold(
+        resizeToAvoidBottomInset: false,
         primary: false,
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
@@ -375,6 +376,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
 
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       primary: false,
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
@@ -687,19 +689,13 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
         onRetry: _loadData,
       );
     }
-    return AnimationLimiter(
-      child: ListView.builder(
-        key: PageStorageKey(type),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        itemCount: items.length,
-        itemBuilder: (context, index) {
-          return AnimationConfiguration.staggeredList(
-            position: index,
-            duration: const Duration(milliseconds: 350),
-            child: SlideAnimation(verticalOffset: 30, child: FadeInAnimation(child: _OutstandingCard(item: items[index], type: type))),
-          );
-        },
-      ),
+    return ListView.builder(
+      key: PageStorageKey(type),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        return _OutstandingCard(item: items[index], type: type);
+      },
     );
   }
 

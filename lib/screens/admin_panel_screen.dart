@@ -23,6 +23,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   Widget build(BuildContext context) {
     final tabs = [
       const AdminCompaniesTab(),
+      const AdminUsersTab(),
       const AdminProfileTab(),
     ];
 
@@ -55,10 +56,16 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   onTap: () => setState(() => _currentIndex = 0),
                 ),
                 _AdminNavItem(
-                  icon: Icons.person_rounded,
-                  label: 'Profile',
+                  icon: Icons.people_alt_rounded,
+                  label: 'Users',
                   isSelected: _currentIndex == 1,
                   onTap: () => setState(() => _currentIndex = 1),
+                ),
+                _AdminNavItem(
+                  icon: Icons.person_rounded,
+                  label: 'Profile',
+                  isSelected: _currentIndex == 2,
+                  onTap: () => setState(() => _currentIndex = 2),
                 ),
               ],
             ),
@@ -310,7 +317,176 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
   }
 }
 
-// ─── Tab 2: Profile & Logout ──────────────────────────────────
+// ─── Tab 2: Users Management ──────────────────────────────────
+class AdminUsersTab extends StatefulWidget {
+  const AdminUsersTab({super.key});
+
+  @override
+  State<AdminUsersTab> createState() => _AdminUsersTabState();
+}
+
+class _AdminUsersTabState extends State<AdminUsersTab> {
+  final SupabaseService _service = SupabaseService();
+  List<Map<String, dynamic>> _users = [];
+  String _searchQuery = '';
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUsers();
+  }
+
+  Future<void> _loadUsers() async {
+    final users = await _service.getAllUsers();
+    if (mounted) {
+      setState(() {
+        _users = users;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _toggleAccess(String userId, bool newValue) async {
+    try {
+      await _service.updateUserAccess(userId, newValue);
+      await _loadUsers();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update access: $e'), backgroundColor: AppTheme.errorColor),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayedUsers = _users.where((user) {
+      final name = (user['full_name'] ?? '').toString().toLowerCase();
+      final phone = (user['phone_number'] ?? '').toString().toLowerCase();
+      final query = _searchQuery.toLowerCase();
+      return name.contains(query) || phone.contains(query);
+    }).toList();
+
+    return Scaffold(
+      backgroundColor: AppTheme.surfaceColor,
+      appBar: AppBar(
+        title: const Text(
+          'Users Management',
+          style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+        ),
+        elevation: 0,
+        backgroundColor: Colors.white,
+        automaticallyImplyLeading: false,
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+          : Column(
+              children: [
+                Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search by name or phone...',
+                      hintStyle: const TextStyle(color: AppTheme.textSecondary),
+                      prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.textSecondary),
+                      filled: true,
+                      fillColor: AppTheme.surfaceColor,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
+                    onChanged: (val) {
+                      setState(() {
+                        _searchQuery = val;
+                      });
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _loadUsers,
+                    color: AppTheme.primaryColor,
+                    child: displayedUsers.isEmpty
+                        ? const Center(child: Text('No users found', style: TextStyle(color: AppTheme.textSecondary)))
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: displayedUsers.length,
+                            itemBuilder: (context, index) {
+                              final user = displayedUsers[index];
+                              final isActive = user['is_active'] == true;
+                              final role = user['role'] ?? 'user';
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.04),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  leading: CircleAvatar(
+                                    backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.1),
+                                    child: Text(
+                                      (user['full_name']?.toString() ?? 'U').toUpperCase().substring(0, 1),
+                                      style: const TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  title: Text(
+                                    user['full_name']?.toString() ?? 'Unknown User',
+                                    style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                                  ),
+                                  subtitle: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const SizedBox(height: 4),
+                                      Text(user['phone_number']?.toString() ?? '', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                                      const SizedBox(height: 2),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: role == 'super_admin' ? Colors.red.withValues(alpha: 0.1) : Colors.blue.withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          role.toString().toUpperCase(),
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w700,
+                                            color: role == 'super_admin' ? Colors.red : Colors.blue,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  trailing: Switch(
+                                    value: isActive,
+                                    activeColor: AppTheme.primaryColor,
+                                    onChanged: (val) => _toggleAccess(user['id'], val),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+// ─── Tab 3: Profile & Logout ──────────────────────────────────
 class AdminProfileTab extends StatefulWidget {
   const AdminProfileTab({super.key});
 
@@ -399,12 +575,13 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
           : Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 600),
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    children: [
+              child: SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 600),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      children: [
                       // Profile Details Card
                       Container(
                         decoration: BoxDecoration(
@@ -487,6 +664,15 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                       const SizedBox(height: 12),
                       
                       _buildActionItem(
+                        icon: Icons.admin_panel_settings_rounded,
+                        title: 'Create New Admin Account',
+                        subtitle: 'Add a new super administrator',
+                        color: const Color(0xFF2453FF),
+                        onTap: _showCreateAdminDialog,
+                      ),
+                      const SizedBox(height: 12),
+                      
+                      _buildActionItem(
                         icon: Icons.password_rounded,
                         title: 'Change Password',
                         subtitle: 'Update your administrator password',
@@ -560,6 +746,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                 ),
               ),
             ),
+          ),
     );
   }
 
@@ -901,6 +1088,183 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
       },
     );
   }
+
+  void _showCreateAdminDialog() {
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
+
+    final nameFocus = FocusNode();
+    final phoneFocus = FocusNode();
+    final passwordFocus = FocusNode();
+
+    final formKey = GlobalKey<FormState>();
+    bool isRegistering = false;
+    bool obscure = true;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submitRegistration() async {
+              if (!formKey.currentState!.validate() || isRegistering) return;
+              setDialogState(() => isRegistering = true);
+              try {
+                await _service.adminRegisterAdminAccount(
+                  fullName: nameCtrl.text.trim(),
+                  phone: phoneCtrl.text.trim(),
+                  password: passwordCtrl.text.trim(),
+                );
+                if (!mounted) return;
+                Navigator.of(ctx).pop();
+                
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Admin account created successfully!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } catch (e) {
+                setDialogState(() => isRegistering = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(e.toString().replaceAll('Exception:', '').trim()),
+                    backgroundColor: const Color(0xFFC2372A),
+                  ),
+                );
+              }
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.admin_panel_settings_rounded, color: Color(0xFF2453FF)),
+                          SizedBox(width: 8),
+                          Text('Create New Admin', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Register a new Super Administrator with full system access.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: nameCtrl,
+                        focusNode: nameFocus,
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) {
+                          FocusScope.of(context).requestFocus(phoneFocus);
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'Full Name *',
+                          hintText: 'Admin Name',
+                          prefixIcon: Icon(Icons.person_outline_rounded),
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Please enter admin\'s full name';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: phoneCtrl,
+                        focusNode: phoneFocus,
+                        keyboardType: TextInputType.phone,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(10),
+                        ],
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) {
+                          FocusScope.of(context).requestFocus(passwordFocus);
+                        },
+                        decoration: const InputDecoration(
+                          labelText: '10-Digit Mobile Number *',
+                          hintText: '9876543210',
+                          prefixIcon: Icon(Icons.phone_rounded),
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Please enter mobile number';
+                          }
+                          if (val.trim().length != 10) {
+                            return 'Enter a valid 10-digit phone number';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: passwordCtrl,
+                        focusNode: passwordFocus,
+                        obscureText: obscure,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) => submitRegistration(),
+                        decoration: InputDecoration(
+                          labelText: 'Temporary Password *',
+                          hintText: '••••••••',
+                          prefixIcon: const Icon(Icons.lock_outline_rounded),
+                          suffixIcon: IconButton(
+                            icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                            onPressed: () => setDialogState(() => obscure = !obscure),
+                          ),
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Please create a temporary password';
+                          }
+                          if (val.length < 6) {
+                            return 'Password must be at least 6 characters';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: isRegistering ? null : () => Navigator.of(ctx).pop(),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: isRegistering ? null : submitRegistration,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2453FF),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: isRegistering
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Text('Create Admin'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 // ─── Feature Details Gating Page ──────────────────────────────
@@ -951,6 +1315,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           _features['ls_perf_delay'] = false;
           _features['ls_perf_trend'] = false;
           _features['ls_perf_history'] = false;
+          _features['ls_perf_tally_formula'] = false;
         } else if (featureKey == 'stock') {
           _features['db_card_stock_value'] = false;
           _features['db_np_stock'] = false;
@@ -985,6 +1350,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           _features['ls_perf_delay'] = true;
           _features['ls_perf_trend'] = true;
           _features['ls_perf_history'] = true;
+          _features['ls_perf_tally_formula'] = true;
         } else if (featureKey == 'stock') {
           _features['db_card_stock_value'] = true;
           _features['db_np_stock'] = true;
@@ -1913,6 +2279,13 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
                           'Allows users to see product purchase rates and margins',
                           Icons.attach_money_rounded,
                         ),
+                        const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                        _buildSubToggleItem(
+                          'Item Parents & New Categories',
+                          'stock_item_parents',
+                          'Shows the Item Parents menu with new product alerts',
+                          Icons.category_rounded,
+                        ),
                       ],
                     ),
                   ),
@@ -2552,6 +2925,7 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
         _features['ls_perf_delay'] = false;
         _features['ls_perf_trend'] = false;
         _features['ls_perf_history'] = false;
+        _features['ls_perf_tally_formula'] = false;
       }
       if (featureKey == 'ledgers' && updatedValue) {
         _features['ls_transactions'] = true;
@@ -2560,6 +2934,7 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
         _features['ls_perf_delay'] = true;
         _features['ls_perf_trend'] = true;
         _features['ls_perf_history'] = true;
+        _features['ls_perf_tally_formula'] = true;
       }
       // Performance tab toggle cascades its sub-sections
       if (featureKey == 'ls_performance' && !updatedValue) {
@@ -2567,12 +2942,14 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
         _features['ls_perf_delay'] = false;
         _features['ls_perf_trend'] = false;
         _features['ls_perf_history'] = false;
+        _features['ls_perf_tally_formula'] = false;
       }
       if (featureKey == 'ls_performance' && updatedValue) {
         _features['ls_perf_speed'] = true;
         _features['ls_perf_delay'] = true;
         _features['ls_perf_trend'] = true;
         _features['ls_perf_history'] = true;
+        _features['ls_perf_tally_formula'] = true;
       }
 
       // Auto-toggle main features based on sub-features
@@ -2582,7 +2959,8 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
           final anyPerfSubEnabled = (_features['ls_perf_speed'] ?? false) ||
               (_features['ls_perf_delay'] ?? false) ||
               (_features['ls_perf_trend'] ?? false) ||
-              (_features['ls_perf_history'] ?? false);
+              (_features['ls_perf_history'] ?? false) ||
+              (_features['ls_perf_tally_formula'] ?? false);
           _features['ls_performance'] = anyPerfSubEnabled;
         }
 
@@ -2691,6 +3069,8 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
                     child: Column(
                       children: [
                         _buildSubToggleItem('Avg Collection Speed Card', 'ls_perf_speed', Icons.speed_rounded),
+                        const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                        _buildSubToggleItem('Enable Tally Formula Toggle', 'ls_perf_tally_formula', Icons.calculate_rounded),
                         const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
                         _buildSubToggleItem('Avg Payment Delay Card', 'ls_perf_delay', Icons.timer_rounded),
                         const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),

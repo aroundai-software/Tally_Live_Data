@@ -45,7 +45,7 @@ class ErrorStateWidget extends StatelessWidget {
       message = 'The database service is currently undergoing maintenance or paused. Please try again shortly.';
     } else if (error != null) {
       final cleanMsg = error.toString().replaceAll('Exception:', '').trim();
-      if (cleanMsg.isNotEmpty && cleanMsg.length < 120) {
+      if (cleanMsg.isNotEmpty) {
         message = cleanMsg;
       }
     }

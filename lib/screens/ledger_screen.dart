@@ -168,6 +168,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       primary: false,
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
@@ -298,6 +299,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
     if (_error != null) return SliverFillRemaining(child: ErrorState(message: _error!, onRetry: _loadData));
     if (_filteredCustomers.isEmpty) {
       return SliverFillRemaining(
+        hasScrollBody: false,
         child: EmptyState(
           icon: Icons.people_outlined,
           title: 'No Customers Found',
@@ -312,14 +314,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final customer = _filteredCustomers[index];
-            return AnimationConfiguration.staggeredList(
-              position: index,
-              duration: const Duration(milliseconds: 350),
-              child: SlideAnimation(
-                verticalOffset: 30,
-                child: FadeInAnimation(child: _CustomerCard(customer: customer)),
-              ),
-            );
+            return _CustomerCard(customer: customer);
           },
           childCount: _filteredCustomers.length,
         ),
