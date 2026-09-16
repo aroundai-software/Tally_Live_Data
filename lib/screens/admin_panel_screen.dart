@@ -331,6 +331,10 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
   String _searchQuery = '';
   bool _isLoading = true;
 
+  final Set<String> _expandedUserIds = {};
+  final Set<String> _loadingCompaniesUserIds = {};
+  final Map<String, List<String>> _userCompaniesMap = {};
+
   @override
   void initState() {
     super.initState();
@@ -344,6 +348,39 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
         _users = users;
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _toggleExpandUser(String userId) async {
+    final isExpanded = _expandedUserIds.contains(userId);
+    setState(() {
+      if (isExpanded) {
+        _expandedUserIds.remove(userId);
+      } else {
+        _expandedUserIds.add(userId);
+      }
+    });
+
+    if (!isExpanded && !_userCompaniesMap.containsKey(userId)) {
+      setState(() {
+        _loadingCompaniesUserIds.add(userId);
+      });
+      try {
+        final companies = await _service.getUserCompanies(userId);
+        if (mounted) {
+          setState(() {
+            _userCompaniesMap[userId] = companies;
+            _loadingCompaniesUserIds.remove(userId);
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _userCompaniesMap[userId] = [];
+            _loadingCompaniesUserIds.remove(userId);
+          });
+        }
+      }
     }
   }
 
@@ -418,8 +455,13 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                             itemCount: displayedUsers.length,
                             itemBuilder: (context, index) {
                               final user = displayedUsers[index];
+                              final userId = user['id']?.toString() ?? '';
                               final isActive = user['is_active'] == true;
                               final role = user['role'] ?? 'user';
+                              final isExpanded = _expandedUserIds.contains(userId);
+                              final isLoadingCompanies = _loadingCompaniesUserIds.contains(userId);
+                              final companies = _userCompaniesMap[userId] ?? [];
+
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 12),
                                 decoration: BoxDecoration(
@@ -433,47 +475,176 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                     ),
                                   ],
                                 ),
-                                child: ListTile(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                  leading: CircleAvatar(
-                                    backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.1),
-                                    child: Text(
-                                      (user['full_name']?.toString() ?? 'U').toUpperCase().substring(0, 1),
-                                      style: const TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                  title: Text(
-                                    user['full_name']?.toString() ?? 'Unknown User',
-                                    style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
-                                  ),
-                                  subtitle: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const SizedBox(height: 4),
-                                      Text(user['phone_number']?.toString() ?? '', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
-                                      const SizedBox(height: 2),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: role == 'super_admin' ? Colors.red.withValues(alpha: 0.1) : Colors.blue.withValues(alpha: 0.1),
-                                          borderRadius: BorderRadius.circular(12),
+                                child: Column(
+                                  children: [
+                                    InkWell(
+                                      onTap: () => _toggleExpandUser(userId),
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        child: Row(
+                                          children: [
+                                            CircleAvatar(
+                                              backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.1),
+                                              child: Text(
+                                                (user['full_name']?.toString() ?? 'U').toUpperCase().substring(0, 1),
+                                                style: const TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    user['full_name']?.toString() ?? 'Unknown User',
+                                                    style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(user['phone_number']?.toString() ?? '', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                                                  const SizedBox(height: 4),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: role == 'super_admin' ? Colors.red.withValues(alpha: 0.1) : Colors.blue.withValues(alpha: 0.1),
+                                                      borderRadius: BorderRadius.circular(12),
+                                                    ),
+                                                    child: Text(
+                                                      role.toString().toUpperCase(),
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        fontWeight: FontWeight.w700,
+                                                        color: role == 'super_admin' ? Colors.red : Colors.blue,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            Icon(
+                                              isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                                              color: AppTheme.textSecondary,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Switch(
+                                              value: isActive,
+                                              activeColor: AppTheme.primaryColor,
+                                              onChanged: (val) => _toggleAccess(userId, val),
+                                            ),
+                                          ],
                                         ),
-                                        child: Text(
-                                          role.toString().toUpperCase(),
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w700,
-                                            color: role == 'super_admin' ? Colors.red : Colors.blue,
-                                          ),
+                                      ),
+                                    ),
+                                    if (isExpanded) ...[
+                                      const Divider(height: 1, indent: 16, endIndent: 16),
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.surfaceColor.withValues(alpha: 0.5),
+                                          borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                const Icon(Icons.business_rounded, size: 16, color: AppTheme.primaryColor),
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  'Linked Companies (${companies.length})',
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w700,
+                                                    fontSize: 13,
+                                                    color: AppTheme.textPrimary,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 10),
+                                            if (isLoadingCompanies)
+                                              const Padding(
+                                                padding: EdgeInsets.symmetric(vertical: 8.0),
+                                                child: Center(
+                                                  child: SizedBox(
+                                                    width: 20,
+                                                    height: 20,
+                                                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryColor),
+                                                  ),
+                                                ),
+                                              )
+                                            else if (companies.isEmpty)
+                                              const Text(
+                                                'No companies linked to this user.',
+                                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontStyle: FontStyle.italic),
+                                              )
+                                            else
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: 8,
+                                                children: companies.map((comp) {
+                                                  return Material(
+                                                    color: Colors.white,
+                                                    borderRadius: BorderRadius.circular(8),
+                                                    child: InkWell(
+                                                      onTap: () async {
+                                                        try {
+                                                          final features = await _service.getCompanyFeatures(comp);
+                                                          if (!context.mounted) return;
+                                                          Navigator.of(context).push(
+                                                            MaterialPageRoute(
+                                                              builder: (_) => CompanyFeaturesScreen(
+                                                                companyName: comp,
+                                                                initialFeatures: features,
+                                                              ),
+                                                            ),
+                                                          );
+                                                        } catch (e) {
+                                                          if (context.mounted) {
+                                                            ScaffoldMessenger.of(context).showSnackBar(
+                                                              SnackBar(content: Text('Error loading features: $e')),
+                                                            );
+                                                          }
+                                                        }
+                                                      },
+                                                      borderRadius: BorderRadius.circular(8),
+                                                      child: Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                        decoration: BoxDecoration(
+                                                          borderRadius: BorderRadius.circular(8),
+                                                          border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                                                        ),
+                                                        child: Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            const Icon(Icons.domain_rounded, size: 14, color: AppTheme.primaryColor),
+                                                            const SizedBox(width: 6),
+                                                            Flexible(
+                                                              child: Text(
+                                                                comp,
+                                                                maxLines: 1,
+                                                                overflow: TextOverflow.ellipsis,
+                                                                style: const TextStyle(
+                                                                  fontSize: 12,
+                                                                  fontWeight: FontWeight.w500,
+                                                                  color: AppTheme.textPrimary,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                            const SizedBox(width: 4),
+                                                            const Icon(Icons.arrow_forward_ios_rounded, size: 10, color: AppTheme.textSecondary),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  );
+                                                }).toList(),
+                                              ),
+                                          ],
                                         ),
                                       ),
                                     ],
-                                  ),
-                                  trailing: Switch(
-                                    value: isActive,
-                                    activeColor: AppTheme.primaryColor,
-                                    onChanged: (val) => _toggleAccess(user['id'], val),
-                                  ),
+                                  ],
                                 ),
                               );
                             },
@@ -1811,65 +1982,89 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: cardItems.map((item) {
-              final key = item['key'] as String;
-              final isItemEnabled = _features[key] ?? true;
-              final color = item['color'] as Color;
-
-              return GestureDetector(
-                onTap: () => _toggleFeature(key, isItemEnabled),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 140,
-                  height: 90,
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: isItemEnabled ? color.withOpacity(0.08) : Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: isItemEnabled ? color : const Color(0xFFE4E9F1),
-                      width: isItemEnabled ? 2.0 : 1.0,
-                    ),
-                  ),
-                  child: Stack(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const crossAxisCount = 2;
+              const spacing = 10.0;
+              final cardWidth = (constraints.maxWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
+              final rows = <Widget>[];
+              for (int i = 0; i < cardItems.length; i += crossAxisCount) {
+                final rowItems = cardItems.sublist(i, (i + crossAxisCount).clamp(0, cardItems.length));
+                rows.add(
+                  Row(
                     children: [
-                      Align(
-                        alignment: Alignment.topRight,
-                        child: Icon(
-                          isItemEnabled ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                          size: 14,
-                          color: isItemEnabled ? color : Colors.grey.shade300,
-                        ),
-                      ),
-                      Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              item['icon'] as IconData,
-                              size: 16,
-                              color: isItemEnabled ? color : Colors.grey.shade400,
+                      for (int j = 0; j < rowItems.length; j++) ...[
+                        if (j > 0) const SizedBox(width: spacing),
+                        Builder(builder: (_) {
+                          final item = rowItems[j];
+                          final key = item['key'] as String;
+                          final isItemEnabled = _features[key] ?? true;
+                          final color = item['color'] as Color;
+                          return GestureDetector(
+                            onTap: () => _toggleFeature(key, isItemEnabled),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              width: cardWidth,
+                              height: 88,
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: isItemEnabled ? color.withOpacity(0.08) : Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isItemEnabled ? color : const Color(0xFFE4E9F1),
+                                  width: isItemEnabled ? 2.0 : 1.0,
+                                ),
+                              ),
+                              child: Stack(
+                                children: [
+                                  Align(
+                                    alignment: Alignment.topRight,
+                                    child: Icon(
+                                      isItemEnabled ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                                      size: 14,
+                                      color: isItemEnabled ? color : Colors.grey.shade300,
+                                    ),
+                                  ),
+                                  Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          item['icon'] as IconData,
+                                          size: 20,
+                                          color: isItemEnabled ? color : Colors.grey.shade400,
+                                        ),
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          item['title'] as String,
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: isItemEnabled ? const Color(0xFF0F1A2B) : Colors.grey.shade500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              item['title'] as String,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: isItemEnabled ? const Color(0xFF0F1A2B) : Colors.grey.shade500),
-                            ),
-                          ],
-                        ),
-                      ),
+                          );
+                        }),
+                      ],
+                      // fill remaining space if last row has fewer items
+                      if (rowItems.length < crossAxisCount)
+                        SizedBox(width: cardWidth + spacing),
                     ],
                   ),
-                ),
-              );
-            }).toList(),
+                );
+                if (i + crossAxisCount < cardItems.length) {
+                  rows.add(const SizedBox(height: spacing));
+                }
+              }
+              return Column(children: rows);
+            },
           ),
         ],
       ),
@@ -2030,65 +2225,88 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: netPositionItems.map((item) {
-              final key = item['key'] as String;
-              final isItemEnabled = _features[key] ?? true;
-              final color = item['color'] as Color;
-
-              return GestureDetector(
-                onTap: () => _toggleFeature(key, isItemEnabled),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 140,
-                  height: 90,
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: isItemEnabled ? color.withOpacity(0.08) : Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: isItemEnabled ? color : const Color(0xFFE4E9F1),
-                      width: isItemEnabled ? 2.0 : 1.0,
-                    ),
-                  ),
-                  child: Stack(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const crossAxisCount = 2;
+              const spacing = 10.0;
+              final cardWidth = (constraints.maxWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
+              final rows = <Widget>[];
+              for (int i = 0; i < netPositionItems.length; i += crossAxisCount) {
+                final rowItems = netPositionItems.sublist(i, (i + crossAxisCount).clamp(0, netPositionItems.length));
+                rows.add(
+                  Row(
                     children: [
-                      Align(
-                        alignment: Alignment.topRight,
-                        child: Icon(
-                          isItemEnabled ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                          size: 14,
-                          color: isItemEnabled ? color : Colors.grey.shade300,
-                        ),
-                      ),
-                      Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              item['icon'] as IconData,
-                              size: 16,
-                              color: isItemEnabled ? color : Colors.grey.shade400,
+                      for (int j = 0; j < rowItems.length; j++) ...[
+                        if (j > 0) const SizedBox(width: spacing),
+                        Builder(builder: (_) {
+                          final item = rowItems[j];
+                          final key = item['key'] as String;
+                          final isItemEnabled = _features[key] ?? true;
+                          final color = item['color'] as Color;
+                          return GestureDetector(
+                            onTap: () => _toggleFeature(key, isItemEnabled),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              width: cardWidth,
+                              height: 88,
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: isItemEnabled ? color.withOpacity(0.08) : Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isItemEnabled ? color : const Color(0xFFE4E9F1),
+                                  width: isItemEnabled ? 2.0 : 1.0,
+                                ),
+                              ),
+                              child: Stack(
+                                children: [
+                                  Align(
+                                    alignment: Alignment.topRight,
+                                    child: Icon(
+                                      isItemEnabled ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                                      size: 14,
+                                      color: isItemEnabled ? color : Colors.grey.shade300,
+                                    ),
+                                  ),
+                                  Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          item['icon'] as IconData,
+                                          size: 20,
+                                          color: isItemEnabled ? color : Colors.grey.shade400,
+                                        ),
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          item['title'] as String,
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: isItemEnabled ? const Color(0xFF0F1A2B) : Colors.grey.shade500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              item['title'] as String,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: isItemEnabled ? const Color(0xFF0F1A2B) : Colors.grey.shade500),
-                            ),
-                          ],
-                        ),
-                      ),
+                          );
+                        }),
+                      ],
+                      if (rowItems.length < crossAxisCount)
+                        SizedBox(width: cardWidth + spacing),
                     ],
                   ),
-                ),
-              );
-            }).toList(),
+                );
+                if (i + crossAxisCount < netPositionItems.length) {
+                  rows.add(const SizedBox(height: spacing));
+                }
+              }
+              return Column(children: rows);
+            },
           ),
         ],
       ),
