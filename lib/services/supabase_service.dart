@@ -379,7 +379,7 @@ class SupabaseService {
 
   Future<List<String>> getUserCompanies(String userId) async {
     try {
-      // 1. Query user_companies mapping table
+      // 1. Query user_companies mapping table (explicit admin-linked companies)
       final response = await _client
           .from('user_companies')
           .select('company_name')
@@ -399,37 +399,14 @@ class SupabaseService {
       final profile = await getUserProfile(userId);
       if (profile != null) {
         final primaryCompany = profile['company_name']?.toString();
-        final userPhone = profile['phone_number']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '';
-        final tenDigits = userPhone.length >= 10 ? userPhone.substring(userPhone.length - 10) : userPhone;
-
         if (primaryCompany != null && primaryCompany.trim().isNotEmpty) {
           return [primaryCompany.trim()];
-        }
-
-        // 3. Auto-match active companies in tally_companies by registered mobile number
-        if (tenDigits.isNotEmpty) {
-          final matched = await _client
-              .from('tally_companies')
-              .select('company_name, mobile_number, phone_number')
-              .eq('is_active', true);
-
-          if (matched is List && matched.isNotEmpty) {
-            final autoAssigned = <String>[];
-            for (final row in matched) {
-              final dbMobile = (row['mobile_number'] ?? row['phone_number'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
-              if (dbMobile.isNotEmpty && (dbMobile.contains(tenDigits) || tenDigits.contains(dbMobile))) {
-                final cName = row['company_name']?.toString();
-                if (cName != null && cName.isNotEmpty && !autoAssigned.contains(cName)) {
-                  autoAssigned.add(cName);
-                }
-              }
-            }
-            if (autoAssigned.isNotEmpty) return autoAssigned;
-          }
         }
       }
     } catch (_) {}
 
+    // No explicit links found — return empty.
+    // Companies must be linked by an admin via the user_companies table.
     return [];
   }
 
