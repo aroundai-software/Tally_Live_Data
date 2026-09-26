@@ -626,6 +626,8 @@ class SupabaseService {
             'today_purchases':     features['db_card_today_purchases']     ?? true,
             'overdue_receivables': features['db_card_overdue_receivables'] ?? true,
             'overdue_payables':    features['db_card_overdue_payables']    ?? true,
+            'total_receivables':   features['db_card_total_receivables']   ?? true,
+            'total_payables':      features['db_card_total_payables']      ?? true,
           },
           'quick_actions': {
             'stock':   features['db_qa_stock']   ?? true,
@@ -753,6 +755,8 @@ class SupabaseService {
       'db_card_today_purchases':     cards['today_purchases']     as bool? ?? true,
       'db_card_overdue_receivables': cards['overdue_receivables'] as bool? ?? true,
       'db_card_overdue_payables':    cards['overdue_payables']    as bool? ?? true,
+      'db_card_total_receivables':   cards['total_receivables']   as bool? ?? true,
+      'db_card_total_payables':      cards['total_payables']      as bool? ?? true,
       // Dashboard JSONB — quick action buttons
       'db_qa_stock':   qa['stock']   as bool? ?? true,
       'db_qa_ledgers': qa['ledgers'] as bool? ?? true,
@@ -811,6 +815,8 @@ class SupabaseService {
       'db_card_today_purchases': true,
       'db_card_overdue_receivables': true,
       'db_card_overdue_payables': true,
+      'db_card_total_receivables': true,
+      'db_card_total_payables': true,
       // Dashboard JSONB — quick action buttons
       'db_qa_stock': true,
       'db_qa_ledgers': true,
@@ -887,7 +893,7 @@ class SupabaseService {
           .from('customers')
           .select('closing_balance')
           .ilike('company_name', companyName)
-          .or('ledger_type.ilike.%cash%') as List;
+          .or('ledger_type.ilike.Cash-in-Hand,ledger_type.ilike.Cash') as List;
       double total = 0;
       for (var item in response) {
         total += _toDouble(item['closing_balance']);
@@ -903,11 +909,16 @@ class SupabaseService {
     try {
       final response = await _client
           .from('customers')
-          .select('closing_balance')
+          .select('customer_name, ledger_type, closing_balance')
           .ilike('company_name', companyName)
-          .or('ledger_type.ilike.%bank%') as List;
+          .or('ledger_type.ilike.Bank Accounts,ledger_type.ilike.Bank OD A/c,ledger_type.ilike.Bank OCC A/c') as List;
       double total = 0;
       for (var item in response) {
+        final name = (item['customer_name'] ?? '').toString().toLowerCase();
+        final type = (item['ledger_type'] ?? '').toString().toLowerCase();
+        if (type.contains('charge') || type.contains('expense') || name.contains('charges') || name.contains('vetting')) {
+          continue;
+        }
         total += _toDouble(item['closing_balance']);
       }
       return total;
@@ -923,8 +934,18 @@ class SupabaseService {
           .from('customers')
           .select()
           .ilike('company_name', companyName)
-          .or('ledger_type.ilike.%bank%,ledger_type.ilike.%cash%') as List;
-      return response.map((e) => Ledger.fromJson(e)).toList();
+          .or('ledger_type.ilike.Bank Accounts,ledger_type.ilike.Bank OD A/c,ledger_type.ilike.Bank OCC A/c,ledger_type.ilike.Cash-in-Hand,ledger_type.ilike.Cash') as List;
+      
+      final list = <Ledger>[];
+      for (var item in response) {
+        final name = (item['customer_name'] ?? '').toString().toLowerCase();
+        final type = (item['ledger_type'] ?? '').toString().toLowerCase();
+        if (type.contains('charge') || type.contains('expense') || name.contains('charges') || name.contains('vetting')) {
+          continue;
+        }
+        list.add(Ledger.fromJson(item));
+      }
+      return list;
     } catch (e) {
       return [];
     }
@@ -996,32 +1017,23 @@ class SupabaseService {
     try {
       final data = await _fetchAll(
         'outstanding_receivables',
-        select: 'amount, closing_balance, overdue_days, duedate',
+        select: 'amount, closing_balance, overdue_days',
         companyName: companyName,
       );
       double total = 0;
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
       for (var item in data) {
-        final amount = _toDouble(item['amount']);
-        final closing = _toDouble(item['closing_balance']);
-        final val = closing != 0 ? closing.abs() : amount.abs();
-
         final overdueDays = item['overdue_days'] != null
             ? (item['overdue_days'] is num
                 ? (item['overdue_days'] as num).toInt()
                 : int.tryParse(item['overdue_days'].toString()))
             : null;
 
-        final dueDate = item['duedate'] != null
-            ? DateTime.tryParse(item['duedate'].toString())
-            : null;
-
-        bool isOverdue = (overdueDays != null && overdueDays > 0) ||
-            (dueDate != null && dueDate.isBefore(today));
-
-        if (isOverdue) {
-          total += val;
+        // Only count bills where overdue_days > 0
+        // (overdue_days is set by the Python sync from Tally's credit due date)
+        if (overdueDays != null && overdueDays > 0) {
+          final amount = _toDouble(item['amount']);
+          final closing = _toDouble(item['closing_balance']);
+          total += closing != 0 ? closing.abs() : amount.abs();
         }
       }
       return total;
@@ -1035,32 +1047,23 @@ class SupabaseService {
     try {
       final data = await _fetchAll(
         'outstanding_payables',
-        select: 'amount, closing_balance, overdue_days, duedate',
+        select: 'amount, closing_balance, overdue_days',
         companyName: companyName,
       );
       double total = 0;
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
       for (var item in data) {
-        final amount = _toDouble(item['amount']);
-        final closing = _toDouble(item['closing_balance']);
-        final val = closing != 0 ? closing.abs() : amount.abs();
-
         final overdueDays = item['overdue_days'] != null
             ? (item['overdue_days'] is num
                 ? (item['overdue_days'] as num).toInt()
                 : int.tryParse(item['overdue_days'].toString()))
             : null;
 
-        final dueDate = item['duedate'] != null
-            ? DateTime.tryParse(item['duedate'].toString())
-            : null;
-
-        bool isOverdue = (overdueDays != null && overdueDays > 0) ||
-            (dueDate != null && dueDate.isBefore(today));
-
-        if (isOverdue) {
-          total += val;
+        // Only count bills where overdue_days > 0
+        // (overdue_days is set by the Python sync from Tally's credit due date)
+        if (overdueDays != null && overdueDays > 0) {
+          final amount = _toDouble(item['amount']);
+          final closing = _toDouble(item['closing_balance']);
+          total += closing != 0 ? closing.abs() : amount.abs();
         }
       }
       return total;
@@ -1116,7 +1119,21 @@ class SupabaseService {
       }
       final response = await query.order('invoice_date', ascending: false).limit(5000);
       final data = response as List;
-      return data.map((e) => SalesInvoice.fromJson(e)).toList();
+      
+      // Fetch outstanding guids to determine status
+      final outstandingResponse = await _client
+          .from('outstanding_receivables')
+          .select('guid')
+          .ilike('company_name', companyName);
+      final outstandingGuids = (outstandingResponse as List).map((e) => e['guid'].toString()).toSet();
+
+      return data.map((e) {
+        final Map<String, dynamic> mutableData = Map<String, dynamic>.from(e);
+        if (mutableData['id'] != null) {
+          mutableData['status'] = outstandingGuids.contains(mutableData['id'].toString()) ? 'Pending' : 'Paid';
+        }
+        return SalesInvoice.fromJson(mutableData);
+      }).toList();
     } catch (e) {
       throw Exception('Failed to fetch sales invoices: $e');
     }
@@ -1267,7 +1284,21 @@ class SupabaseService {
       }
       final response = await query.order('invoice_date', ascending: false).limit(5000);
       final data = response as List;
-      return data.map((e) => PurchaseInvoice.fromJson(e)).toList();
+      
+      // Fetch outstanding guids to determine status
+      final outstandingResponse = await _client
+          .from('outstanding_payables')
+          .select('guid')
+          .ilike('company_name', companyName);
+      final outstandingGuids = (outstandingResponse as List).map((e) => e['guid'].toString()).toSet();
+
+      return data.map((e) {
+        final Map<String, dynamic> mutableData = Map<String, dynamic>.from(e);
+        if (mutableData['id'] != null) {
+          mutableData['status'] = outstandingGuids.contains(mutableData['id'].toString()) ? 'Pending' : 'Paid';
+        }
+        return PurchaseInvoice.fromJson(mutableData);
+      }).toList();
     } catch (e) {
       throw Exception('Failed to fetch purchase invoices: $e');
     }
@@ -1310,7 +1341,7 @@ class SupabaseService {
   Future<List<DaybookEntry>> getDaybookEntries({DateTime? date, String? companyName, String? searchQuery}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      dynamic query = _client.from('tally_daybook').select().ilike('company_name', companyName);
+      dynamic query = _client.from('tally_daybook').select().ilike('company_name', companyName).not('guid', 'ilike', '%#sub#%');
       
       if (date != null) {
         // Filter by specific date (ignore time)
@@ -1366,10 +1397,14 @@ class SupabaseService {
       double inflow = 0;
       double outflow = 0;
       for (var entry in entries) {
-        if (entry.isDebit) {
+        final vType = entry.voucherType.toLowerCase();
+        if (vType == 'receipt' || vType == 'sales' || vType.contains('debit note')) {
           inflow += entry.amount.abs();
-        } else {
+        } else if (vType == 'payment' || vType == 'purchase' || vType.contains('credit note')) {
           outflow += entry.amount.abs();
+        } else {
+          // For Journal and Contra (internal transfers), we can ignore them for net cash flow,
+          // or fallback to basic polarity if needed.
         }
       }
       return {'inflow': inflow, 'outflow': outflow};

@@ -59,6 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int? _lastSyncTrigger;
   bool _isNetPositionExpanded = false;
   bool _isCashBankDetailsOpen = false;
+  final Set<String> _cashBankExpandedSections = {'cash', 'bank', 'bank_od'};
 
   @override
   void initState() {
@@ -133,9 +134,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _daybookInflow = dbSummary['inflow'] ?? 0.0;
           _daybookOutflow = dbSummary['outflow'] ?? 0.0;
 
-          _totalCash = results[15] as double;
-          _totalBank = results[16] as double;
           _cashBankLedgers = List<Ledger>.from(results[17] as List);
+          double cTot = 0, bTot = 0;
+          for (var l in _cashBankLedgers) {
+            final type = l.ledgerType?.toLowerCase().trim() ?? '';
+            final name = l.name.toLowerCase().trim();
+            if (type.contains('charge') || type.contains('expense') || name.contains('charges') || name.contains('vetting')) continue;
+            if (type.contains('cash') || name.startsWith('cash') || name.startsWith('petty cash')) {
+              cTot += l.closingBalance;
+            } else {
+              bTot += l.closingBalance;
+            }
+          }
+          _totalCash = cTot;
+          _totalBank = bTot;
           _lastSyncedTime = results[18] as DateTime?;
 
           _isLoading = false;
@@ -338,7 +350,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'icon': Icons.inventory_2_rounded,
           'color': AppTheme.stockColor,
           'subtitle': '$_stockItemCount items',
-          'action': () => widget.onNavigate(1, showSalesInStock: true),
+          'action': () => widget.onNavigate(1),
         },
       if (companyState.isFeatureEnabled('db_card_today_sales'))
         {
@@ -376,6 +388,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'subtitle': 'Overdue bills to pay',
           'action': () => widget.onNavigate(3),
         },
+      // Temporarily hidden - will add later
+      /*
+      if (companyState.isFeatureEnabled('db_card_total_receivables'))
+        {
+          'title': 'Total Receivables',
+          'value': formatCompactCurrency(_totalReceivables),
+          'icon': Icons.trending_up_rounded,
+          'color': const Color(0xFF0DA6A0),
+          'subtitle': 'Total outstanding to collect',
+          'action': () => widget.onNavigate(3, receivablesPayablesTab: 0),
+        },
+      if (companyState.isFeatureEnabled('db_card_total_payables'))
+        {
+          'title': 'Total Payables',
+          'value': formatCompactCurrency(_totalPayables),
+          'icon': Icons.trending_down_rounded,
+          'color': const Color(0xFF7C3AED),
+          'subtitle': 'Total outstanding to pay',
+          'action': () => widget.onNavigate(3, receivablesPayablesTab: 1),
+        },
+      */
     ];
 
     if (items.isEmpty) return const SizedBox.shrink();
@@ -428,7 +461,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       },
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
@@ -441,64 +474,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.menu_book_rounded, color: Colors.blue, size: 20),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    'Today\'s Daybook',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36)),
-                  ),
-                ),
-                Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey.shade400),
-              ],
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.menu_book_rounded, color: Colors.blue, size: 20),
             ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Total Inflow', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 4),
-                      Text(
-                        formatCompactCurrency(_daybookInflow),
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.green.shade600),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(width: 1, height: 30, color: Colors.grey.shade200),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Total Outflow', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
-                        const SizedBox(height: 4),
-                        Text(
-                          formatCompactCurrency(_daybookOutflow),
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.red.shade600),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Today\'s Daybook',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36)),
+              ),
             ),
+            Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey.shade400),
           ],
         ),
       ),
@@ -912,37 +905,88 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildCashBankDetailsOverlay() {
-    final cashLedgers = _cashBankLedgers.where((l) => l.ledgerType?.toLowerCase().contains('cash') ?? false).toList();
-    final bankLedgers = _cashBankLedgers.where((l) => l.ledgerType?.toLowerCase().contains('bank') ?? false).toList();
+    final cashLedgers = <Ledger>[];
+    final bankLedgers = <Ledger>[];
+    final bankOdLedgers = <Ledger>[];
+
+    for (var l in _cashBankLedgers) {
+      final type = l.ledgerType?.toLowerCase().trim() ?? '';
+      final name = l.name.toLowerCase().trim();
+
+      // Exclude charges and expenses
+      if (type.contains('charge') || type.contains('expense') || name.contains('charges') || name.contains('vetting')) {
+        continue;
+      }
+
+      if (type.contains('cash') || name.startsWith('cash') || name.startsWith('petty cash')) {
+        cashLedgers.add(l);
+      } else if (type.contains('od') || type.contains('occ') || name.contains('(od)') || name.contains(' od') || name.endsWith('od')) {
+        bankOdLedgers.add(l);
+      } else {
+        bankLedgers.add(l);
+      }
+    }
+
+    double cashDebit = 0, cashCredit = 0;
+    for (var l in cashLedgers) {
+      if (l.closingBalance >= 0) {
+        cashDebit += l.closingBalance;
+      } else {
+        cashCredit += l.closingBalance.abs();
+      }
+    }
+
+    double bankDebit = 0, bankCredit = 0;
+    for (var l in bankLedgers) {
+      if (l.closingBalance >= 0) {
+        bankDebit += l.closingBalance;
+      } else {
+        bankCredit += l.closingBalance.abs();
+      }
+    }
+
+    double odDebit = 0, odCredit = 0;
+    for (var l in bankOdLedgers) {
+      if (l.closingBalance >= 0) {
+        odDebit += l.closingBalance;
+      } else {
+        odCredit += l.closingBalance.abs();
+      }
+    }
+
+    final grandTotalDebit = cashDebit + bankDebit + odDebit;
+    final grandTotalCredit = cashCredit + bankCredit + odCredit;
+    final netTotal = grandTotalDebit - grandTotalCredit;
 
     return _buildModalOverlay(
       onClose: () => setState(() { _isCashBankDetailsOpen = false; }),
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 24),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 20,
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 24,
               offset: const Offset(0, 10),
             ),
           ],
         ),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
+          constraints: const BoxConstraints(maxWidth: 480),
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Header
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      'Cash & Bank Details',
+                      'Cash & Bank Summary',
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF1A1F36)),
                     ),
                     IconButton(
@@ -951,52 +995,121 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ],
                 ),
-                const Divider(height: 24, color: Color(0xFFE2E8F0)),
+                const Divider(height: 20, color: Color(0xFFE2E8F0)),
                 
                 // Summary Banner
                 Container(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF009688), Color(0xFF004D40)], // Teal gradient
+                      colors: [Color(0xFF0F766E), Color(0xFF115E59)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
                     children: [
-                      const Text(
-                        'Total Balance',
-                        style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Net Cash & Bank Balance',
+                              style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerRight,
+                              child: Text(
+                                netTotal >= 0
+                                    ? '${formatCurrency(netTotal)} Dr'
+                                    : '${formatCurrency(netTotal.abs())} Cr',
+                                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        formatCurrency(_totalCash + _totalBank),
-                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          runAlignment: WrapAlignment.center,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 12,
+                          runSpacing: 4,
+                          children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text('Total Debit: ', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                                Text(
+                                  formatCurrency(grandTotalDebit),
+                                  style: const TextStyle(color: Color(0xFF6EE7B7), fontSize: 12, fontWeight: FontWeight.w700),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text('Total Credit: ', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                                Text(
+                                  formatCurrency(grandTotalCredit),
+                                  style: const TextStyle(color: Color(0xFFFCA5A5), fontSize: 12, fontWeight: FontWeight.w700),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
 
-                // Cash Row (Expandable / List)
-                _buildExpandableDetailRow(
-                  title: 'Cash in Hand',
-                  totalValue: _totalCash,
-                  icon: Icons.money_rounded,
-                  iconColor: Colors.teal,
+                // 1. Cash-in-Hand
+                _buildTallyGroupCard(
+                  sectionKey: 'cash',
+                  title: 'Cash-in-Hand',
+                  icon: Icons.payments_rounded,
+                  iconColor: const Color(0xFF0D9488),
+                  debitTotal: cashDebit,
+                  creditTotal: cashCredit,
                   ledgers: cashLedgers,
                 ),
-                const SizedBox(height: 8),
 
-                // Bank Row (Expandable / List)
-                _buildExpandableDetailRow(
+                // 2. Bank Accounts
+                _buildTallyGroupCard(
+                  sectionKey: 'bank',
                   title: 'Bank Accounts',
-                  totalValue: _totalBank,
                   icon: Icons.account_balance_rounded,
-                  iconColor: Colors.blue,
+                  iconColor: const Color(0xFF2563EB),
+                  debitTotal: bankDebit,
+                  creditTotal: bankCredit,
                   ledgers: bankLedgers,
                 ),
-                const SizedBox(height: 12),
+
+                // 3. Bank OD A/c
+                _buildTallyGroupCard(
+                  sectionKey: 'bank_od',
+                  title: 'Bank OD A/c',
+                  icon: Icons.credit_card_rounded,
+                  iconColor: const Color(0xFFE11D48),
+                  debitTotal: odDebit,
+                  creditTotal: odCredit,
+                  ledgers: bankOdLedgers,
+                ),
+                const SizedBox(height: 6),
               ],
             ),
           ),
@@ -1005,87 +1118,295 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-
-
-
-
-  Widget _buildExpandableDetailRow({
+  Widget _buildTallyGroupCard({
+    required String sectionKey,
     required String title,
-    required double totalValue,
     required IconData icon,
     required Color iconColor,
+    required double debitTotal,
+    required double creditTotal,
     required List<Ledger> ledgers,
   }) {
-    return Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: const Color(0xFFEAECF0)),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-          title: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: iconColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Icon(icon, color: iconColor, size: 16),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF344054)),
-                ),
-              ),
-            ],
+    final isExpanded = _cashBankExpandedSections.contains(sectionKey);
+    final netBalance = debitTotal - creditTotal;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
-          trailing: Text(
-            formatCurrency(totalValue),
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1D2939)),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Header (Click to expand/collapse)
+          InkWell(
+            onTap: () {
+              setState(() {
+                if (_cashBankExpandedSections.contains(sectionKey)) {
+                  _cashBankExpandedSections.remove(sectionKey);
+                } else {
+                  _cashBankExpandedSections.add(sectionKey);
+                }
+              });
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: iconColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(icon, color: iconColor, size: 18),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF1E293B),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${ledgers.length} account${ledgers.length == 1 ? '' : 's'}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Totals summary & chevron
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            netBalance >= 0
+                                ? '${formatCurrency(netBalance)} Dr'
+                                : '${formatCurrency(netBalance.abs())} Cr',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: netBalance >= 0 ? const Color(0xFF0F766E) : const Color(0xFFDC2626),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          AnimatedRotation(
+                            turns: isExpanded ? 0.5 : 0.0,
+                            duration: const Duration(milliseconds: 200),
+                            child: const Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              size: 20,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (debitTotal > 0 && creditTotal > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2, right: 26),
+                          child: Text(
+                            'Dr: ${formatCurrency(debitTotal)} | Cr: ${formatCurrency(creditTotal)}',
+                            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
-          children: [
+
+          // Expanded Content (Tally Debit & Credit Table)
+          if (isExpanded) ...[
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            // Table Header: PARTICULARS | DEBIT | CREDIT
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              color: const Color(0xFFF8FAFC),
+              child: Row(
+                children: const [
+                  Expanded(
+                    flex: 5,
+                    child: Text(
+                      'PARTICULARS',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF64748B),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      'DEBIT',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0D9488),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      'CREDIT',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFE11D48),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+            // Account Rows
             if (ledgers.isEmpty)
               const Padding(
-                padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
+                padding: EdgeInsets.all(16),
                 child: Text(
-                  'No accounts synced',
+                  'No accounts in this category',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               )
             else
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: Column(
-                  children: ledgers.map((l) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              l.name,
-                              style: const TextStyle(fontSize: 12, color: Color(0xFF475467)),
-                              overflow: TextOverflow.ellipsis,
+              ...ledgers.map((l) {
+                final isDebit = l.closingBalance >= 0;
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Color(0xFFF8FAFC))),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 5,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: Text(
+                            l.name,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF1E293B),
+                              height: 1.25,
                             ),
                           ),
-                          Text(
-                            formatCurrency(l.closingBalance),
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475467)),
-                          ),
-                        ],
+                        ),
                       ),
-                    );
-                  }).toList(),
+                      // Debit Column
+                      Expanded(
+                        flex: 3,
+                        child: Text(
+                          isDebit ? formatCurrency(l.closingBalance) : '-',
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: isDebit ? FontWeight.w600 : FontWeight.w400,
+                            color: isDebit ? const Color(0xFF0F766E) : Colors.grey.shade400,
+                          ),
+                        ),
+                      ),
+                      // Credit Column
+                      Expanded(
+                        flex: 3,
+                        child: Text(
+                          !isDebit ? formatCurrency(l.closingBalance.abs()) : '-',
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: !isDebit ? FontWeight.w600 : FontWeight.w400,
+                            color: !isDebit ? const Color(0xFFDC2626) : Colors.grey.shade400,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+
+            // Subtotal Footer for this category
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(12),
+                  bottomRight: Radius.circular(12),
                 ),
               ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    flex: 5,
+                    child: Text(
+                      'Category Total',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF334155),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      debitTotal > 0 ? formatCurrency(debitTotal) : '-',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F766E),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      creditTotal > 0 ? formatCurrency(creditTotal) : '-',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

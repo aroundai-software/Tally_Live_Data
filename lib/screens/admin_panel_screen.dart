@@ -206,7 +206,14 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: const Text('TallyLive', style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+        title: Text(
+          'TallyLive',
+          style: AppTheme.brandTitle(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppTheme.textPrimary,
+          ),
+        ),
         elevation: 0,
         backgroundColor: Colors.white,
         automaticallyImplyLeading: false,
@@ -668,7 +675,7 @@ class AdminProfileTab extends StatefulWidget {
 class _AdminProfileTabState extends State<AdminProfileTab> {
   final SupabaseService _service = SupabaseService();
   String _adminPhone = '';
-  String _appVersion = 'v2.0.2';
+  String _appVersion = 'v3.0.0';
   bool _isLoading = true;
 
   @override
@@ -1959,6 +1966,18 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
         'title': 'Payables',
         'icon': Icons.warning_amber_rounded,
         'color': const Color(0xFF880E4F),
+      },
+      {
+        'key': 'db_card_total_receivables',
+        'title': 'Total Receivables',
+        'icon': Icons.trending_up_rounded,
+        'color': const Color(0xFF0DA6A0),
+      },
+      {
+        'key': 'db_card_total_payables',
+        'title': 'Total Payables',
+        'icon': Icons.trending_down_rounded,
+        'color': const Color(0xFF7C3AED),
       },
     ];
 

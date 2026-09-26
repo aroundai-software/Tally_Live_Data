@@ -69,7 +69,7 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _appVersion = 'v2.0.2';
+        _appVersion = 'v3.0.0';
       });
     }
   }
@@ -277,19 +277,19 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Image.asset(
-                    'assets/icon/app_icon.png',
+                    'assets/icon/app_logo.png',
                     width: 68,
                     height: 68,
                     fit: BoxFit.contain,
                   ),
                   const SizedBox(width: 14),
-                  const Text(
+                  Text(
                     'TallyLive',
-                    style: TextStyle(
+                    style: AppTheme.brandTitle(
                       fontSize: 28,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                       letterSpacing: 0.5,
-                      color: Color(0xFF1A1F36),
+                      color: const Color(0xFF1A1F36),
                     ),
                   ),
                 ],
@@ -330,7 +330,7 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Text(
-                '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v2.0.2'}',
+                '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v3.0.0'}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,

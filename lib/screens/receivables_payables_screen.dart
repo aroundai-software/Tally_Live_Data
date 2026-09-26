@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../utils/error_handler.dart';
-import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:intl/intl.dart';
 import '../config/app_theme.dart';
 import '../models/receivable_payable.dart';
@@ -16,11 +15,13 @@ class ReceivablesPayablesScreen extends StatefulWidget {
   final VoidCallback? onBack;
   final String initialFilter;
   final int initialTabIndex;
+  final bool isActive;
   const ReceivablesPayablesScreen({
     super.key,
     this.onBack,
     this.initialFilter = 'all',
     this.initialTabIndex = 0,
+    this.isActive = true,
   });
 
   @override
@@ -40,6 +41,16 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   String? _error;
   final TextEditingController _searchController = TextEditingController();
 
+  final Set<String> _expandedItemKeys = {};
+
+  void _collapseAll() {
+    if (_expandedItemKeys.isNotEmpty) {
+      setState(() {
+        _expandedItemKeys.clear();
+      });
+    }
+  }
+
   late String _activeFilter;
   bool _sortByAmount = true;
   bool _sortByDate = false;
@@ -52,13 +63,24 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
 
   bool _initialized = false;
 
+  int _lastTabIndex = 0;
+
+  void _onTabChanged() {
+    if (!_tabController.indexIsChanging && _tabController.index != _lastTabIndex) {
+      _lastTabIndex = _tabController.index;
+      _expandedItemKeys.clear();
+      setState(() {});
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _activeFilter = widget.initialFilter;
+    _lastTabIndex = widget.initialTabIndex;
     // Tab count is determined after build reads feature flags; defer to didChangeDependencies
     _tabController = TabController(length: 2, vsync: this, initialIndex: widget.initialTabIndex);
-    _tabController.addListener(() => setState(() {}));
+    _tabController.addListener(_onTabChanged);
     _searchController.addListener(_onSearchChanged);
   }
 
@@ -70,10 +92,14 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     if (widget.initialTabIndex != oldWidget.initialTabIndex) {
       _tabController.animateTo(widget.initialTabIndex);
     }
+    if (oldWidget.isActive != widget.isActive) {
+      _collapseAll();
+    }
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
@@ -130,6 +156,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   }
 
   void _onSearchChanged() {
+    _collapseAll();
     final query = _searchController.text.toLowerCase();
     final dateFormat = DateFormat('dd MMM yyyy');
     final monthFormat = DateFormat('MMMM');
@@ -219,13 +246,15 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     if (tabCount == 0) tabCount = 1; // Fallback
 
     if (_tabController.length != tabCount) {
+      _tabController.removeListener(_onTabChanged);
       _tabController.dispose();
       _tabController = TabController(
         length: tabCount,
         vsync: this,
         initialIndex: widget.initialTabIndex.clamp(0, tabCount - 1),
       );
-      _tabController.addListener(() => setState(() {}));
+      _lastTabIndex = _tabController.index;
+      _tabController.addListener(_onTabChanged);
     }
 
     if (!_initialized) {
@@ -249,6 +278,62 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     _loadData();
   }
 
+  double _cachedTotalReceivable = 0;
+  double _cachedTotalOverdueReceivables = 0;
+  int _cachedOverdueReceivablesCount = 0;
+  int _cachedTodayReceivablesCount = 0;
+
+  double _cachedTotalPayable = 0;
+  double _cachedTotalOverduePayables = 0;
+  int _cachedOverduePayablesCount = 0;
+  int _cachedTodayPayablesCount = 0;
+
+  void _recomputeTotals() {
+    double recTotal = 0;
+    double recOverdueTotal = 0;
+    int recOverdueCount = 0;
+    int recTodayCount = 0;
+
+    for (var o in _allReceivables) {
+      final amt = o.closingBalance != 0 ? o.closingBalance.abs() : o.amount.abs();
+      recTotal += amt;
+      if (_isRecordOverdue(o)) {
+        recOverdueTotal += amt;
+        recOverdueCount++;
+      }
+      if (_isRecordToday(o)) {
+        recTodayCount++;
+      }
+    }
+
+    double payTotal = 0;
+    double payOverdueTotal = 0;
+    int payOverdueCount = 0;
+    int payTodayCount = 0;
+
+    for (var o in _allPayables) {
+      final amt = o.closingBalance != 0 ? o.closingBalance.abs() : o.amount.abs();
+      payTotal += amt;
+      if (_isRecordOverdue(o)) {
+        payOverdueTotal += amt;
+        payOverdueCount++;
+      }
+      if (_isRecordToday(o)) {
+        payTodayCount++;
+      }
+    }
+
+    _cachedTotalReceivable = recTotal;
+    _cachedTotalOverdueReceivables = recOverdueTotal;
+    _cachedOverdueReceivablesCount = recOverdueCount;
+    _cachedTodayReceivablesCount = recTodayCount;
+
+    _cachedTotalPayable = payTotal;
+    _cachedTotalOverduePayables = payOverdueTotal;
+    _cachedOverduePayablesCount = payOverdueCount;
+    _cachedTodayPayablesCount = payTodayCount;
+  }
+
   Future<void> _silentRefresh() async {
     try {
       final company = CompanyProvider.of(context).selectedCompany;
@@ -259,6 +344,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
           _allReceivables = recs;
           _allPayables = pays;
         });
+        _recomputeTotals();
         _onSearchChanged();
       }
     } catch (_) {}
@@ -278,6 +364,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
           _filteredPayables = pays;
           _isLoading = false; 
         });
+        _recomputeTotals();
         _onSearchChanged();
       }
     } catch (e) {
@@ -286,45 +373,13 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     }
   }
 
-  double get _totalReceivable => _allReceivables.fold(0, (sum, o) => sum + (o.closingBalance != 0 ? o.closingBalance.abs() : o.amount.abs()));
-  
-  double get _totalOverdueReceivables {
-    double total = 0;
-    for (var o in _allReceivables) {
-      if (_isRecordOverdue(o)) {
-        total += (o.closingBalance != 0 ? o.closingBalance.abs() : o.amount.abs());
-      }
-    }
-    return total;
-  }
+  double get _totalReceivable => _cachedTotalReceivable;
+  double get _totalOverdueReceivables => _cachedTotalOverdueReceivables;
+  int get _overdueReceivablesCount => _cachedOverdueReceivablesCount;
 
-  int get _overdueReceivablesCount {
-    int count = 0;
-    for (var o in _allReceivables) {
-      if (_isRecordOverdue(o)) count++;
-    }
-    return count;
-  }
-
-  double get _totalPayable => _allPayables.fold(0, (sum, o) => sum + (o.closingBalance != 0 ? o.closingBalance.abs() : o.amount.abs()));
-
-  double get _totalOverduePayables {
-    double total = 0;
-    for (var o in _allPayables) {
-      if (_isRecordOverdue(o)) {
-        total += (o.closingBalance != 0 ? o.closingBalance.abs() : o.amount.abs());
-      }
-    }
-    return total;
-  }
-
-  int get _overduePayablesCount {
-    int count = 0;
-    for (var o in _allPayables) {
-      if (_isRecordOverdue(o)) count++;
-    }
-    return count;
-  }
+  double get _totalPayable => _cachedTotalPayable;
+  double get _totalOverduePayables => _cachedTotalOverduePayables;
+  int get _overduePayablesCount => _cachedOverduePayablesCount;
 
   @override
   Widget build(BuildContext context) {
@@ -339,7 +394,15 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
         primary: false,
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          leading: widget.onBack != null ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: widget.onBack) : null,
+          leading: widget.onBack != null
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () {
+                    _collapseAll();
+                    widget.onBack!();
+                  },
+                )
+              : null,
           title: const Text('Outstanding'),
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.white,
@@ -364,12 +427,36 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     final visibleTabs = <Tab>[];
     final visibleViews = <Widget>[];
     if (showReceivables) {
-      visibleTabs.add(const Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.arrow_downward_rounded, size: 16), SizedBox(width: 6), Text('Receivables')])));
-      visibleViews.add(_buildList(_receivables, 'receivable'));
+      visibleTabs.add(
+        const Tab(
+          height: 32,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.arrow_downward_rounded, size: 14),
+              SizedBox(width: 5),
+              Text('Receivables', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            ],
+          ),
+        ),
+      );
+      visibleViews.add(_KeepAliveTab(child: _buildList(_receivables, 'receivable')));
     }
     if (showPayables) {
-      visibleTabs.add(const Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.arrow_upward_rounded, size: 16), SizedBox(width: 6), Text('Payables')])));
-      visibleViews.add(_buildList(_payables, 'payable'));
+      visibleTabs.add(
+        const Tab(
+          height: 32,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.arrow_upward_rounded, size: 14),
+              SizedBox(width: 5),
+              Text('Payables', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            ],
+          ),
+        ),
+      );
+      visibleViews.add(_KeepAliveTab(child: _buildList(_payables, 'payable')));
     }
 
     // Visible tabs count and layout built dynamically
@@ -383,7 +470,10 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
         leading: widget.onBack != null
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
-                onPressed: widget.onBack,
+                onPressed: () {
+                  _collapseAll();
+                  widget.onBack!();
+                },
               )
             : null,
         title: const Text('Outstanding'),
@@ -411,38 +501,40 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
           if (visibleTabs.length > 1)
             Container(
               color: Colors.white,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
               child: Container(
+                height: 36,
                 decoration: BoxDecoration(
                   color: const Color(0xFFF1F3F9),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: TabBar(
                   controller: _tabController,
                   indicatorSize: TabBarIndicatorSize.tab,
                   dividerColor: Colors.transparent,
+                  padding: const EdgeInsets.all(2),
                   indicator: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.06),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
                       ),
                     ],
                   ),
                   labelColor: AppTheme.primaryColor,
                   unselectedLabelColor: Colors.grey.shade500,
-                  labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                  labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
                   tabs: visibleTabs,
                 ),
               ),
             ),
           // --- Sticky: Search bar and Sort option ---
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
             child: Row(
               children: [
                 Expanded(
@@ -521,18 +613,15 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
           ),
           // --- Sticky: Filter pills ---
           _buildFilterPills(),
+          // --- Sticky: Summary tiles ---
+          _buildSummaryBar(),
           const Divider(height: 1, thickness: 0.5),
-          // --- Scrollable area: Summary tiles + Bill list ---
+          // --- Bill list ---
           Expanded(
-            child: NestedScrollView(
-              headerSliverBuilder: (context, innerBoxIsScrolled) => [
-                // Summary tiles scroll away
-                SliverToBoxAdapter(child: _buildSummaryBar()),
-              ],
-              body: TabBarView(
-                controller: _tabController,
-                children: visibleViews,
-              ),
+            child: TabBarView(
+              controller: _tabController,
+              physics: const ClampingScrollPhysics(),
+              children: visibleViews,
             ),
           ),
         ],
@@ -541,9 +630,9 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   }
 
   Widget _buildSummaryBar() {
-    final isReceivablesTab = _tabController.index == 0;
+    final isReceivablesTab = _lastTabIndex == 0;
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      margin: const EdgeInsets.fromLTRB(16, 2, 16, 4),
       child: Row(
         children: [
           Expanded(
@@ -560,7 +649,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
               },
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
           Expanded(
             child: _SummaryTile(
               title: 'Overdue',
@@ -581,13 +670,12 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   }
 
   Widget _buildFilterPills() {
-    final isReceivablesTab = _tabController.index == 0;
-    final sourceList = isReceivablesTab ? _allReceivables : _allPayables;
-    final allCount = sourceList.length;
-    final todayCount = sourceList.where(_isRecordToday).length;
-    final overdueCount = isReceivablesTab ? _overdueReceivablesCount : _overduePayablesCount;
+    final isReceivablesTab = _lastTabIndex == 0;
+    final allCount = isReceivablesTab ? _allReceivables.length : _allPayables.length;
+    final todayCount = isReceivablesTab ? _cachedTodayReceivablesCount : _cachedTodayPayablesCount;
+    final overdueCount = isReceivablesTab ? _cachedOverdueReceivablesCount : _cachedOverduePayablesCount;
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
+      margin: const EdgeInsets.only(top: 2, bottom: 4),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -694,12 +782,48 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: items.length,
       itemBuilder: (context, index) {
-        return _OutstandingCard(item: items[index], type: type);
+        final item = items[index];
+        final itemKey = '${type}_${item.id ?? item.invoiceNumber}_$index';
+        final isExpanded = _expandedItemKeys.contains(itemKey);
+        return _OutstandingCard(
+          key: ValueKey(itemKey),
+          item: item,
+          type: type,
+          isExpanded: isExpanded,
+          onToggle: () {
+            setState(() {
+              if (_expandedItemKeys.contains(itemKey)) {
+                _expandedItemKeys.remove(itemKey);
+              } else {
+                _expandedItemKeys.add(itemKey);
+              }
+            });
+          },
+        );
       },
     );
   }
 
 
+}
+
+class _KeepAliveTab extends StatefulWidget {
+  final Widget child;
+  const _KeepAliveTab({required this.child});
+
+  @override
+  State<_KeepAliveTab> createState() => _KeepAliveTabState();
+}
+
+class _KeepAliveTabState extends State<_KeepAliveTab> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
 }
 
 class _SummaryTile extends StatelessWidget {
@@ -724,40 +848,44 @@ class _SummaryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(10),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
         decoration: BoxDecoration(
           color: isSelected ? color.withValues(alpha: 0.15) : color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isSelected ? color : color.withValues(alpha: 0.2), width: isSelected ? 1.5 : 1.0),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? color : color.withValues(alpha: 0.2),
+            width: isSelected ? 1.4 : 1.0,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
-                Icon(icon, color: color, size: 13),
-                const SizedBox(width: 3),
+                Icon(icon, color: color, size: 12),
+                const SizedBox(width: 4),
                 Expanded(
                   child: Text(
                     title,
-                    style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600),
+                    style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                Text(
+                  '$count items',
+                  style: TextStyle(fontSize: 10, color: color.withValues(alpha: 0.8), fontWeight: FontWeight.w500),
+                ),
               ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               formatCompactCurrency(amount),
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
               overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              '$count items',
-              style: TextStyle(fontSize: 10, color: color.withValues(alpha: 0.8)),
             ),
           ],
         ),
@@ -767,16 +895,25 @@ class _SummaryTile extends StatelessWidget {
 }
 
 class _OutstandingCard extends StatelessWidget {
+  static final _dateFormat = DateFormat('dd MMM yyyy');
   final OutstandingRecord item;
   final String type;
-  const _OutstandingCard({required this.item, required this.type});
+  final bool isExpanded;
+  final VoidCallback onToggle;
+
+  const _OutstandingCard({
+    super.key,
+    required this.item,
+    required this.type,
+    required this.isExpanded,
+    required this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isReceivable = type == 'receivable';
     final color = isReceivable ? AppTheme.receivableColor : AppTheme.payableColor;
     final displayAmount = item.closingBalance != 0 ? item.closingBalance.abs() : item.amount.abs();
-    final dateFormat = DateFormat('dd MMM yyyy');
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -788,89 +925,160 @@ class _OutstandingCard extends StatelessWidget {
     }
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: isOverdue ? Colors.red.shade300 : Colors.grey.shade200, width: isOverdue ? 1.2 : 1.0),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isOverdue ? Colors.red.shade300 : Colors.grey.shade200,
+          width: isOverdue ? 1.2 : 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: (isOverdue ? const Color(0xFFD32F2F) : color).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-                child: Icon(isOverdue ? Icons.warning_amber_rounded : (isReceivable ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded), color: isOverdue ? const Color(0xFFD32F2F) : color, size: 18),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onToggle,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Collapsed header row: Party Name and Amount
+                Row(
                   children: [
-                    Text(item.customerName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36))),
-                    if (item.invoiceNumber.isNotEmpty)
-                      Text('Inv: ${item.invoiceNumber}', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                    Expanded(
+                      child: Text(
+                        item.customerName,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A1F36),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      formatCurrency(displayAmount),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isOverdue ? const Color(0xFFD32F2F) : color,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                      size: 20,
+                      color: Colors.grey.shade400,
+                    ),
                   ],
                 ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(formatCurrency(displayAmount), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: isOverdue ? const Color(0xFFD32F2F) : color)),
-                  if (isOverdue)
+
+                // Expanded details
+                if (isExpanded) ...[
+                  const SizedBox(height: 10),
+                  const Divider(height: 1, thickness: 0.7, color: Color(0xFFF0F1F5)),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      if (item.invoiceNumber.isNotEmpty)
+                        Expanded(
+                          child: Text(
+                            'Inv: ${item.invoiceNumber}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      if (isOverdue)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '🚨 ${overdueDays > 0 ? '$overdueDays d overdue' : 'Overdue'}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.red.shade700,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (item.date != null || item.dueDate != null || (item.billType != null && item.billType!.isNotEmpty)) ...[
+                    const SizedBox(height: 8),
                     Container(
-                      margin: const EdgeInsets.only(top: 4),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(6)),
-                      child: Text('🚨 ' + (overdueDays > 0 ? ('$overdueDays d overdue') : 'Overdue'), style: TextStyle(fontSize: 10, color: Colors.red.shade700, fontWeight: FontWeight.bold)),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: isOverdue ? Colors.red.shade50.withValues(alpha: 0.5) : const Color(0xFFF8F9FE),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 6,
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (item.date != null)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.calendar_today_rounded, size: 13, color: Colors.grey.shade500),
+                                const SizedBox(width: 4),
+                                Text(_dateFormat.format(item.date!), style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+                              ],
+                            ),
+                          if (item.dueDate != null)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.event_rounded, size: 13, color: isOverdue ? Colors.red.shade700 : Colors.grey.shade500),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Due: ${_dateFormat.format(item.dueDate!)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: isOverdue ? FontWeight.bold : FontWeight.normal,
+                                    color: isOverdue ? Colors.red.shade800 : Colors.grey.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          if (item.billType != null && item.billType!.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                item.billType!,
+                                style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
+                  ],
                 ],
-              ),
-            ],
-          ),
-          if (item.date != null || item.dueDate != null || item.billType != null) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: isOverdue ? Colors.red.shade50.withValues(alpha: 0.5) : const Color(0xFFF8F9FE), borderRadius: BorderRadius.circular(10)),
-              child: Wrap(
-                spacing: 12,
-                runSpacing: 6,
-                alignment: WrapAlignment.spaceBetween,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  if (item.date != null)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.calendar_today_rounded, size: 13, color: Colors.grey.shade500),
-                        const SizedBox(width: 4),
-                        Text(dateFormat.format(item.date!), style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
-                      ],
-                    ),
-                  if (item.dueDate != null)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.event_rounded, size: 13, color: isOverdue ? Colors.red.shade700 : Colors.grey.shade500),
-                        const SizedBox(width: 4),
-                        Text('Due: ${dateFormat.format(item.dueDate!)}', style: TextStyle(fontSize: 11, fontWeight: isOverdue ? FontWeight.bold : FontWeight.normal, color: isOverdue ? Colors.red.shade800 : Colors.grey.shade700)),
-                      ],
-                    ),
-                  if (item.billType != null && item.billType!.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
-                      child: Text(item.billType!, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w600)),
-                    ),
-                ],
-              ),
+              ],
             ),
-          ],
-        ],
+          ),
+        ),
       ),
     );
   }

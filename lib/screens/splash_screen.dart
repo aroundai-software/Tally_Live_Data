@@ -30,6 +30,12 @@ class _SplashScreenState extends State<SplashScreen> {
     _timer = Timer(const Duration(milliseconds: 2000), _goNext);
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    precacheImage(const AssetImage('assets/icon/app_logo.png'), context);
+  }
+
   Future<void> _goNext() async {
     if (!mounted) return;
 
@@ -132,19 +138,25 @@ class _SplashScreenState extends State<SplashScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Image.asset(
-                        'assets/icon/app_icon.png',
+                        'assets/icon/app_logo.png',
                         width: 110,
                         height: 110,
                         fit: BoxFit.contain,
+                        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                          if (wasSynchronouslyLoaded || frame != null) {
+                            return child;
+                          }
+                          return const SizedBox(width: 110, height: 110);
+                        },
                       ),
                       const SizedBox(height: 14),
-                      const Text(
+                      Text(
                         'TallyLive',
-                        style: TextStyle(
+                        style: AppTheme.brandTitle(
                           fontSize: 28,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w800,
                           letterSpacing: 0.5,
-                          color: Color(0xFF1A1F36),
+                          color: const Color(0xFF1A1F36),
                         ),
                       ),
                       const SizedBox(height: 4),

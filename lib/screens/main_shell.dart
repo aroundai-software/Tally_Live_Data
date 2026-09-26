@@ -177,6 +177,7 @@ class _MainShellState extends State<MainShell> {
       ReceivablesPayablesScreen(
         onBack: () => _onNavigate(0),
         initialTabIndex: _receivablesPayablesTab,
+        isActive: _currentIndex == 3,
       ),
       SalesInvoiceScreen(onBack: () => _onNavigate(0)),
       PurchaseInvoiceScreen(onBack: () => _onNavigate(0)),

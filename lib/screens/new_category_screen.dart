@@ -93,16 +93,35 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
   }
 
   Widget _buildProductCard(StockItem item) {
+    final bool isOutOfStock = item.quantity <= 0;
+    final bool isLowStock = item.quantity >= 1 && item.quantity <= 5;
+
+    final Color borderColor = isOutOfStock
+        ? const Color(0xFFEF4444)
+        : (isLowStock ? const Color(0xFFF59E0B) : const Color(0xFFF1F5F9));
+
+    final double borderWidth = (isOutOfStock || isLowStock) ? 1.5 : 1.0;
+
+    final Color cardBg = isOutOfStock
+        ? const Color(0xFFFFFBFB)
+        : (isLowStock ? const Color(0xFFFFFDF5) : Colors.white);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFF1F5F9)),
+        border: Border.all(
+          color: borderColor,
+          width: borderWidth,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
+            color: (isOutOfStock
+                ? const Color(0xFFEF4444)
+                : (isLowStock ? const Color(0xFFF59E0B) : Colors.black))
+                .withValues(alpha: (isOutOfStock || isLowStock) ? 0.05 : 0.02),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -124,6 +143,29 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
                   ),
                 ),
               ),
+              if (isOutOfStock || isLowStock) ...[
+                Container(
+                  margin: const EdgeInsets.only(right: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isOutOfStock ? const Color(0xFFFEE2E2) : const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: isOutOfStock
+                          ? const Color(0xFFEF4444).withValues(alpha: 0.4)
+                          : const Color(0xFFF59E0B).withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Text(
+                    isOutOfStock ? 'Out of Stock' : 'Low Stock',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: isOutOfStock ? const Color(0xFFDC2626) : const Color(0xFFD97706),
+                    ),
+                  ),
+                ),
+              ],
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -155,7 +197,9 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 14,
-                      color: item.quantity <= 0 ? Colors.red : const Color(0xFF334155),
+                      color: isOutOfStock
+                          ? Colors.red
+                          : (isLowStock ? const Color(0xFFD97706) : const Color(0xFF334155)),
                     ),
                   ),
                 ],

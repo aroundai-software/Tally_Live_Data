@@ -37,7 +37,7 @@ class _StockScreenState extends State<StockScreen> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
-  String _sortBy = 'qty_desc'; // 'qty_desc', 'qty_asc'
+  String _sortBy = 'alpha_asc'; // 'alpha_asc', 'alpha_desc', 'qty_desc', 'qty_asc'
   String _stockFilter = 'All'; // All, Low Stock, Zero Stock
   late bool _showSalesValue;
   List<String> _newParents = []; // Unread/New parents for badges
@@ -109,17 +109,22 @@ class _StockScreenState extends State<StockScreen> {
       if (_stockFilter == 'Zero Stock') {
         matchesFilter = item.quantity <= 0;
       } else if (_stockFilter == 'Low Stock') {
-        matchesFilter = item.quantity > 0 && item.quantity <= 10;
+        matchesFilter = item.quantity >= 1 && item.quantity <= 5;
       }
 
       return matchesSearch && matchesFilter;
     }).toList();
 
     // Sort products based on user choice
-    if (_sortBy == 'qty_asc') {
+    if (_sortBy == 'alpha_desc') {
+      filtered.sort((a, b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()));
+    } else if (_sortBy == 'qty_asc') {
       filtered.sort((a, b) => a.quantity.compareTo(b.quantity));
-    } else {
+    } else if (_sortBy == 'qty_desc') {
       filtered.sort((a, b) => b.quantity.compareTo(a.quantity));
+    } else {
+      // Default: Alphabetical A to Z
+      filtered.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     }
 
     setState(() {
@@ -488,6 +493,46 @@ class _StockScreenState extends State<StockScreen> {
                         },
                         itemBuilder: (context) => [
                           PopupMenuItem(
+                            value: 'alpha_asc',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.sort_by_alpha_rounded,
+                                  size: 18,
+                                  color: _sortBy == 'alpha_asc' ? AppTheme.primaryColor : Colors.grey,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Name: A to Z',
+                                  style: TextStyle(
+                                    fontWeight: _sortBy == 'alpha_asc' ? FontWeight.bold : FontWeight.normal,
+                                    color: _sortBy == 'alpha_asc' ? AppTheme.primaryColor : Colors.black,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'alpha_desc',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.sort_by_alpha_rounded,
+                                  size: 18,
+                                  color: _sortBy == 'alpha_desc' ? AppTheme.primaryColor : Colors.grey,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Name: Z to A',
+                                  style: TextStyle(
+                                    fontWeight: _sortBy == 'alpha_desc' ? FontWeight.bold : FontWeight.normal,
+                                    color: _sortBy == 'alpha_desc' ? AppTheme.primaryColor : Colors.black,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
                             value: 'qty_desc',
                             child: Row(
                               children: [
@@ -777,13 +822,47 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isOutOfStock = item.quantity <= 0;
+    final bool isLowStock = item.quantity >= 1 && item.quantity <= 5;
+
+    final Color borderColor = isOutOfStock
+        ? AppTheme.errorColor
+        : (isLowStock ? const Color(0xFFF59E0B) : Colors.grey.shade200);
+
+    final double borderWidth = (isOutOfStock || isLowStock) ? 1.5 : 1.0;
+
+    final Color cardBg = isOutOfStock
+        ? const Color(0xFFFFFBFB)
+        : (isLowStock ? const Color(0xFFFFFDF5) : Colors.white);
+
+    final Color detailBoxBg = isOutOfStock
+        ? AppTheme.errorColor.withValues(alpha: 0.03)
+        : (isLowStock ? const Color(0xFFF59E0B).withValues(alpha: 0.04) : const Color(0xFFF8F9FE));
+
+    final Color? qtyColor = isOutOfStock
+        ? AppTheme.errorColor
+        : (isLowStock ? const Color(0xFFD97706) : null);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(
+          color: borderColor,
+          width: borderWidth,
+        ),
+        boxShadow: (isOutOfStock || isLowStock)
+            ? [
+                BoxShadow(
+                  color: (isOutOfStock ? AppTheme.errorColor : const Color(0xFFF59E0B))
+                      .withValues(alpha: 0.06),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ]
+            : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -827,26 +906,80 @@ class _ProductCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Text(
-              formatCurrency(showSalesValue ? salesValue : item.stockValue),
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: showSalesValue ? AppTheme.salesColor : const Color(0xFF1A1F36),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    formatCurrency(showSalesValue ? salesValue : item.stockValue),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: showSalesValue ? AppTheme.salesColor : const Color(0xFF1A1F36),
+                    ),
+                  ),
+                  if (isOutOfStock || isLowStock) ...[
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isOutOfStock
+                            ? AppTheme.errorColor.withValues(alpha: 0.1)
+                            : const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: isOutOfStock
+                              ? AppTheme.errorColor.withValues(alpha: 0.3)
+                              : const Color(0xFFF59E0B).withValues(alpha: 0.5),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isOutOfStock
+                                ? Icons.error_outline_rounded
+                                : Icons.warning_amber_rounded,
+                            size: 11,
+                            color: isOutOfStock
+                                ? AppTheme.errorColor
+                                : const Color(0xFFD97706),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            isOutOfStock ? 'Out of Stock' : 'Low Stock',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              color: isOutOfStock
+                                  ? AppTheme.errorColor
+                                  : const Color(0xFFD97706),
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
-            ),
             ],
           ),
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFFF8F9FE),
+              color: detailBoxBg,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Row(
               children: [
-                _DetailChip(label: 'Qty', value: '${item.quantity}'),
+                _DetailChip(
+                  label: 'Qty',
+                  value: '${item.quantity}',
+                  valueColor: qtyColor,
+                ),
                 _divider(),
                 if (showCostPrice) ...[
                   _DetailChip(label: 'Rate', value: '\u20B9${item.rate.toStringAsFixed(2)}'),
@@ -893,7 +1026,8 @@ class _ProductCard extends StatelessWidget {
 class _DetailChip extends StatelessWidget {
   final String label;
   final String value;
-  const _DetailChip({required this.label, required this.value});
+  final Color? valueColor;
+  const _DetailChip({required this.label, required this.value, this.valueColor});
 
   @override
   Widget build(BuildContext context) {
@@ -902,7 +1036,16 @@ class _DetailChip extends StatelessWidget {
         children: [
           Text(label, style: TextStyle(fontSize: 10, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
           const SizedBox(height: 2),
-          Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)), maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: valueColor ?? const Color(0xFF1A1F36),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );

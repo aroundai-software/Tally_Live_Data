@@ -55,6 +55,27 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
     }
   }
 
+  bool _isAccountingVoucher(String voucherType) {
+    final vt = voucherType.toLowerCase().trim();
+    if (vt.contains('quotation') ||
+        vt.contains('estimate') ||
+        vt.contains('order') ||
+        vt.contains('delivery note') ||
+        vt.contains('receipt note') ||
+        vt.contains('rejection') ||
+        vt.contains('material in') ||
+        vt.contains('material out') ||
+        vt.contains('physical stock') ||
+        vt.contains('stock journal') ||
+        vt.contains('attendance') ||
+        vt.contains('memo') ||
+        vt.contains('memorandum') ||
+        vt.contains('optional')) {
+      return false;
+    }
+    return true;
+  }
+
   Future<void> _loadData() async {
     setState(() {
       _isLoading = true;
@@ -81,6 +102,10 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
       _availableVoucherTypes.clear();
 
       for (var entry in allTransactions) {
+        if (!_isAccountingVoucher(entry.voucherType)) {
+          continue;
+        }
+
         _availableVoucherTypes.add(entry.voucherType);
 
         if (_startDate != null && entry.date != null && entry.date!.isBefore(_startDate!)) {
@@ -215,12 +240,12 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   }
 
   String _formatAmount(double amount) {
-    if (amount == 0) return '';
+    if (amount.abs() < 0.001) return '';
     return NumberFormat.currency(locale: 'en_IN', symbol: '\u20B9').format(amount.abs());
   }
 
   String _formatAmountPdf(double amount) {
-    if (amount == 0) return '';
+    if (amount.abs() < 0.001) return '';
     final formatter = NumberFormat('#,##,##0.00', 'en_IN');
     return formatter.format(amount.abs());
   }
@@ -937,8 +962,8 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                 _buildDataCell('Opening Balance', flex: 4, isBold: true, textColor: Colors.grey, verticalPadding: 6),
                 _buildDataCell('', flex: 2, verticalPadding: 6),
                 _buildDataCell('', flex: 2, verticalPadding: 6),
-                _buildDataCell(_openingBalance > 0 ? _formatAmount(_openingBalance) : '', flex: 2, numeric: true, isBold: true, verticalPadding: 6),
-                _buildDataCell(_openingBalance < 0 ? _formatAmount(_openingBalance) : '', flex: 2, numeric: true, isBold: true, verticalPadding: 6),
+                _buildDataCell(_openingBalance > 0.001 ? _formatAmount(_openingBalance) : '', flex: 2, numeric: true, isBold: true, verticalPadding: 6),
+                _buildDataCell(_openingBalance < -0.001 ? _formatAmount(_openingBalance) : '', flex: 2, numeric: true, isBold: true, verticalPadding: 6),
               ],
             ),
           ),
@@ -965,8 +990,8 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                 _buildDataCell('Closing Balance', flex: 4, isBold: true, verticalPadding: 6),
                 _buildDataCell('', flex: 2, verticalPadding: 6),
                 _buildDataCell('', flex: 2, verticalPadding: 6),
-                _buildDataCell(_closingBalance > 0 ? _formatAmount(_closingBalance) : '', flex: 2, numeric: true, isBold: true, verticalPadding: 6),
-                _buildDataCell(_closingBalance < 0 ? _formatAmount(_closingBalance) : '', flex: 2, numeric: true, isBold: true, verticalPadding: 6),
+                _buildDataCell(_closingBalance > 0.001 ? _formatAmount(_closingBalance) : '', flex: 2, numeric: true, isBold: true, verticalPadding: 6),
+                _buildDataCell(_closingBalance < -0.001 ? _formatAmount(_closingBalance) : '', flex: 2, numeric: true, isBold: true, verticalPadding: 6),
               ],
             ),
           ),

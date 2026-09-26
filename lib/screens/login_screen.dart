@@ -313,18 +313,18 @@ class _LoginScreenState extends State<LoginScreen> {
                         ],
                       ),
                       child: Image.asset(
-                        'assets/icon/app_icon.png',
+                        'assets/icon/app_logo.png',
                         width: 72,
                         height: 72,
                         fit: BoxFit.contain,
                       ),
                     ),
                     const SizedBox(width: 16),
-                    const Text(
+                    Text(
                       'TallyLive',
-                      style: TextStyle(
+                      style: AppTheme.brandTitle(
                         fontSize: 32,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         color: Colors.white,
                         letterSpacing: 0.5,
                       ),
@@ -382,7 +382,7 @@ class _LoginScreenState extends State<LoginScreen> {
               Padding(
                 padding: const EdgeInsets.only(bottom: 24),
                 child: Text(
-                  '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v2.0.3'}',
+                  '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v3.0.0'}',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -432,16 +432,21 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                   child: Image.asset(
-                    'assets/icon/app_icon.png',
+                    'assets/icon/app_logo.png',
                     width: 88,
                     height: 88,
                     fit: BoxFit.contain,
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Text(
+                Text(
                   'TallyLive',
-                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.white),
+                  style: AppTheme.brandTitle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    letterSpacing: 0.5,
+                  ),
                 ),
               ],
             ),
@@ -459,7 +464,7 @@ class _LoginScreenState extends State<LoginScreen> {
           Padding(
             padding: const EdgeInsets.only(bottom: 24),
             child: Text(
-              '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v2.0.3'}',
+              '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v3.0.0'}',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,

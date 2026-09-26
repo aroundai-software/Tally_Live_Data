@@ -89,7 +89,7 @@ class UserPreferencesService {
 
   static Future<String> loadStockSort() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_kStockSort) ?? 'qty_desc';
+    return prefs.getString(_kStockSort) ?? 'alpha_asc';
   }
 
   static Future<void> saveStockStatusFilter(String value) async {

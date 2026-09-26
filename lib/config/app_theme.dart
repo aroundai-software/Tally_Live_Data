@@ -140,4 +140,18 @@ class AppTheme {
       ),
     );
   }
+
+  static TextStyle brandTitle({
+    double fontSize = 28,
+    Color color = textPrimary,
+    FontWeight fontWeight = FontWeight.w800,
+    double letterSpacing = 0.5,
+  }) {
+    return GoogleFonts.playfairDisplay(
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      color: color,
+      letterSpacing: letterSpacing,
+    );
+  }
 }
