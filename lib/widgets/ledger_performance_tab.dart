@@ -88,7 +88,7 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
       int validDelay = 0;
 
       for (var s in data) {
-        if (s.daysToClear != null && s.daysToClear! > 0) {
+        if (s.daysToClear != null && s.daysToClear! >= 0) {
           totalDaysToClear += s.daysToClear!;
           validClear++;
         }

@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import '../utils/error_handler.dart';
-import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../config/app_theme.dart';
 import '../models/ledger.dart';
 import 'ledger_statement_screen.dart';
@@ -8,7 +6,6 @@ import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
 import '../services/user_preferences_service.dart';
 import '../widgets/search_bar_widget.dart';
-import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
 
@@ -207,25 +204,29 @@ class _LedgerScreenState extends State<LedgerScreen> {
           IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        color: AppTheme.primaryColor,
-        child: CustomScrollView(
-          controller: _scrollController,
-          slivers: [
-            SliverToBoxAdapter(child: _buildHeader()),
-            SliverToBoxAdapter(
-              child: SearchBarWidget(
-                hintText: 'Search customers...',
-                controller: _searchController,
-                onChanged: (_) {}, // Handled by listener
+      body: Column(
+        children: [
+          SearchBarWidget(
+            hintText: 'Search customers...',
+            controller: _searchController,
+            onChanged: (_) {}, // Handled by listener
+          ),
+          _buildTypeFilter(),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _loadData,
+              color: AppTheme.primaryColor,
+              child: CustomScrollView(
+                controller: _scrollController,
+                cacheExtent: 1500,
+                slivers: [
+                  SliverToBoxAdapter(child: _buildHeader()),
+                  _buildBody(),
+                ],
               ),
             ),
-            SliverToBoxAdapter(child: _buildTypeFilter()),
-            const SliverToBoxAdapter(child: SizedBox(height: 4)),
-            _buildBody(),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -234,7 +235,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
     if (_isLoading) return const SizedBox.shrink();
     final activeCount = _filteredCustomers.where((c) => c.isActive).length;
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: const LinearGradient(colors: [Color(0xFF1A73E8), Color(0xFF0D47A1)]),
@@ -380,24 +381,6 @@ class _CustomerCard extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _detailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 110,
-            child: Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
-          ),
-          Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36))),
-          ),
-        ],
       ),
     );
   }

@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import '../utils/error_handler.dart';
-import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
-
 import '../config/app_theme.dart';
 import '../models/stock_item.dart';
 import '../providers/company_provider.dart';
@@ -12,8 +10,6 @@ import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/error_state_widget.dart';
-import '../utils/error_handler.dart';
-import 'new_category_screen.dart';
 import 'item_parents_screen.dart';
 
 class StockScreen extends StatefulWidget {
@@ -100,7 +96,7 @@ class _StockScreenState extends State<StockScreen> {
       if (query.isNotEmpty) {
         final matchesName = item.name.toLowerCase().contains(query);
         final matchesPart = item.partNumber?.toLowerCase().contains(query) ?? false;
-        final matchesRate = item.rate.toString().contains(query);
+        final matchesRate = CompanyProvider.of(context).isFeatureEnabled('stock_cost') && item.rate.toString().contains(query);
         final matchesQty = item.quantity.toString().contains(query);
         matchesSearch = matchesName || matchesPart || matchesRate || matchesQty;
       }
@@ -138,6 +134,7 @@ class _StockScreenState extends State<StockScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final syncTrigger = CompanyProvider.of(context).syncTrigger;
+    if (_initialized) _onSearchChanged();
     if (!_initialized) {
       _initialized = true;
       _lastSyncTrigger = syncTrigger;
@@ -447,143 +444,154 @@ class _StockScreenState extends State<StockScreen> {
             ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        color: AppTheme.primaryColor,
-        child: CustomScrollView(
-          controller: _scrollController,
-          slivers: [
-            if (showCostPrice) SliverToBoxAdapter(child: _buildModeToggle()),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: SearchBarWidget(
-                        margin: EdgeInsets.zero,
-                        hintText: 'Search by name, part no, rate...',
-                        controller: _searchController,
-                        onChanged: (_) {}, // Handled by listener
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.grey.shade200),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: PopupMenuButton<String>(
-                        icon: const Icon(Icons.sort_rounded, color: AppTheme.primaryColor),
-                        tooltip: 'Sort Options',
-                        onSelected: (value) {
-                          setState(() {
-                            _sortBy = value;
-                          });
-                          UserPreferencesService.saveStockSort(value);
-                          _onSearchChanged();
-                        },
-                        itemBuilder: (context) => [
-                          PopupMenuItem(
-                            value: 'alpha_asc',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.sort_by_alpha_rounded,
-                                  size: 18,
-                                  color: _sortBy == 'alpha_asc' ? AppTheme.primaryColor : Colors.grey,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Name: A to Z',
-                                  style: TextStyle(
-                                    fontWeight: _sortBy == 'alpha_asc' ? FontWeight.bold : FontWeight.normal,
-                                    color: _sortBy == 'alpha_asc' ? AppTheme.primaryColor : Colors.black,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'alpha_desc',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.sort_by_alpha_rounded,
-                                  size: 18,
-                                  color: _sortBy == 'alpha_desc' ? AppTheme.primaryColor : Colors.grey,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Name: Z to A',
-                                  style: TextStyle(
-                                    fontWeight: _sortBy == 'alpha_desc' ? FontWeight.bold : FontWeight.normal,
-                                    color: _sortBy == 'alpha_desc' ? AppTheme.primaryColor : Colors.black,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'qty_desc',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.arrow_downward_rounded,
-                                  size: 18,
-                                  color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.grey,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Quantity: High to Low',
-                                  style: TextStyle(
-                                    fontWeight: _sortBy == 'qty_desc' ? FontWeight.bold : FontWeight.normal,
-                                    color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.black,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'qty_asc',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.arrow_upward_rounded,
-                                  size: 18,
-                                  color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.grey,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Quantity: Low to High',
-                                  style: TextStyle(
-                                    fontWeight: _sortBy == 'qty_asc' ? FontWeight.bold : FontWeight.normal,
-                                    color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.black,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+      body: Column(
+        children: [
+          if (showCostPrice) _buildModeToggle(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+            child: Row(
+              children: [
+                Expanded(
+                  child: SearchBarWidget(
+                    margin: EdgeInsets.zero,
+                    hintText: 'Search by name, part no, rate...',
+                    controller: _searchController,
+                    onChanged: (_) {}, // Handled by listener
+                  ),
                 ),
+                const SizedBox(width: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.grey.shade200),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: PopupMenuButton<String>(
+                    icon: const Icon(Icons.sort_rounded, color: AppTheme.primaryColor),
+                    tooltip: 'Sort Options',
+                    onSelected: (value) {
+                      setState(() {
+                        _sortBy = value;
+                      });
+                      UserPreferencesService.saveStockSort(value);
+                      _onSearchChanged();
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'alpha_asc',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.sort_by_alpha_rounded,
+                              size: 18,
+                              color: _sortBy == 'alpha_asc' ? AppTheme.primaryColor : Colors.grey,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Name: A to Z',
+                              style: TextStyle(
+                                fontWeight: _sortBy == 'alpha_asc' ? FontWeight.bold : FontWeight.normal,
+                                color: _sortBy == 'alpha_asc' ? AppTheme.primaryColor : Colors.black,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'alpha_desc',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.sort_by_alpha_rounded,
+                              size: 18,
+                              color: _sortBy == 'alpha_desc' ? AppTheme.primaryColor : Colors.grey,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Name: Z to A',
+                              style: TextStyle(
+                                fontWeight: _sortBy == 'alpha_desc' ? FontWeight.bold : FontWeight.normal,
+                                color: _sortBy == 'alpha_desc' ? AppTheme.primaryColor : Colors.black,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'qty_desc',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.arrow_downward_rounded,
+                              size: 18,
+                              color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.grey,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Quantity: High to Low',
+                              style: TextStyle(
+                                fontWeight: _sortBy == 'qty_desc' ? FontWeight.bold : FontWeight.normal,
+                                color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.black,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'qty_asc',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.arrow_upward_rounded,
+                              size: 18,
+                              color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.grey,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Quantity: Low to High',
+                              style: TextStyle(
+                                fontWeight: _sortBy == 'qty_asc' ? FontWeight.bold : FontWeight.normal,
+                                color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.black,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _buildStockFilter(),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _loadData,
+              color: AppTheme.primaryColor,
+              child: CustomScrollView(
+                controller: _scrollController,
+                cacheExtent: 1500,
+                slivers: [
+                  if (showCostPrice)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: _buildHeader(),
+                      ),
+                    ),
+                  _buildSliverBody(showCostPrice: showCostPrice),
+                ],
               ),
             ),
-            SliverToBoxAdapter(child: _buildStockFilter()),
-            if (showCostPrice) SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: _buildHeader())),
-            _buildSliverBody(showCostPrice: showCostPrice),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -843,12 +851,44 @@ class _ProductCard extends StatelessWidget {
         ? AppTheme.errorColor
         : (isLowStock ? const Color(0xFFD97706) : null);
 
+    // Format quantity and unit together
+    final qtyNumber = item.quantity == item.quantity.truncateToDouble()
+        ? item.quantity.toInt().toString()
+        : item.quantity.toString();
+    final unitStr = (item.unit != null && item.unit!.trim().isNotEmpty && item.unit!.trim() != '-')
+        ? ' ${item.unit!.trim()}'
+        : '';
+    final qtyWithUnit = '$qtyNumber$unitStr';
+
+    // Format value (respecting cost-disabled security)
+    final displayValue = (showSalesValue || showCostPrice)
+        ? formatCurrency(showSalesValue ? salesValue : item.stockValue)
+        : '—';
+
+    // Build concise metadata string (Parent, Category, HSN, GST)
+    final metaParts = <String>[];
+    if (item.parent != null && item.parent!.trim().isNotEmpty) {
+      metaParts.add(item.parent!.trim());
+    }
+    if (item.category != null &&
+        item.category!.trim().isNotEmpty &&
+        item.category!.trim() != item.parent?.trim()) {
+      metaParts.add(item.category!.trim());
+    }
+    if (item.hsn != null && item.hsn!.trim().isNotEmpty) {
+      metaParts.add('HSN: ${item.hsn!.trim()}');
+    }
+    if (item.gstRate > 0) {
+      metaParts.add('GST: ${item.gstRate.toStringAsFixed(0)}%');
+    }
+    final metaText = metaParts.join(' • ');
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: borderColor,
           width: borderWidth,
@@ -858,126 +898,122 @@ class _ProductCard extends StatelessWidget {
                 BoxShadow(
                   color: (isOutOfStock ? AppTheme.errorColor : const Color(0xFFF59E0B))
                       .withValues(alpha: 0.06),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
                 ),
               ]
             : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(5),
                 decoration: BoxDecoration(
                   color: (showSalesValue ? AppTheme.salesColor : AppTheme.stockColor).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(6),
                 ),
                 child: Icon(
                   showSalesValue ? Icons.trending_up_rounded : Icons.medication_rounded,
                   color: showSalesValue ? AppTheme.salesColor : AppTheme.stockColor,
-                  size: 20,
+                  size: 15,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       item.name,
                       style: const TextStyle(
-                        fontSize: 15,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF1A1F36),
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    if (item.parent != null && item.parent!.isNotEmpty)
+                    if (metaText.isNotEmpty)
                       Padding(
-                        padding: const EdgeInsets.only(top: 2),
+                        padding: const EdgeInsets.only(top: 1),
                         child: Text(
-                          item.parent!,
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                          metaText,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: Colors.grey.shade500,
+                            fontWeight: FontWeight.w400,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    formatCurrency(showSalesValue ? salesValue : item.stockValue),
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: showSalesValue ? AppTheme.salesColor : const Color(0xFF1A1F36),
+              if (isOutOfStock || isLowStock) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isOutOfStock
+                        ? AppTheme.errorColor.withValues(alpha: 0.1)
+                        : const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(
+                      color: isOutOfStock
+                          ? AppTheme.errorColor.withValues(alpha: 0.3)
+                          : const Color(0xFFF59E0B).withValues(alpha: 0.5),
+                      width: 1,
                     ),
                   ),
-                  if (isOutOfStock || isLowStock) ...[
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isOutOfStock
+                            ? Icons.error_outline_rounded
+                            : Icons.warning_amber_rounded,
+                        size: 10,
                         color: isOutOfStock
-                            ? AppTheme.errorColor.withValues(alpha: 0.1)
-                            : const Color(0xFFFEF3C7),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
+                            ? AppTheme.errorColor
+                            : const Color(0xFFD97706),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        isOutOfStock ? 'Out of Stock' : 'Low Stock',
+                        style: TextStyle(
+                          fontSize: 9.5,
                           color: isOutOfStock
-                              ? AppTheme.errorColor.withValues(alpha: 0.3)
-                              : const Color(0xFFF59E0B).withValues(alpha: 0.5),
-                          width: 1,
+                              ? AppTheme.errorColor
+                              : const Color(0xFFD97706),
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
                         ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            isOutOfStock
-                                ? Icons.error_outline_rounded
-                                : Icons.warning_amber_rounded,
-                            size: 11,
-                            color: isOutOfStock
-                                ? AppTheme.errorColor
-                                : const Color(0xFFD97706),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            isOutOfStock ? 'Out of Stock' : 'Low Stock',
-                            style: TextStyle(
-                              fontSize: 10.5,
-                              color: isOutOfStock
-                                  ? AppTheme.errorColor
-                                  : const Color(0xFFD97706),
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 5),
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
             decoration: BoxDecoration(
               color: detailBoxBg,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(6),
             ),
             child: Row(
               children: [
                 _DetailChip(
                   label: 'Qty',
-                  value: '${item.quantity}',
+                  value: qtyWithUnit,
                   valueColor: qtyColor,
                 ),
                 _divider(),
@@ -987,27 +1023,14 @@ class _ProductCard extends StatelessWidget {
                 ],
                 _DetailChip(label: 'MRP', value: '\u20B9${item.mrp.toStringAsFixed(2)}'),
                 _divider(),
-                _DetailChip(label: 'Unit', value: item.unit ?? '-'),
+                _DetailChip(
+                  label: 'Value',
+                  value: displayValue,
+                  valueColor: showSalesValue ? AppTheme.salesColor : null,
+                ),
               ],
             ),
           ),
-          if (item.hsn != null && item.hsn!.isNotEmpty || item.gstRate > 0) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                if (item.hsn != null && item.hsn!.isNotEmpty)
-                  _TagChip(label: 'HSN: ${item.hsn}'),
-                if (item.gstRate > 0) ...[
-                  const SizedBox(width: 8),
-                  _TagChip(label: 'GST: ${item.gstRate.toStringAsFixed(0)}%'),
-                ],
-                if (item.category != null && item.category!.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  _TagChip(label: item.category!),
-                ],
-              ],
-            ),
-          ],
         ],
       ),
     );
@@ -1016,8 +1039,8 @@ class _ProductCard extends StatelessWidget {
   Widget _divider() {
     return Container(
       width: 1,
-      height: 24,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
+      height: 14,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
       color: Colors.grey.shade300,
     );
   }
@@ -1033,13 +1056,14 @@ class _DetailChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Expanded(
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: TextStyle(fontSize: 10, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 2),
+          Text(label, style: TextStyle(fontSize: 9, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 1),
           Text(
             value,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 11.5,
               fontWeight: FontWeight.w600,
               color: valueColor ?? const Color(0xFF1A1F36),
             ),
@@ -1048,23 +1072,6 @@ class _DetailChip extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _TagChip extends StatelessWidget {
-  final String label;
-  const _TagChip({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppTheme.stockColor.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(label, style: const TextStyle(fontSize: 11, color: AppTheme.stockColor, fontWeight: FontWeight.w600)),
     );
   }
 }

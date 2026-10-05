@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -24,6 +25,33 @@ void main() async {
   runApp(TallyLiveApp());
 }
 
+/// Provides premium, glass-like smooth scrolling across the entire app
+/// on all devices (touch, trackpad, mouse, and stylus).
+class GlassSmoothScrollBehavior extends MaterialScrollBehavior {
+  const GlassSmoothScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+    PointerDeviceKind.stylus,
+  };
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const BouncingScrollPhysics(
+      parent: AlwaysScrollableScrollPhysics(),
+    );
+  }
+
+  @override
+  Widget buildOverscrollIndicator(BuildContext context, Widget child, ScrollableDetails details) {
+    // Avoid harsh edge stretch / glow, preserving clean glass bounce
+    return child;
+  }
+}
+
 class TallyLiveApp extends StatelessWidget {
   TallyLiveApp({super.key});
 
@@ -37,6 +65,7 @@ class TallyLiveApp extends StatelessWidget {
         title: 'TallyLive',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
+        scrollBehavior: const GlassSmoothScrollBehavior(),
         home: const SplashScreen(),
       ),
     );

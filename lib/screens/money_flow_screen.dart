@@ -103,11 +103,11 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
       return s.daysToClear != null;
     }).toList();
 
-    // For averages and charts, exclude same-day clears (delay <= 0) if using invoice date.
+    // Include same-day clears; reject impossible negative invoice-to-payment ages.
     // If using due date, keep early/on-time payments (delay <= 0) because they represent adherence to terms.
     final billsForAvg = data.where((s) {
       if (_useDueDate) return s.daysFromDueDate != null;
-      return s.daysToClear != null && s.daysToClear! > 0;
+      return s.daysToClear != null && s.daysToClear! >= 0;
     }).toList();
 
     double totalDays = 0;
@@ -141,10 +141,10 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
     }
     _globalAvgDays = billsForAvg.isNotEmpty ? totalDays / billsForAvg.length : 0;
 
-    // Customer ranking - only use records with >0 days to exclude same-day clears
+    // Customer ranking includes same-day and early payments.
     List<Map<String, dynamic>> customerAverages = [];
     ledgerDaysMap.forEach((ledger, days) {
-      final nonZero = days.where((d) => d > 0).toList();
+      final nonZero = days.toList();
       if (nonZero.isEmpty) return;
       double avg = nonZero.fold(0, (sum, val) => sum + val) / nonZero.length;
       customerAverages.add({'ledger': ledger, 'avgDays': avg, 'count': nonZero.length});
@@ -161,13 +161,13 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
     Map<String, List<int>> monthlyMap = {};
     for (int i = 5; i >= 0; i--) {
       final month = DateTime(now.year, now.month - i, 1);
-      final key = DateFormat('MMM').format(month);
+      final key = DateFormat('MMM yy').format(month);
       monthlyMap[key] = [];
     }
 
     for (var s in billsForAvg) {
       if (s.clearedDate == null) continue;
-      final key = DateFormat('MMM').format(s.clearedDate!);
+      final key = DateFormat('MMM yy').format(s.clearedDate!);
       if (monthlyMap.containsKey(key)) {
         monthlyMap[key]!.add(_useDueDate ? s.daysFromDueDate! : s.daysToClear!);
       }

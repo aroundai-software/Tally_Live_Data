@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -18,11 +19,56 @@ class AdminPanelScreen extends StatefulWidget {
 
 class _AdminPanelScreenState extends State<AdminPanelScreen> {
   int _currentIndex = 0;
+  bool _verified = false;
+  bool _closing = false;
+  StreamSubscription<Map<String, dynamic>>? _profileSubscription;
+
+  bool _allowed(Map<String, dynamic>? profile) {
+    final user = SupabaseService().currentUser;
+    final phone = profile?['phone_number']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '';
+    return user != null && profile?['is_active'] == true &&
+      (profile?['role'] == 'super_admin' || user.email == 'admin@tallylive.com' || phone == '97000000');
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _verifyAccess(); });
+  }
+
+  Future<void> _denyAccess() async {
+    if (_closing || !mounted) return;
+    _closing = true;
+    setState(() => _verified = false);
+    if (SupabaseService().currentUser != null) await SupabaseService().signOut();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
+  }
+
+  Future<void> _verifyAccess() async {
+    final service = SupabaseService();
+    final user = service.currentUser;
+    final profile = user == null ? null : await service.getUserProfile(user.id);
+    if (!mounted) return;
+    if (!_allowed(profile)) { await _denyAccess(); return; }
+    setState(() => _verified = true);
+    _profileSubscription = service.streamUserProfile(user!.id).listen((profile) {
+      if (!_allowed(profile)) _denyAccess();
+    }, onError: (Object _) { _denyAccess(); });
+  }
+
+  @override
+  void dispose() {
+    _profileSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (!_verified) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     final tabs = [
       const AdminCompaniesTab(),
+      const AdminSyncLicensesTab(),
       const AdminUsersTab(),
       const AdminProfileTab(),
     ];
@@ -56,16 +102,22 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   onTap: () => setState(() => _currentIndex = 0),
                 ),
                 _AdminNavItem(
-                  icon: Icons.people_alt_rounded,
-                  label: 'Users',
+                  icon: Icons.sync_lock_rounded,
+                  label: 'Licenses',
                   isSelected: _currentIndex == 1,
                   onTap: () => setState(() => _currentIndex = 1),
                 ),
                 _AdminNavItem(
-                  icon: Icons.person_rounded,
-                  label: 'Profile',
+                  icon: Icons.people_alt_rounded,
+                  label: 'Users',
                   isSelected: _currentIndex == 2,
                   onTap: () => setState(() => _currentIndex = 2),
+                ),
+                _AdminNavItem(
+                  icon: Icons.person_rounded,
+                  label: 'Profile',
+                  isSelected: _currentIndex == 3,
+                  onTap: () => setState(() => _currentIndex = 3),
                 ),
               ],
             ),
@@ -325,6 +377,635 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
 }
 
 // ─── Tab 2: Users Management ──────────────────────────────────
+// ─── Tab 1.5: Sync Licenses & Machine Control ──────────────────
+class AdminSyncLicensesTab extends StatefulWidget {
+  const AdminSyncLicensesTab({super.key});
+
+  @override
+  State<AdminSyncLicensesTab> createState() => _AdminSyncLicensesTabState();
+}
+
+class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
+  final SupabaseService _service = SupabaseService();
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _machines = [];
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMachines();
+  }
+
+  Future<void> _loadMachines() async {
+    setState(() => _isLoading = true);
+    try {
+      final data = await _service.getAllSyncMachines();
+      if (mounted) {
+        setState(() {
+          _machines = data;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading sync machines: $e')),
+        );
+      }
+    }
+  }
+
+  String _formatDate(DateTime dt) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${dt.day.toString().padLeft(2, '0')} ${months[dt.month - 1]} ${dt.year}';
+  }
+
+  String _timeAgo(DateTime dt) {
+    final diff = DateTime.now().toUtc().difference(dt.toUtc());
+    if (diff.inSeconds < 60) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 30) return '${diff.inDays}d ago';
+    return _formatDate(dt);
+  }
+
+  void _showExtendLicenseSheet(BuildContext context, Map<String, dynamic> machine) {
+    final machineName = machine['machine_name']?.toString() ?? 'Machine';
+    final companyName = machine['current_company']?.toString() ?? 'Company';
+    final machineId = machine['id']?.toString() ?? '';
+
+    DateTime? currentExpiry;
+    final expRaw = machine['expires_at'];
+    if (expRaw != null) {
+      try {
+        currentExpiry = DateTime.parse(expRaw.toString());
+      } catch (_) {}
+    }
+
+    final isExpired = currentExpiry != null && DateTime.now().isAfter(currentExpiry);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetCtx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2453FF).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.sync_lock_rounded, color: Color(0xFF2453FF), size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Extend License',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                        Text(
+                          '$companyName ($machineName)',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceColor,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.dividerColor),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Current Expiry:',
+                      style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                    ),
+                    Text(
+                      currentExpiry != null
+                          ? '${_formatDate(currentExpiry)}${isExpired ? ' (Expired)' : ''}'
+                          : 'No expiry set',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isExpired ? Colors.red.shade700 : AppTheme.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Select Extension Plan:',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _buildPlanOption(
+                sheetCtx,
+                label: '+ 1 Month (30 Days)',
+                subtitle: 'Add 30 days to subscription',
+                days: 30,
+                currentExpiry: currentExpiry,
+                machineId: machineId,
+              ),
+              _buildPlanOption(
+                sheetCtx,
+                label: '+ 3 Months (90 Days)',
+                subtitle: 'Add 90 days to subscription',
+                days: 90,
+                currentExpiry: currentExpiry,
+                machineId: machineId,
+              ),
+              _buildPlanOption(
+                sheetCtx,
+                label: '+ 6 Months (180 Days)',
+                subtitle: 'Add 180 days to subscription',
+                days: 180,
+                currentExpiry: currentExpiry,
+                machineId: machineId,
+              ),
+              _buildPlanOption(
+                sheetCtx,
+                label: '+ 1 Year (365 Days)',
+                subtitle: 'Add 365 days to subscription',
+                days: 365,
+                currentExpiry: currentExpiry,
+                machineId: machineId,
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final initial = currentExpiry != null && currentExpiry.isAfter(DateTime.now())
+                      ? currentExpiry
+                      : DateTime.now();
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: initial.add(const Duration(days: 30)),
+                    firstDate: DateTime.now(),
+                    lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+                  );
+                  if (picked != null) {
+                    Navigator.pop(sheetCtx);
+                    _applyNewExpiry(machineId, picked);
+                  }
+                },
+                icon: const Icon(Icons.calendar_today_rounded, size: 18),
+                label: const Text('Pick Exact Date...'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPlanOption(
+    BuildContext sheetCtx, {
+    required String label,
+    required String subtitle,
+    required int days,
+    required DateTime? currentExpiry,
+    required String machineId,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            Navigator.pop(sheetCtx);
+            final base = (currentExpiry != null && currentExpiry.isAfter(DateTime.now()))
+                ? currentExpiry
+                : DateTime.now();
+            final newExpiry = base.add(Duration(days: days));
+            _applyNewExpiry(machineId, newExpiry);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border.all(color: AppTheme.dividerColor),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                    ),
+                  ],
+                ),
+                const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Color(0xFF2453FF)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _applyNewExpiry(String machineId, DateTime newExpiry) async {
+    final success = await _service.updateSyncMachineControl(
+      machineId,
+      expiresAt: newExpiry,
+      syncShouldRun: true,
+    );
+    if (!mounted) return;
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.green.shade700,
+          content: Text('✅ License extended until ${_formatDate(newExpiry)}'),
+        ),
+      );
+      _loadMachines();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.red,
+          content: Text('Failed to update license. Make sure expires_at column exists in Supabase.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _toggleSyncRun(String machineId, bool currentValue) async {
+    final newValue = !currentValue;
+    final success = await _service.updateSyncMachineControl(
+      machineId,
+      syncShouldRun: newValue,
+    );
+    if (!mounted) return;
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(newValue ? '🟢 Sync enabled' : '⏸️ Sync paused remotely'),
+        ),
+      );
+      _loadMachines();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _machines.where((m) {
+      final comp = m['current_company']?.toString().toLowerCase() ?? '';
+      final mach = m['machine_name']?.toString().toLowerCase() ?? '';
+      final q = _searchQuery.toLowerCase();
+      return comp.contains(q) || mach.contains(q);
+    }).toList();
+
+    return Scaffold(
+      backgroundColor: AppTheme.surfaceColor,
+      appBar: AppBar(
+        title: Text(
+          'Sync Licenses',
+          style: AppTheme.brandTitle(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppTheme.textPrimary,
+          ),
+        ),
+        elevation: 0,
+        backgroundColor: Colors.white,
+        automaticallyImplyLeading: false,
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadMachines,
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                children: [
+                  // Search Box
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppTheme.dividerColor),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        icon: Icon(Icons.search, color: Color(0xFF6B7A94)),
+                        hintText: 'Search by company or machine...',
+                        border: InputBorder.none,
+                      ),
+                      onChanged: (val) => setState(() => _searchQuery = val),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Machine Cards
+                  if (filtered.isEmpty)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32.0),
+                        child: Text(
+                          'No sync machines found',
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      ),
+                    )
+                  else
+                    ...filtered.map((m) {
+                      final companyName = m['current_company']?.toString() ?? 'Unknown Company';
+                      final machineName = m['machine_name']?.toString() ?? 'Unknown Machine';
+                      final shouldRun = m['sync_should_run'] == true;
+                      final machineId = m['id']?.toString() ?? '';
+
+                      DateTime? lastSeen;
+                      final lsRaw = m['last_seen_at'];
+                      if (lsRaw != null) {
+                        try {
+                          lastSeen = DateTime.parse(lsRaw.toString());
+                        } catch (_) {}
+                      }
+
+                      DateTime? expiresAt;
+                      final expRaw = m['expires_at'];
+                      if (expRaw != null) {
+                        try {
+                          expiresAt = DateTime.parse(expRaw.toString());
+                        } catch (_) {}
+                      }
+
+                      final isOnline = lastSeen != null &&
+                          DateTime.now().toUtc().difference(lastSeen.toUtc()).inHours < 3;
+                      final isExpired = expiresAt != null && DateTime.now().isAfter(expiresAt);
+                      final daysRemaining = expiresAt != null
+                          ? expiresAt.difference(DateTime.now()).inDays
+                          : null;
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isExpired ? Colors.red.shade200 : AppTheme.dividerColor,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.03),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Company & Machine
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF2453FF).withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(
+                                      Icons.business_rounded,
+                                      color: Color(0xFF2453FF),
+                                      size: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          companyName,
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppTheme.textPrimary,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Row(
+                                          children: [
+                                            Icon(Icons.computer_rounded, size: 14, color: AppTheme.textSecondary),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              machineName,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: AppTheme.textSecondary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  // Online Status dot
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: isOnline
+                                          ? Colors.green.shade50
+                                          : Colors.grey.shade100,
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 6,
+                                          height: 6,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: isOnline ? Colors.green : Colors.grey,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          isOnline ? 'Online' : 'Offline',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: isOnline ? Colors.green.shade700 : Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+
+                              // Expiry & Heartbeat Info
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: isExpired
+                                      ? Colors.red.shade50
+                                      : const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          isExpired ? Icons.error_outline : Icons.timelapse_rounded,
+                                          size: 16,
+                                          color: isExpired ? Colors.red.shade700 : const Color(0xFF2453FF),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          expiresAt != null
+                                              ? (isExpired
+                                                  ? 'Expired on ${_formatDate(expiresAt)}'
+                                                  : 'Expires ${_formatDate(expiresAt)} ($daysRemaining d left)')
+                                              : 'Active (No Expiry)',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: isExpired ? Colors.red.shade800 : AppTheme.textPrimary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (lastSeen != null)
+                                      Text(
+                                        'Seen ${_timeAgo(lastSeen)}',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: AppTheme.textSecondary,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+
+                              // Controls: Switch & Extend Button
+                              Row(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Switch.adaptive(
+                                        value: shouldRun,
+                                        activeColor: const Color(0xFF2453FF),
+                                        onChanged: (_) => _toggleSyncRun(machineId, shouldRun),
+                                      ),
+                                      Text(
+                                        shouldRun ? 'Sync On' : 'Paused',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                          color: shouldRun ? Colors.green.shade700 : Colors.red.shade700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const Spacer(),
+                                  ElevatedButton.icon(
+                                    onPressed: () => _showExtendLicenseSheet(context, m),
+                                    icon: const Icon(Icons.add_circle_outline, size: 16),
+                                    label: const Text('Extend Plan'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF2453FF),
+                                      foregroundColor: Colors.white,
+                                      elevation: 0,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+// ─── Tab 2: Users Management ──────────────────────────────────
+
 class AdminUsersTab extends StatefulWidget {
   const AdminUsersTab({super.key});
 
@@ -494,7 +1175,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                             CircleAvatar(
                                               backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.1),
                                               child: Text(
-                                                (user['full_name']?.toString() ?? 'U').toUpperCase().substring(0, 1),
+                                                ((user['full_name']?.toString().trim().isNotEmpty ?? false) ? user['full_name'].toString().trim().characters.first.toUpperCase() : 'U'),
                                                 style: const TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold),
                                               ),
                                             ),
@@ -1463,6 +2144,7 @@ class CompanyFeaturesScreen extends StatefulWidget {
 class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
   final SupabaseService _service = SupabaseService();
   late Map<String, bool> _features;
+  bool _savingFeature = false;
 
   @override
   void initState() {
@@ -1471,6 +2153,9 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
   }
 
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
+    if (_savingFeature) return;
+    _savingFeature = true;
+    final previousFeatures = Map<String, bool>.from(_features);
     final updatedValue = !currentValue;
     
     // 1. Optimistic Update - flip the switch instantly!
@@ -1557,12 +2242,14 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
       // 2. Revert the switch if database update fails
       if (mounted) {
         setState(() {
-          _features[featureKey] = currentValue;
+          _features = previousFeatures;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update setting: $e')),
         );
       }
+    } finally {
+      if (mounted) { setState(() => _savingFeature = false); } else { _savingFeature = false; }
     }
   }
 
@@ -1571,7 +2258,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
     return PopScope(
       canPop: false,
       onPopInvoked: (didPop) {
-        if (didPop) return;
+        if (didPop || _savingFeature) return;
         Navigator.of(context).pop(_features);
       },
       child: Scaffold(
@@ -1585,7 +2272,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           backgroundColor: Colors.white,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
-            onPressed: () => Navigator.of(context).pop(_features),
+            onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
         ),
         body: ListView(
@@ -1715,6 +2402,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
       ),
       trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF6B7A94)),
       onTap: () async {
+        if (_savingFeature) return;
         final updatedFeatures = await Navigator.of(context).push<Map<String, bool>>(
           MaterialPageRoute(builder: (_) => targetScreen),
         );
@@ -1774,6 +2462,7 @@ class DashboardFeaturesScreen extends StatefulWidget {
 class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
   final SupabaseService _service = SupabaseService();
   late Map<String, bool> _features;
+  bool _savingFeature = false;
   bool _isNetPositionConfigExpanded = true;
 
   @override
@@ -1783,6 +2472,9 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
   }
 
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
+    if (_savingFeature) return;
+    _savingFeature = true;
+    final previousFeatures = Map<String, bool>.from(_features);
     final updatedValue = !currentValue;
     setState(() {
       _features[featureKey] = updatedValue;
@@ -1807,12 +2499,14 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _features[featureKey] = currentValue;
+          _features = previousFeatures;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update setting: $e')),
         );
       }
+    } finally {
+      if (mounted) { setState(() => _savingFeature = false); } else { _savingFeature = false; }
     }
   }
 
@@ -1823,7 +2517,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
     return PopScope(
       canPop: false,
       onPopInvoked: (didPop) {
-        if (didPop) return;
+        if (didPop || _savingFeature) return;
         Navigator.of(context).pop(_features);
       },
       child: Scaffold(
@@ -1837,7 +2531,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
           backgroundColor: Colors.white,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
-            onPressed: () => Navigator.of(context).pop(_features),
+            onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
         ),
         body: ListView(
@@ -2405,6 +3099,7 @@ class StockFeaturesScreen extends StatefulWidget {
 class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
   final SupabaseService _service = SupabaseService();
   late Map<String, bool> _features;
+  bool _savingFeature = false;
 
   @override
   void initState() {
@@ -2413,6 +3108,9 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
   }
 
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
+    if (_savingFeature) return;
+    _savingFeature = true;
+    final previousFeatures = Map<String, bool>.from(_features);
     final updatedValue = !currentValue;
     setState(() {
       _features[featureKey] = updatedValue;
@@ -2435,12 +3133,14 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _features[featureKey] = currentValue;
+          _features = previousFeatures;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update setting: $e')),
         );
       }
+    } finally {
+      if (mounted) { setState(() => _savingFeature = false); } else { _savingFeature = false; }
     }
   }
 
@@ -2451,7 +3151,7 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
     return PopScope(
       canPop: false,
       onPopInvoked: (didPop) {
-        if (didPop) return;
+        if (didPop || _savingFeature) return;
         Navigator.of(context).pop(_features);
       },
       child: Scaffold(
@@ -2465,7 +3165,7 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
           backgroundColor: Colors.white,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
-            onPressed: () => Navigator.of(context).pop(_features),
+            onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
         ),
         body: ListView(
@@ -2595,6 +3295,7 @@ class OutstandingFeaturesScreen extends StatefulWidget {
 class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
   final SupabaseService _service = SupabaseService();
   late Map<String, bool> _features;
+  bool _savingFeature = false;
 
   @override
   void initState() {
@@ -2603,6 +3304,9 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
   }
 
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
+    if (_savingFeature) return;
+    _savingFeature = true;
+    final previousFeatures = Map<String, bool>.from(_features);
     final updatedValue = !currentValue;
     setState(() {
       _features[featureKey] = updatedValue;
@@ -2631,12 +3335,14 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _features[featureKey] = currentValue;
+          _features = previousFeatures;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update setting: $e')),
         );
       }
+    } finally {
+      if (mounted) { setState(() => _savingFeature = false); } else { _savingFeature = false; }
     }
   }
 
@@ -2647,7 +3353,7 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
     return PopScope(
       canPop: false,
       onPopInvoked: (didPop) {
-        if (didPop) return;
+        if (didPop || _savingFeature) return;
         Navigator.of(context).pop(_features);
       },
       child: Scaffold(
@@ -2661,7 +3367,7 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
           backgroundColor: Colors.white,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
-            onPressed: () => Navigator.of(context).pop(_features),
+            onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
         ),
         body: ListView(
@@ -2768,6 +3474,7 @@ class ReportsFeaturesScreen extends StatefulWidget {
 class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
   final SupabaseService _service = SupabaseService();
   late Map<String, bool> _features;
+  bool _savingFeature = false;
 
   @override
   void initState() {
@@ -2776,6 +3483,9 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
   }
 
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
+    if (_savingFeature) return;
+    _savingFeature = true;
+    final previousFeatures = Map<String, bool>.from(_features);
     final updatedValue = !currentValue;
     setState(() {
       _features[featureKey] = updatedValue;
@@ -2807,12 +3517,14 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _features[featureKey] = currentValue;
+          _features = previousFeatures;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update setting: $e')),
         );
       }
+    } finally {
+      if (mounted) { setState(() => _savingFeature = false); } else { _savingFeature = false; }
     }
   }
 
@@ -2823,7 +3535,7 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
     return PopScope(
       canPop: false,
       onPopInvoked: (didPop) {
-        if (didPop) return;
+        if (didPop || _savingFeature) return;
         Navigator.of(context).pop(_features);
       },
       child: Scaffold(
@@ -2837,7 +3549,7 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
           backgroundColor: Colors.white,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
-            onPressed: () => Navigator.of(context).pop(_features),
+            onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
         ),
         body: ListView(
@@ -2939,6 +3651,7 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
       ),
       trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF6B7A94)),
       onTap: () async {
+        if (_savingFeature) return;
         final updatedFeatures = await Navigator.of(context).push<Map<String, bool>>(
           MaterialPageRoute(builder: (_) => targetScreen),
         );
@@ -2968,6 +3681,7 @@ class CashFlowFeaturesScreen extends StatefulWidget {
 class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
   final SupabaseService _service = SupabaseService();
   late Map<String, bool> _features;
+  bool _savingFeature = false;
 
   @override
   void initState() {
@@ -2976,6 +3690,9 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
   }
 
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
+    if (_savingFeature) return;
+    _savingFeature = true;
+    final previousFeatures = Map<String, bool>.from(_features);
     final updatedValue = !currentValue;
     setState(() {
       _features[featureKey] = updatedValue;
@@ -3014,11 +3731,13 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
       await _service.updateCompanyFeatures(widget.companyName, Map<String, bool>.from(_features));
     } catch (e) {
       if (mounted) {
-        setState(() { _features[featureKey] = currentValue; });
+        setState(() { _features = previousFeatures; });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update setting: $e')),
         );
       }
+    } finally {
+      if (mounted) { setState(() => _savingFeature = false); } else { _savingFeature = false; }
     }
   }
 
@@ -3029,7 +3748,7 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
     return PopScope(
       canPop: false,
       onPopInvoked: (didPop) {
-        if (didPop) return;
+        if (didPop || _savingFeature) return;
         Navigator.of(context).pop(_features);
       },
       child: Scaffold(
@@ -3041,7 +3760,7 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
           backgroundColor: Colors.white,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
-            onPressed: () => Navigator.of(context).pop(_features),
+            onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
         ),
         body: ListView(
@@ -3143,6 +3862,7 @@ class LedgerFeaturesScreen extends StatefulWidget {
 class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
   final SupabaseService _service = SupabaseService();
   late Map<String, bool> _features;
+  bool _savingFeature = false;
 
   @override
   void initState() {
@@ -3151,6 +3871,9 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
   }
 
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
+    if (_savingFeature) return;
+    _savingFeature = true;
+    final previousFeatures = Map<String, bool>.from(_features);
     final updatedValue = !currentValue;
     setState(() {
       _features[featureKey] = updatedValue;
@@ -3212,11 +3935,13 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
       await _service.updateCompanyFeatures(widget.companyName, Map<String, bool>.from(_features));
     } catch (e) {
       if (mounted) {
-        setState(() { _features[featureKey] = currentValue; });
+        setState(() { _features = previousFeatures; });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update setting: $e')),
         );
       }
+    } finally {
+      if (mounted) { setState(() => _savingFeature = false); } else { _savingFeature = false; }
     }
   }
 
@@ -3228,7 +3953,7 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
     return PopScope(
       canPop: false,
       onPopInvoked: (didPop) {
-        if (didPop) return;
+        if (didPop || _savingFeature) return;
         Navigator.of(context).pop(_features);
       },
       child: Scaffold(
@@ -3240,7 +3965,7 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
           backgroundColor: Colors.white,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
-            onPressed: () => Navigator.of(context).pop(_features),
+            onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
         ),
         body: ListView(

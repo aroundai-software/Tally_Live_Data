@@ -52,5 +52,21 @@ app.*.map.json
 .env
 
 
+# Secrets and keystores
+android/key.properties
+*.jks
+*.keystore
+android/local.properties
+android/.gradle/
+android/build/
+ios/Flutter/ephemeral/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+
 # Python sync Script
 /python_sync_tallylive
+/python_sync_tallylive.zip
+*.db
+*.sqlite3
+data/
+

@@ -19,15 +19,25 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   final SupabaseService _service = SupabaseService();
-  Timer? _timer;
   bool _animate = false;
 
   @override
   void initState() {
     super.initState();
-    // Kick off a simple scale + fade animation, then navigate.
     _animate = true;
-    _timer = Timer(const Duration(milliseconds: 2000), _goNext);
+    _runStartupSequence();
+  }
+
+  Future<void> _runStartupSequence() async {
+    final results = await Future.wait<dynamic>([
+      Future.delayed(const Duration(milliseconds: 400)),
+      _resolveDestination(),
+    ]);
+    if (!mounted) return;
+    final destination = results[1] as Widget;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => destination),
+    );
   }
 
   @override
@@ -36,23 +46,20 @@ class _SplashScreenState extends State<SplashScreen> {
     precacheImage(const AssetImage('assets/icon/app_logo.png'), context);
   }
 
-  Future<void> _goNext() async {
-    if (!mounted) return;
-
+  Future<Widget> _resolveDestination() async {
     final session = _service.currentSession;
     if (session == null) {
-      // User not logged in ➔ Go to LoginScreen
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-      return;
+      return const LoginScreen();
     }
 
-    // User is logged in ➔ Fetch user profile to get company name
     try {
       final user = session.user;
       final profile = await _service.getUserProfile(user.id);
       
+      if (profile?['is_active'] != true) {
+        await _service.signOut();
+        return const LoginScreen();
+      }
       // Admin Redirection check
       final role = profile != null ? profile['role']?.toString() : null;
       final email = user.email;
@@ -60,38 +67,22 @@ class _SplashScreenState extends State<SplashScreen> {
       final cleanPhone = phone?.replaceAll(RegExp(r'[^0-9]'), '') ?? '';
       final isSuperAdmin = role == 'super_admin' || email == 'admin@tallylive.com' || cleanPhone == '97000000';
 
-      if (!mounted) return;
-
       if (isSuperAdmin) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const AdminPanelScreen(isRootAdmin: true)),
-        );
-        return;
+        return const AdminPanelScreen(isRootAdmin: true);
       }
 
       final companyName = profile != null ? profile['company_name']?.toString() : null;
       if (companyName != null && companyName.isNotEmpty) {
-        CompanyProvider.of(context).selectCompany(companyName);
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const MainShell()),
-        );
+        if (mounted) {
+          CompanyProvider.of(context).selectCompany(companyName);
+        }
+        return const MainShell();
       } else {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const CompanySelectionScreen()),
-        );
+        return const CompanySelectionScreen();
       }
     } catch (_) {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
+      return const LoginScreen();
     }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
   }
 
   @override

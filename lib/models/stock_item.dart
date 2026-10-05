@@ -9,7 +9,7 @@ class StockItem {
   final String? alias;
   final String? hsn;
   final String? description;
-  final int quantity;
+  final double quantity;
   final double rate;
   final double gstRate;
   final double mrp;
@@ -61,7 +61,7 @@ class StockItem {
       alias: json['Alias'] ?? json['ItemAlias'],
       hsn: json['hsn'],
       description: json['Description'] ?? json['description'],
-      quantity: _toInt(json['ItemQuantity']),
+      quantity: _toDouble(json['ItemQuantity']),
       rate: _toDouble(json['ItemRate']),
       gstRate: _toDouble(json['GstRate']),
       mrp: _toDouble(json['MRP']),
@@ -84,13 +84,6 @@ class StockItem {
     if (val is double) return val;
     if (val is int) return val.toDouble();
     return double.tryParse(val.toString()) ?? 0;
-  }
-
-  static int _toInt(dynamic val) {
-    if (val == null) return 0;
-    if (val is int) return val;
-    if (val is double) return val.toInt();
-    return int.tryParse(val.toString()) ?? 0;
   }
 
   static double? _toDoubleNullable(dynamic val) {

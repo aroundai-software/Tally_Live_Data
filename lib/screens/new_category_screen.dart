@@ -204,7 +204,7 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
                   ),
                 ],
               ),
-              Column(
+              if (CompanyProvider.of(context).isFeatureEnabled('stock_cost')) Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   const Text('Stock Value', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),

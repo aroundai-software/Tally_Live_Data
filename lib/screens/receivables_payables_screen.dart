@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../utils/error_handler.dart';
 import 'package:intl/intl.dart';
 import '../config/app_theme.dart';
@@ -52,9 +53,11 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   }
 
   late String _activeFilter;
+  String _selectedGroup = 'All Items';
+  String? _selectedLedger;
   bool _sortByAmount = true;
   bool _sortByDate = false;
-  DateTime? _selectedDateFilter;
+  DateTimeRange? _selectedDateRange;
 
 
 
@@ -64,11 +67,18 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   bool _initialized = false;
 
   int _lastTabIndex = 0;
+  String? _permissionKey;
+  int _loadGeneration = 0;
+  bool get _isReceivablesTab => CompanyProvider.of(context).isFeatureEnabled('out_receivables') && _lastTabIndex == 0;
 
   void _onTabChanged() {
     if (!_tabController.indexIsChanging && _tabController.index != _lastTabIndex) {
       _lastTabIndex = _tabController.index;
       _expandedItemKeys.clear();
+      _selectedGroup = 'All Items';
+      _selectedLedger = null;
+      _recomputeTotals();
+      _onSearchChanged();
       setState(() {});
     }
   }
@@ -89,9 +99,37 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   @override
   void didUpdateWidget(covariant ReceivablesPayablesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.initialTabIndex != oldWidget.initialTabIndex) {
-      _tabController.animateTo(widget.initialTabIndex);
+    final targetTab = widget.initialTabIndex.clamp(0, _tabController.length - 1);
+    final tabNeedsChange = _tabController.index != targetTab;
+    final filterNeedsChange = _activeFilter != widget.initialFilter;
+    final becameActive = widget.isActive && !oldWidget.isActive;
+
+    if (becameActive || filterNeedsChange) {
+      _activeFilter = widget.initialFilter;
     }
+
+    if (tabNeedsChange) {
+      _tabController.animateTo(targetTab);
+      _lastTabIndex = targetTab;
+      _expandedItemKeys.clear();
+      _selectedGroup = 'All Items';
+      _selectedLedger = null;
+      _recomputeTotals();
+    }
+
+    if (becameActive) {
+      _selectedGroup = 'All Items';
+      _selectedLedger = null;
+      _selectedDateRange = null;
+      if (_searchController.text.isNotEmpty) {
+        _searchController.clear();
+      } else {
+        _onSearchChanged();
+      }
+    } else if (filterNeedsChange) {
+      _onSearchChanged();
+    }
+
     if (oldWidget.isActive != widget.isActive) {
       _collapseAll();
     }
@@ -129,18 +167,22 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   }
 
   Future<void> _pickDateFilter() async {
-    final picked = await showDatePicker(
+    final picked = await showDateRangePicker(
       context: context,
-      initialDate: _selectedDateFilter ?? DateTime.now(),
+      initialDateRange: _selectedDateRange,
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
+      helpText: 'Select Date Range',
+      cancelText: 'Cancel',
+      confirmText: 'Apply',
+      saveText: 'Apply',
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
               primary: Color(0xFF2453FF),
               onPrimary: Colors.white,
-              onSurface: Colors.black,
+              onSurface: Colors.black87,
             ),
           ),
           child: child!,
@@ -149,8 +191,9 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     );
     if (picked != null) {
       setState(() {
-        _selectedDateFilter = picked;
+        _selectedDateRange = picked;
       });
+      _recomputeTotals();
       _onSearchChanged();
     }
   }
@@ -164,6 +207,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     bool matchesQuery(OutstandingRecord o) {
       if (query.isEmpty) return true;
       final matchesName = o.customerName.toLowerCase().contains(query);
+      final matchesGroup = o.groupName != null && o.groupName!.toLowerCase().contains(query);
       final matchesInvoice = o.invoiceNumber.toLowerCase().contains(query);
       final matchesAmount = o.amount.toString().contains(query) || 
         o.closingBalance.toString().contains(query);
@@ -175,16 +219,28 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
         matchesDate = dateStr.contains(query) || monthStr.contains(query);
       }
 
-      return matchesName || matchesInvoice || matchesAmount || matchesDate;
+      return matchesName || matchesGroup || matchesInvoice || matchesAmount || matchesDate;
     }
 
     bool passesFilter(OutstandingRecord o) {
+      if (_selectedGroup != 'All Items') {
+        final g = (o.groupName != null && o.groupName!.trim().isNotEmpty)
+            ? o.groupName!.trim()
+            : (_isReceivablesTab ? 'Sundry Debtors' : 'Sundry Creditors');
+        if (g != _selectedGroup) return false;
+      }
+      if (_selectedLedger != null && _selectedLedger!.isNotEmpty) {
+        if (o.customerName.trim() != _selectedLedger!.trim()) return false;
+      }
       if (!matchesQuery(o)) return false;
-      if (_selectedDateFilter != null) {
-        if (o.date == null) return false;
-        final d1 = DateTime(o.date!.year, o.date!.month, o.date!.day);
-        final d2 = DateTime(_selectedDateFilter!.year, _selectedDateFilter!.month, _selectedDateFilter!.day);
-        if (!d1.isAtSameMomentAs(d2)) return false;
+      if (_selectedDateRange != null) {
+        final d = o.date != null
+            ? DateTime(o.date!.year, o.date!.month, o.date!.day)
+            : (o.dueDate != null ? DateTime(o.dueDate!.year, o.dueDate!.month, o.dueDate!.day) : null);
+        if (d == null) return false;
+        final start = DateTime(_selectedDateRange!.start.year, _selectedDateRange!.start.month, _selectedDateRange!.start.day);
+        final end = DateTime(_selectedDateRange!.end.year, _selectedDateRange!.end.month, _selectedDateRange!.end.day);
+        if (d.isBefore(start) || d.isAfter(end)) return false;
       }
       if (_activeFilter == 'today') return _isRecordToday(o);
       if (_activeFilter == 'overdue') return _isRecordOverdue(o);
@@ -239,6 +295,19 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     final showReceivables = companyState.isFeatureEnabled('out_receivables');
     final showPayables = companyState.isFeatureEnabled('out_payables');
     final syncTrigger = companyState.syncTrigger;
+    final permissionKey = '${companyState.selectedCompany}:$showReceivables:$showPayables';
+    final permissionsChanged = _permissionKey != permissionKey;
+    _permissionKey = permissionKey;
+    if (permissionsChanged) {
+      _loadGeneration++;
+      _allReceivables = []; _filteredReceivables = [];
+      _allPayables = []; _filteredPayables = [];
+      if (!showReceivables) { _allReceivables = []; _filteredReceivables = []; }
+      if (!showPayables) { _allPayables = []; _filteredPayables = []; }
+      _selectedGroup = 'All Items';
+      _selectedLedger = null;
+      _recomputeTotals();
+    }
 
     int tabCount = 0;
     if (showReceivables) tabCount++;
@@ -261,7 +330,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
       _initialized = true;
       _lastSyncTrigger = syncTrigger;
       _loadPreferencesAndData();
-    } else if (_lastSyncTrigger != syncTrigger) {
+    } else if (permissionsChanged || _lastSyncTrigger != syncTrigger) {
       _lastSyncTrigger = syncTrigger;
       _silentRefresh();
     }
@@ -275,7 +344,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
         _sortByDate = saved.sortByDate;
       });
     }
-    _loadData();
+    if (mounted) _loadData();
   }
 
   double _cachedTotalReceivable = 0;
@@ -295,6 +364,25 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     int recTodayCount = 0;
 
     for (var o in _allReceivables) {
+      if (_selectedGroup != 'All Items') {
+        final g = (o.groupName != null && o.groupName!.trim().isNotEmpty)
+            ? o.groupName!.trim()
+            : 'Sundry Debtors';
+        if (g != _selectedGroup) continue;
+      }
+      if (_selectedLedger != null && _selectedLedger!.isNotEmpty) {
+        if (o.customerName.trim() != _selectedLedger!.trim()) continue;
+      }
+      if (_selectedDateRange != null) {
+        final d = o.date != null
+            ? DateTime(o.date!.year, o.date!.month, o.date!.day)
+            : (o.dueDate != null ? DateTime(o.dueDate!.year, o.dueDate!.month, o.dueDate!.day) : null);
+        if (d == null) continue;
+        final start = DateTime(_selectedDateRange!.start.year, _selectedDateRange!.start.month, _selectedDateRange!.start.day);
+        final end = DateTime(_selectedDateRange!.end.year, _selectedDateRange!.end.month, _selectedDateRange!.end.day);
+        if (d.isBefore(start) || d.isAfter(end)) continue;
+      }
+
       final amt = o.closingBalance != 0 ? o.closingBalance.abs() : o.amount.abs();
       recTotal += amt;
       if (_isRecordOverdue(o)) {
@@ -312,6 +400,25 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     int payTodayCount = 0;
 
     for (var o in _allPayables) {
+      if (_selectedGroup != 'All Items') {
+        final g = (o.groupName != null && o.groupName!.trim().isNotEmpty)
+            ? o.groupName!.trim()
+            : 'Sundry Creditors';
+        if (g != _selectedGroup) continue;
+      }
+      if (_selectedLedger != null && _selectedLedger!.isNotEmpty) {
+        if (o.customerName.trim() != _selectedLedger!.trim()) continue;
+      }
+      if (_selectedDateRange != null) {
+        final d = o.date != null
+            ? DateTime(o.date!.year, o.date!.month, o.date!.day)
+            : (o.dueDate != null ? DateTime(o.dueDate!.year, o.dueDate!.month, o.dueDate!.day) : null);
+        if (d == null) continue;
+        final start = DateTime(_selectedDateRange!.start.year, _selectedDateRange!.start.month, _selectedDateRange!.start.day);
+        final end = DateTime(_selectedDateRange!.end.year, _selectedDateRange!.end.month, _selectedDateRange!.end.day);
+        if (d.isBefore(start) || d.isAfter(end)) continue;
+      }
+
       final amt = o.closingBalance != 0 ? o.closingBalance.abs() : o.amount.abs();
       payTotal += amt;
       if (_isRecordOverdue(o)) {
@@ -334,28 +441,19 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     _cachedTodayPayablesCount = payTodayCount;
   }
 
-  Future<void> _silentRefresh() async {
-    try {
-      final company = CompanyProvider.of(context).selectedCompany;
-      final recs = await _service.getOutstandingReceivables(companyName: company);
-      final pays = await _service.getOutstandingPayables(companyName: company);
-      if (mounted) {
-        setState(() {
-          _allReceivables = recs;
-          _allPayables = pays;
-        });
-        _recomputeTotals();
-        _onSearchChanged();
-      }
-    } catch (_) {}
-  }
+  Future<void> _silentRefresh() => _loadData();
 
   Future<void> _loadData() async {
     setState(() { _isLoading = true; _error = null; });
     try {
-      final company = CompanyProvider.of(context).selectedCompany;
-      final recs = await _service.getOutstandingReceivables(companyName: company);
-      final pays = await _service.getOutstandingPayables(companyName: company);
+      final state = CompanyProvider.of(context);
+      final company = state.selectedCompany;
+      final generation = ++_loadGeneration;
+      final recs = state.isFeatureEnabled('out_receivables')
+          ? await _service.getOutstandingReceivables(companyName: company) : <OutstandingRecord>[];
+      final pays = state.isFeatureEnabled('out_payables')
+          ? await _service.getOutstandingPayables(companyName: company) : <OutstandingRecord>[];
+      if (!mounted || generation != _loadGeneration || company != state.selectedCompany) return;
       if (mounted) {
         setState(() { 
           _allReceivables = recs; 
@@ -482,17 +580,29 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
         actions: [
           IconButton(
             onPressed: _pickDateFilter,
-            icon: Icon(Icons.calendar_today_rounded, color: _selectedDateFilter != null ? const Color(0xFF2453FF) : Colors.black87),
+            tooltip: _selectedDateRange != null
+                ? 'Date Range: ${DateFormat('dd MMM yyyy').format(_selectedDateRange!.start)} - ${DateFormat('dd MMM yyyy').format(_selectedDateRange!.end)}'
+                : 'Filter by date range',
+            icon: Icon(
+              Icons.date_range_rounded,
+              color: _selectedDateRange != null ? const Color(0xFF2453FF) : Colors.black87,
+            ),
           ),
-          if (_selectedDateFilter != null)
+          if (_selectedDateRange != null)
             IconButton(
               onPressed: () {
-                setState(() => _selectedDateFilter = null);
+                setState(() => _selectedDateRange = null);
+                _recomputeTotals();
                 _onSearchChanged();
               },
+              tooltip: 'Clear date filter',
               icon: const Icon(Icons.clear_rounded, color: Colors.red),
             ),
-          IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh_rounded)),
+          IconButton(
+            onPressed: _loadData,
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Refresh',
+          ),
         ],
       ),
       body: Column(
@@ -611,6 +721,8 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
               ],
             ),
           ),
+          // --- Group & Ledger Filter Bar ---
+          _buildGroupAndLedgerBar(),
           // --- Sticky: Filter pills ---
           _buildFilterPills(),
           // --- Sticky: Summary tiles ---
@@ -630,7 +742,8 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   }
 
   Widget _buildSummaryBar() {
-    final isReceivablesTab = _lastTabIndex == 0;
+    final isReceivablesTab = _isReceivablesTab;
+    final totalCount = isReceivablesTab ? _filteredReceivables.length : _filteredPayables.length;
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 2, 16, 4),
       child: Row(
@@ -641,7 +754,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
               amount: isReceivablesTab ? _totalReceivable : _totalPayable,
               color: isReceivablesTab ? AppTheme.receivableColor : AppTheme.payableColor,
               icon: isReceivablesTab ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
-              count: isReceivablesTab ? _allReceivables.length : _allPayables.length,
+              count: totalCount,
               isSelected: _activeFilter == 'all',
               onTap: () {
                 setState(() => _activeFilter = 'all');
@@ -669,9 +782,485 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     );
   }
 
+  Widget _buildGroupAndLedgerBar() {
+    final hasGroupFilter = _selectedGroup != 'All Items';
+    final hasLedgerFilter = _selectedLedger != null && _selectedLedger!.isNotEmpty;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+      child: Row(
+        children: [
+          // --- Group Selector Chip (like Tally F4: Group) ---
+          Expanded(
+            child: InkWell(
+              onTap: _showGroupPickerSheet,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  color: hasGroupFilter ? AppTheme.primaryColor.withValues(alpha: 0.08) : const Color(0xFFF4F6FA),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: hasGroupFilter ? AppTheme.primaryColor : Colors.grey.shade300,
+                    width: hasGroupFilter ? 1.2 : 0.8,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.folder_outlined,
+                      size: 15,
+                      color: hasGroupFilter ? AppTheme.primaryColor : Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        hasGroupFilter ? 'Group: $_selectedGroup' : 'All Groups',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: hasGroupFilter ? FontWeight.w600 : FontWeight.w500,
+                          color: hasGroupFilter ? AppTheme.primaryColor : const Color(0xFF2C3242),
+                        ),
+                      ),
+                    ),
+                    if (hasGroupFilter)
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedGroup = 'All Items';
+                          });
+                          _recomputeTotals();
+                          _onSearchChanged();
+                        },
+                        child: const Padding(
+                          padding: EdgeInsets.only(left: 4),
+                          child: Icon(Icons.close_rounded, size: 14, color: AppTheme.primaryColor),
+                        ),
+                      )
+                    else
+                      Icon(Icons.arrow_drop_down_rounded, size: 18, color: Colors.grey.shade600),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // --- Ledger / Party Selector Chip ---
+          Expanded(
+            child: InkWell(
+              onTap: _showLedgerPickerSheet,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  color: hasLedgerFilter ? AppTheme.primaryColor.withValues(alpha: 0.08) : const Color(0xFFF4F6FA),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: hasLedgerFilter ? AppTheme.primaryColor : Colors.grey.shade300,
+                    width: hasLedgerFilter ? 1.2 : 0.8,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.person_outline_rounded,
+                      size: 15,
+                      color: hasLedgerFilter ? AppTheme.primaryColor : Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        hasLedgerFilter ? _selectedLedger! : 'All Ledgers',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: hasLedgerFilter ? FontWeight.w600 : FontWeight.w500,
+                          color: hasLedgerFilter ? AppTheme.primaryColor : const Color(0xFF2C3242),
+                        ),
+                      ),
+                    ),
+                    if (hasLedgerFilter)
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedLedger = null;
+                          });
+                          _recomputeTotals();
+                          _onSearchChanged();
+                        },
+                        child: const Padding(
+                          padding: EdgeInsets.only(left: 4),
+                          child: Icon(Icons.close_rounded, size: 14, color: AppTheme.primaryColor),
+                        ),
+                      )
+                    else
+                      Icon(Icons.arrow_drop_down_rounded, size: 18, color: Colors.grey.shade600),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showGroupPickerSheet() {
+    final isReceivablesTab = _isReceivablesTab;
+    final allRecords = isReceivablesTab ? _allReceivables : _allPayables;
+
+    final Map<String, int> groupCounts = {};
+    for (var r in allRecords) {
+      final g = (r.groupName != null && r.groupName!.trim().isNotEmpty)
+          ? r.groupName!.trim()
+          : (isReceivablesTab ? 'Sundry Debtors' : 'Sundry Creditors');
+      groupCounts[g] = (groupCounts[g] ?? 0) + 1;
+    }
+
+    final groups = groupCounts.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    String query = '';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final filteredGroups = groups
+                .where((g) => g.toLowerCase().contains(query.toLowerCase()))
+                .toList();
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.7,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 12, 10),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.folder_open_rounded, color: AppTheme.primaryColor, size: 22),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Select Group',
+                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36)),
+                              ),
+                              Text(
+                                'Filter outstandings by Tally group',
+                                style: TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 22),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                    child: TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search groups...',
+                        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        filled: true,
+                        fillColor: const Color(0xFFF5F6FA),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      onChanged: (val) {
+                        setModalState(() {
+                          query = val;
+                        });
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      children: [
+                        ListTile(
+                          leading: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: _selectedGroup == 'All Items'
+                                  ? AppTheme.primaryColor.withValues(alpha: 0.1)
+                                  : const Color(0xFFF1F3F9),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.all_inclusive_rounded,
+                              size: 18,
+                              color: _selectedGroup == 'All Items' ? AppTheme.primaryColor : Colors.grey.shade600,
+                            ),
+                          ),
+                          title: const Text('All Items', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                          subtitle: Text('${allRecords.length} total bills', style: const TextStyle(fontSize: 12)),
+                          trailing: _selectedGroup == 'All Items'
+                              ? const Icon(Icons.check_circle_rounded, color: AppTheme.primaryColor, size: 20)
+                              : null,
+                          onTap: () {
+                            setState(() {
+                              _selectedGroup = 'All Items';
+                            });
+                            _recomputeTotals();
+                            _onSearchChanged();
+                            Navigator.pop(context);
+                          },
+                        ),
+                        const Divider(height: 1, indent: 64),
+                        ...filteredGroups.map((g) {
+                          final isSelected = _selectedGroup == g;
+                          final count = groupCounts[g] ?? 0;
+                          return ListTile(
+                            leading: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? AppTheme.primaryColor.withValues(alpha: 0.1)
+                                    : const Color(0xFFF1F3F9),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.folder_rounded,
+                                size: 18,
+                                color: isSelected ? AppTheme.primaryColor : Colors.grey.shade600,
+                              ),
+                            ),
+                            title: Text(g, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                            subtitle: Text('$count bill${count == 1 ? '' : 's'}', style: const TextStyle(fontSize: 12)),
+                            trailing: isSelected
+                                ? const Icon(Icons.check_circle_rounded, color: AppTheme.primaryColor, size: 20)
+                                : null,
+                            onTap: () {
+                              setState(() {
+                                _selectedGroup = g;
+                                _selectedLedger = null;
+                              });
+                              _recomputeTotals();
+                              _onSearchChanged();
+                              Navigator.pop(context);
+                            },
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showLedgerPickerSheet() {
+    final isReceivablesTab = _isReceivablesTab;
+    final allRecords = isReceivablesTab ? _allReceivables : _allPayables;
+
+    final scopedRecords = _selectedGroup == 'All Items'
+        ? allRecords
+        : allRecords.where((r) {
+            final g = (r.groupName != null && r.groupName!.trim().isNotEmpty)
+                ? r.groupName!.trim()
+                : (isReceivablesTab ? 'Sundry Debtors' : 'Sundry Creditors');
+            return g == _selectedGroup;
+          }).toList();
+
+    final Map<String, (int, double)> ledgerData = {};
+    for (var r in scopedRecords) {
+      final name = r.customerName.trim();
+      final amt = r.closingBalance != 0 ? r.closingBalance.abs() : r.amount.abs();
+      final existing = ledgerData[name];
+      if (existing != null) {
+        ledgerData[name] = (existing.$1 + 1, existing.$2 + amt);
+      } else {
+        ledgerData[name] = (1, amt);
+      }
+    }
+
+    final ledgers = ledgerData.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    String query = '';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final filteredLedgers = ledgers
+                .where((l) => l.toLowerCase().contains(query.toLowerCase()))
+                .toList();
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.75,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 12, 10),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.person_search_rounded, color: AppTheme.primaryColor, size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Select Party / Ledger',
+                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36)),
+                              ),
+                              Text(
+                                _selectedGroup == 'All Items'
+                                    ? 'All parties (${ledgers.length} total)'
+                                    : 'Parties in $_selectedGroup (${ledgers.length})',
+                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 22),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                    child: TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search party name...',
+                        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        filled: true,
+                        fillColor: const Color(0xFFF5F6FA),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      onChanged: (val) {
+                        setModalState(() {
+                          query = val;
+                        });
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      children: [
+                        ListTile(
+                          leading: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: _selectedLedger == null
+                                  ? AppTheme.primaryColor.withValues(alpha: 0.1)
+                                  : const Color(0xFFF1F3F9),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.groups_rounded,
+                              size: 18,
+                              color: _selectedLedger == null ? AppTheme.primaryColor : Colors.grey.shade600,
+                            ),
+                          ),
+                          title: const Text('All Ledgers', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                          subtitle: Text('${scopedRecords.length} bills', style: const TextStyle(fontSize: 12)),
+                          trailing: _selectedLedger == null
+                              ? const Icon(Icons.check_circle_rounded, color: AppTheme.primaryColor, size: 20)
+                              : null,
+                          onTap: () {
+                            setState(() {
+                              _selectedLedger = null;
+                            });
+                            _recomputeTotals();
+                            _onSearchChanged();
+                            Navigator.pop(context);
+                          },
+                        ),
+                        const Divider(height: 1, indent: 64),
+                        ...filteredLedgers.map((l) {
+                          final isSelected = _selectedLedger == l;
+                          final data = ledgerData[l];
+                          final count = data?.$1 ?? 0;
+                          final totalAmt = data?.$2 ?? 0;
+                          return ListTile(
+                            leading: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? AppTheme.primaryColor.withValues(alpha: 0.1)
+                                    : const Color(0xFFF1F3F9),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.person_rounded,
+                                size: 18,
+                                color: isSelected ? AppTheme.primaryColor : Colors.grey.shade600,
+                              ),
+                            ),
+                            title: Text(l, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                            subtitle: Text(
+                              '$count bill${count == 1 ? '' : 's'} • ${formatCurrency(totalAmt)}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            trailing: isSelected
+                                ? const Icon(Icons.check_circle_rounded, color: AppTheme.primaryColor, size: 20)
+                                : null,
+                            onTap: () {
+                              setState(() {
+                                _selectedLedger = l;
+                              });
+                              _recomputeTotals();
+                              _onSearchChanged();
+                              Navigator.pop(context);
+                            },
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildFilterPills() {
-    final isReceivablesTab = _lastTabIndex == 0;
-    final allCount = isReceivablesTab ? _allReceivables.length : _allPayables.length;
+    final isReceivablesTab = _isReceivablesTab;
+    final allCount = isReceivablesTab ? _filteredReceivables.length : _filteredPayables.length;
     final todayCount = isReceivablesTab ? _cachedTodayReceivablesCount : _cachedTodayPayablesCount;
     final overdueCount = isReceivablesTab ? _cachedOverdueReceivablesCount : _cachedOverduePayablesCount;
     return Container(
@@ -681,10 +1270,54 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-          _buildPillChip('All Bills', 'all', Icons.receipt_long_rounded, badgeCount: allCount),
-          _buildPillChip("Today's Bills", 'today', Icons.today_rounded, badgeCount: todayCount),
-          _buildPillChip('Overdue Bills', 'overdue', Icons.warning_amber_rounded, badgeCount: overdueCount),
-        ],
+            _buildPillChip('All Bills', 'all', Icons.receipt_long_rounded, badgeCount: allCount),
+            _buildPillChip("Today's Bills", 'today', Icons.today_rounded, badgeCount: todayCount),
+            _buildPillChip('Overdue Bills', 'overdue', Icons.warning_amber_rounded, badgeCount: overdueCount),
+            if (_selectedDateRange != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2453FF).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF2453FF), width: 1.2),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      InkWell(
+                        onTap: _pickDateFilter,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.date_range_rounded, size: 15, color: Color(0xFF2453FF)),
+                            const SizedBox(width: 5),
+                            Text(
+                              '${DateFormat('dd MMM').format(_selectedDateRange!.start)} – ${DateFormat('dd MMM').format(_selectedDateRange!.end)}',
+                              style: const TextStyle(
+                                color: Color(0xFF2453FF),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: () {
+                          setState(() => _selectedDateRange = null);
+                          _recomputeTotals();
+                          _onSearchChanged();
+                        },
+                        child: const Icon(Icons.close_rounded, size: 16, color: Color(0xFF2453FF)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -761,24 +1394,33 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     if (_isLoading) return const ShimmerLoading();
     if (_error != null) return ErrorState(message: _error!, onRetry: _loadData);
     if (items.isEmpty) {
+      final typeStr = type == 'receivable' ? 'receivables' : 'payables';
+      final typeCap = type == 'receivable' ? 'Receivables' : 'Payables';
       String subtitle = 'Data will appear here once synced from Tally';
       if (_searchController.text.isNotEmpty) {
         subtitle = 'Try a different search term or check filters';
+      } else if (_selectedLedger != null && _selectedLedger!.isNotEmpty) {
+        subtitle = 'No $typeStr found for $_selectedLedger';
+      } else if (_selectedGroup != 'All Items') {
+        subtitle = 'No $typeStr found in group $_selectedGroup';
       } else if (_activeFilter == 'overdue') {
-        subtitle = 'No overdue ' + (type == 'receivable' ? 'receivables' : 'payables') + ' found';
+        subtitle = 'No overdue $typeStr found';
       } else if (_activeFilter == 'today') {
-        subtitle = 'No ' + (type == 'receivable' ? 'receivables' : 'payables') + ' for today';
+        subtitle = 'No $typeStr for today';
+      } else if (_selectedDateRange != null) {
+        subtitle = 'No $typeStr found for the selected date range';
       }
 
       return EmptyState(
         icon: type == 'receivable' ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
-        title: 'No ' + (type == 'receivable' ? 'Receivables' : 'Payables') + ' Found',
+        title: 'No $typeCap Found',
         subtitle: subtitle,
         onRetry: _loadData,
       );
     }
     return ListView.builder(
       key: PageStorageKey(type),
+      cacheExtent: 1500,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: items.length,
       itemBuilder: (context, index) {
@@ -956,13 +1598,36 @@ class _OutstandingCard extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        item.customerName,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF1A1F36),
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.customerName,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1A1F36),
+                            ),
+                          ),
+                          if (item.groupName != null && item.groupName!.trim().isNotEmpty) ...[
+                            const SizedBox(height: 3),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F3F9),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                item.groupName!,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1068,6 +1733,34 @@ class _OutstandingCard extends StatelessWidget {
                               child: Text(
                                 item.billType!,
                                 style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          if (item.mobile != null && item.mobile!.trim().isNotEmpty)
+                            InkWell(
+                              onTap: () {
+                                Clipboard.setData(ClipboardData(text: item.mobile!.trim()));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Copied phone: ${item.mobile}'),
+                                    duration: const Duration(seconds: 2),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              },
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.phone_rounded, size: 12, color: Colors.blue.shade600),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    item.mobile!,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.blue.shade700,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                         ],

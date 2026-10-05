@@ -38,10 +38,10 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = keystoreProperties.getProperty("keyAlias") ?: "upload"
-            keyPassword = keystoreProperties.getProperty("keyPassword") ?: "TallyLive2026Key"
-            storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
-            storePassword = keystoreProperties.getProperty("storePassword") ?: "TallyLive2026Key"
+            keyAlias = keystoreProperties.getProperty("keyAlias") ?: System.getenv("TALLY_KEY_ALIAS")
+            keyPassword = keystoreProperties.getProperty("keyPassword") ?: System.getenv("TALLY_KEY_PASSWORD")
+            storeFile = (keystoreProperties.getProperty("storeFile") ?: System.getenv("TALLY_STORE_FILE"))?.let { file(it) }
+            storePassword = keystoreProperties.getProperty("storePassword") ?: System.getenv("TALLY_STORE_PASSWORD")
         }
     }
 

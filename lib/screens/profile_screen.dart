@@ -533,8 +533,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildHeaderCard() {
-    final initials = _fullName.isNotEmpty
-        ? _fullName.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase()
+    final initials = _fullName.trim().isNotEmpty
+        ? _fullName.trim().split(RegExp(r'\s+')).map((e) => e.characters.first).take(2).join().toUpperCase()
         : 'OW';
     final selectedCompany = CompanyProvider.of(context).selectedCompany ?? _companyName;
 

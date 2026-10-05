@@ -70,6 +70,14 @@ class _CustomerRankingScreenState extends State<CustomerRankingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final features = CompanyProvider.of(context);
+    final fastestAllowed = features.isFeatureEnabled('cf_fastest');
+    final slowestAllowed = features.isFeatureEnabled('cf_slowest');
+    if (!fastestAllowed && !slowestAllowed) {
+      return Scaffold(appBar: AppBar(title: const Text('Customer Rankings')), body: const Center(child: Text('This report is disabled.')));
+    }
+    if (!fastestAllowed) _isFastest = false;
+    if (!slowestAllowed) _isFastest = true;
     final title = _isFastest ? '🏆 Fastest Paying Customers' : '⚠️ Slowest Paying Customers';
     final accentColor = _isFastest ? const Color(0xFF22C55E) : const Color(0xFFEF4444);
     final customers = _isFastest ? widget.fastestCustomers : widget.slowestCustomers;
@@ -91,11 +99,11 @@ class _CustomerRankingScreenState extends State<CustomerRankingScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
-                Expanded(
+                if (fastestAllowed) Expanded(
                   child: _buildToggleBtn('Fastest', true, const Color(0xFF22C55E)),
                 ),
                 const SizedBox(width: 12),
-                Expanded(
+                if (slowestAllowed) Expanded(
                   child: _buildToggleBtn('Slowest', false, const Color(0xFFEF4444)),
                 ),
               ],
@@ -105,6 +113,7 @@ class _CustomerRankingScreenState extends State<CustomerRankingScreen> {
             child: customers.isEmpty
                 ? const Center(child: Text('No customers found.'))
                 : ListView.separated(
+                    cacheExtent: 1500,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     itemCount: customers.length,
                     separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFE5E7EB)),

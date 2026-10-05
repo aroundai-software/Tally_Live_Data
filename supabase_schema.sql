@@ -72,7 +72,7 @@ CREATE TABLE stock_items (
   "Alias" TEXT,
   "hsn" TEXT,
   "Description" TEXT,
-  "ItemQuantity" INTEGER DEFAULT 0,
+  "ItemQuantity" NUMERIC DEFAULT 0,
   "ItemRate" NUMERIC DEFAULT 0,
   "GstRate" NUMERIC DEFAULT 0,
   "MRP" NUMERIC DEFAULT 0,
@@ -124,8 +124,8 @@ CREATE TABLE invoice_items (
   invoice_id UUID REFERENCES sales_invoices(id) ON DELETE CASCADE,
   product_name TEXT NOT NULL,
   product_code TEXT,
-  quantity INTEGER DEFAULT 0,
-  free_quantity INTEGER DEFAULT 0,
+  quantity NUMERIC DEFAULT 0,
+  free_quantity NUMERIC DEFAULT 0,
   unit_price NUMERIC DEFAULT 0,
   gst_rate NUMERIC DEFAULT 0,
   gst_amount NUMERIC DEFAULT 0,
@@ -143,6 +143,8 @@ CREATE TABLE invoice_items (
 CREATE TABLE outstanding_receivables (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   customer_name TEXT NOT NULL,
+  group_name TEXT,
+  mobile TEXT,
   date TIMESTAMP WITH TIME ZONE,
   invoicenumber TEXT,
   opening_balance NUMERIC DEFAULT 0,
@@ -150,6 +152,7 @@ CREATE TABLE outstanding_receivables (
   amount NUMERIC DEFAULT 0,
   duedate TIMESTAMP WITH TIME ZONE,
   overdue_days INTEGER,
+  credit_days INTEGER,
   bill_type TEXT,
   company_name TEXT,
   guid TEXT,
@@ -162,6 +165,8 @@ CREATE TABLE outstanding_receivables (
 CREATE TABLE outstanding_payables (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   customer_name TEXT NOT NULL,
+  group_name TEXT,
+  mobile TEXT,
   date TIMESTAMP WITH TIME ZONE,
   invoicenumber TEXT,
   opening_balance NUMERIC DEFAULT 0,
@@ -169,6 +174,7 @@ CREATE TABLE outstanding_payables (
   amount NUMERIC DEFAULT 0,
   duedate TIMESTAMP WITH TIME ZONE,
   overdue_days INTEGER,
+  credit_days INTEGER,
   bill_type TEXT,
   company_name TEXT,
   guid TEXT,
@@ -253,8 +259,12 @@ BEGIN
   RETURN QUERY
   SELECT s."ItemName" as product_name, COALESCE(SUM(i.quantity), 0)::NUMERIC as total_sold
   FROM stock_items s
-  LEFT JOIN invoice_items i ON s."ItemName" = i.product_name
-  LEFT JOIN sales_invoices si ON i.invoice_id = si.id AND si.invoice_date >= (CURRENT_DATE - (p_days || ' days')::interval)
+  LEFT JOIN (
+    SELECT ii.product_name, si.company_name, ii.quantity
+    FROM invoice_items ii
+    JOIN sales_invoices si ON ii.invoice_id = si.id
+    WHERE si.invoice_date >= (CURRENT_DATE - (p_days || ' days')::interval)
+  ) i ON s."ItemName" = i.product_name AND s.company_name = i.company_name
   WHERE (p_company_name IS NULL OR s.company_name = p_company_name)
   GROUP BY s."ItemName"
   HAVING COALESCE(SUM(i.quantity), 0) < 5
@@ -264,7 +274,7 @@ $$ LANGUAGE plpgsql;
 
 -- High Value Items
 CREATE OR REPLACE FUNCTION get_high_value_items(p_company_name TEXT)
-RETURNS TABLE (product_name TEXT, quantity INTEGER, stock_value NUMERIC) AS $$
+RETURNS TABLE (product_name TEXT, quantity NUMERIC, stock_value NUMERIC) AS $$
 BEGIN
   RETURN QUERY
   SELECT s."ItemName" as product_name, s."ItemQuantity" as quantity, (s."ItemQuantity" * s."ItemRate") as stock_value
@@ -287,6 +297,7 @@ BEGIN
       FROM sales_invoices si
       WHERE si.invoice_date >= (CURRENT_DATE - (p_days || ' days')::interval)
       AND si.customer_name IS NOT NULL
+      AND si.company_name = c.company_name
   )
   AND c.is_active = true
   AND (p_company_name IS NULL OR c.company_name = p_company_name);
@@ -295,7 +306,7 @@ $$ LANGUAGE plpgsql;
 
 -- Unused Items
 CREATE OR REPLACE FUNCTION get_unused_items(p_company_name TEXT, p_days INT DEFAULT 180)
-RETURNS TABLE (product_name TEXT, quantity INTEGER, stock_value NUMERIC) AS $$
+RETURNS TABLE (product_name TEXT, quantity NUMERIC, stock_value NUMERIC) AS $$
 BEGIN
   RETURN QUERY
   SELECT s."ItemName" as product_name, s."ItemQuantity" as quantity, (s."ItemQuantity" * s."ItemRate") as stock_value
@@ -305,7 +316,7 @@ BEGIN
       SELECT DISTINCT i.product_name 
       FROM invoice_items i
       JOIN sales_invoices si ON i.invoice_id = si.id
-      WHERE si.invoice_date >= (CURRENT_DATE - (p_days || ' days')::interval)
+      WHERE si.company_name = s.company_name AND si.invoice_date >= (CURRENT_DATE - (p_days || ' days')::interval)
   )
   AND (p_company_name IS NULL OR s.company_name = p_company_name)
   ORDER BY stock_value DESC;
@@ -323,7 +334,7 @@ BEGIN
       SUM( (i.unit_price - COALESCE(s."StandardCost", s."ItemRate", 0)) * i.quantity ) as estimated_profit
   FROM sales_invoices si
   JOIN invoice_items i ON si.id = i.invoice_id
-  LEFT JOIN stock_items s ON i.product_name = s."ItemName"
+  LEFT JOIN stock_items s ON i.product_name = s."ItemName" AND s.company_name = si.company_name
   WHERE si.invoice_date >= (CURRENT_DATE - (p_days || ' days')::interval)
   AND (p_company_name IS NULL OR si.company_name = p_company_name)
   GROUP BY DATE(si.invoice_date)
@@ -400,3 +411,21 @@ COMMENT ON COLUMN public.company_features.dashboard_config IS
    "today_purchases": bool, "overdue_receivables": bool, "overdue_payables": bool },
    "quick_actions": { "stock": bool, "ledgers": bool, "sales": bool, "reports": bool } }
    Missing keys default to true (visible) in application code.';
+
+-- 17. Script Control Table (Sync licensing, heartbeats, and remote management)
+CREATE TABLE IF NOT EXISTS public.script_control (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  machine_name text NOT NULL UNIQUE,
+  sync_should_run boolean NOT NULL DEFAULT true,
+  current_company text,
+  expires_at timestamp with time zone,
+  last_seen_at timestamp with time zone DEFAULT now(),
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT script_control_pkey PRIMARY KEY (id)
+);
+
+-- Migration for existing script_control table to add expires_at column
+ALTER TABLE public.script_control
+  ADD COLUMN IF NOT EXISTS expires_at timestamp with time zone;
+

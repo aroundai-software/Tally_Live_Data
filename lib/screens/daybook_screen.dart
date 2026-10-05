@@ -337,6 +337,7 @@ class _DaybookScreenState extends State<DaybookScreen> {
 
     return ListView.builder(
       controller: _scrollController,
+      cacheExtent: 1500,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: _entries.length,
       itemBuilder: (context, index) {

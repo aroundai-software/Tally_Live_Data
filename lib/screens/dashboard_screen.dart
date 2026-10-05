@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
@@ -16,6 +18,7 @@ class DashboardScreen extends StatefulWidget {
   final Function(int, {
     bool showSalesInStock, 
     int receivablesPayablesTab,
+    String? receivablesPayablesFilter,
   }) onNavigate;
 
   const DashboardScreen({
@@ -60,6 +63,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isNetPositionExpanded = false;
   bool _isCashBankDetailsOpen = false;
   final Set<String> _cashBankExpandedSections = {'cash', 'bank', 'bank_od'};
+  bool _hasCachedData = false;
 
   @override
   void initState() {
@@ -70,20 +74,89 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final syncTrigger = CompanyProvider.of(context).syncTrigger;
+    final c = _company;
     if (!_initialized) {
       _initialized = true;
       _lastSyncTrigger = syncTrigger;
-      _loadDashboardData();
+      if (c != null) {
+        _loadCachedDashboard(c);
+      }
+      _loadDashboardData(silent: _hasCachedData);
     } else if (_lastSyncTrigger != syncTrigger) {
       _lastSyncTrigger = syncTrigger;
       _loadDashboardData(silent: true);
     }
   }
 
+  Future<void> _loadCachedDashboard(String company) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('cache_dashboard_$company');
+      if (raw != null && raw.isNotEmpty) {
+        final map = jsonDecode(raw) as Map<String, dynamic>;
+        if (mounted && _company == company) {
+          setState(() {
+            _totalStockValue = (map['stockValue'] as num?)?.toDouble() ?? 0;
+            _stockItemCount = (map['stockCount'] as num?)?.toInt() ?? 0;
+            _totalReceivables = (map['receivables'] as num?)?.toDouble() ?? 0;
+            _totalOverdueReceivables = (map['overdueReceivables'] as num?)?.toDouble() ?? 0;
+            _totalPayables = (map['payables'] as num?)?.toDouble() ?? 0;
+            _totalOverduePayables = (map['overduePayables'] as num?)?.toDouble() ?? 0;
+            _totalSales = (map['sales'] as num?)?.toDouble() ?? 0;
+            _salesCount = (map['salesCount'] as num?)?.toInt() ?? 0;
+            _totalPurchases = (map['purchases'] as num?)?.toDouble() ?? 0;
+            _purchaseCount = (map['purchaseCount'] as num?)?.toInt() ?? 0;
+            _todaysSales = (map['todaysSales'] as num?)?.toDouble() ?? 0;
+            _todaysPurchases = (map['todaysPurchases'] as num?)?.toDouble() ?? 0;
+            _todaysSalesCount = (map['todaysSalesCount'] as num?)?.toInt() ?? 0;
+            _todaysPurchasesCount = (map['todaysPurchasesCount'] as num?)?.toInt() ?? 0;
+            _daybookInflow = (map['inflow'] as num?)?.toDouble() ?? 0;
+            _daybookOutflow = (map['outflow'] as num?)?.toDouble() ?? 0;
+            _totalCash = (map['cash'] as num?)?.toDouble() ?? 0;
+            _totalBank = (map['bank'] as num?)?.toDouble() ?? 0;
+            if (map['lastSynced'] != null) {
+              _lastSyncedTime = DateTime.tryParse(map['lastSynced'] as String);
+            }
+            _hasCachedData = true;
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveDashboardCache(String company) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final map = {
+        'stockValue': _totalStockValue,
+        'stockCount': _stockItemCount,
+        'receivables': _totalReceivables,
+        'overdueReceivables': _totalOverdueReceivables,
+        'payables': _totalPayables,
+        'overduePayables': _totalOverduePayables,
+        'sales': _totalSales,
+        'salesCount': _salesCount,
+        'purchases': _totalPurchases,
+        'purchaseCount': _purchaseCount,
+        'todaysSales': _todaysSales,
+        'todaysPurchases': _todaysPurchases,
+        'todaysSalesCount': _todaysSalesCount,
+        'todaysPurchasesCount': _todaysPurchasesCount,
+        'inflow': _daybookInflow,
+        'outflow': _daybookOutflow,
+        'cash': _totalCash,
+        'bank': _totalBank,
+        'lastSynced': _lastSyncedTime?.toIso8601String(),
+      };
+      await prefs.setString('cache_dashboard_$company', jsonEncode(map));
+    } catch (_) {}
+  }
+
   String? get _company => CompanyProvider.of(context).selectedCompany;
 
   Future<void> _loadDashboardData({bool silent = false}) async {
-    if (!silent) {
+    if (!silent && !_hasCachedData) {
       setState(() {
         _isLoading = true;
         _error = null;
@@ -107,8 +180,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _service.getTodaysPurchases(companyName: c),
         _service.getTodaysSalesCount(companyName: c),
         _service.getTodaysPurchasesCount(companyName: c),
-        _service.getTotalCash(companyName: c),
-        _service.getTotalBank(companyName: c),
         _service.getCashBankLedgers(companyName: c),
         _service.getLastSyncTime(companyName: c),
       ]);
@@ -134,7 +205,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _daybookInflow = dbSummary['inflow'] ?? 0.0;
           _daybookOutflow = dbSummary['outflow'] ?? 0.0;
 
-          _cashBankLedgers = List<Ledger>.from(results[17] as List);
+          _cashBankLedgers = List<Ledger>.from(results[15] as List);
           double cTot = 0, bTot = 0;
           for (var l in _cashBankLedgers) {
             final type = l.ledgerType?.toLowerCase().trim() ?? '';
@@ -148,13 +219,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           _totalCash = cTot;
           _totalBank = bTot;
-          _lastSyncedTime = results[18] as DateTime?;
+          _lastSyncedTime = results[16] as DateTime?;
 
           _isLoading = false;
+          _error = null;
         });
+
+        if (c != null) {
+          _saveDashboardCache(c);
+        }
       }
     } catch (e) {
-      if (mounted && !silent) {
+      if (mounted) {
         setState(() {
           _error = e;
           _isLoading = false;
@@ -377,7 +453,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'icon': Icons.warning_amber_rounded,
           'color': AppTheme.receivableColor,
           'subtitle': 'Overdue bills to collect',
-          'action': () => widget.onNavigate(3),
+          'action': () => widget.onNavigate(
+            3,
+            receivablesPayablesTab: 0,
+            receivablesPayablesFilter: 'overdue',
+          ),
         },
       if (companyState.isFeatureEnabled('db_card_overdue_payables'))
         {
@@ -386,7 +466,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'icon': Icons.warning_amber_rounded,
           'color': AppTheme.payableColor,
           'subtitle': 'Overdue bills to pay',
-          'action': () => widget.onNavigate(3),
+          'action': () => widget.onNavigate(
+            3,
+            receivablesPayablesTab: 1,
+            receivablesPayablesFilter: 'overdue',
+          ),
         },
       // Temporarily hidden - will add later
       /*
@@ -693,6 +777,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     widget.onNavigate(
                       3,
                       receivablesPayablesTab: 0,
+                      receivablesPayablesFilter: 'all',
                     ); // Receivables Screen
                   } : null,
                 ),
@@ -709,6 +794,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     widget.onNavigate(
                       3,
                       receivablesPayablesTab: 1,
+                      receivablesPayablesFilter: 'all',
                     ); // Payables Screen
                   } : null,
                 ),

@@ -240,26 +240,18 @@ class SupabaseService {
       );
 
       final user = res.user;
-      if (user != null) {
-        try {
-          await tempClient.from('users').upsert({
-            'id': user.id,
-            'full_name': fullName.trim(),
-            'phone_number': tenDigits,
-            'company_name': '',
-            'role': 'super_admin',
-          });
-        } catch (err) {
-          try {
-            await _client.from('users').upsert({
-              'id': user.id,
-              'full_name': fullName.trim(),
-              'phone_number': tenDigits,
-              'company_name': '',
-              'role': 'super_admin',
-            });
-          } catch (_) {}
+      if (user == null) throw StateError('Registration did not return a user.');
+      try {
+        // Assign privileges using the existing administrator session only.
+        final profile = await _client.from('users').upsert({
+          'id': user.id, 'full_name': fullName.trim(), 'phone_number': tenDigits,
+          'company_name': '', 'role': 'super_admin', 'is_active': true,
+        }).select('role, is_active').single();
+        if (profile['role'] != 'super_admin' || profile['is_active'] != true) {
+          throw StateError('Administrator access was not confirmed.');
         }
+      } catch (_) {
+        throw StateError('Account created, but administrator access could not be confirmed. Ask an existing administrator to repair this account before retrying.');
       }
     } catch (e) {
       final errStr = e.toString().toLowerCase();
@@ -516,7 +508,7 @@ class SupabaseService {
       final response = await _client
           .from('company_features')
           .select()
-          .ilike('company_name', companyName)
+          .eq('company_name', companyName)
           .maybeSingle();
 
       if (response == null) {
@@ -524,7 +516,7 @@ class SupabaseService {
         final comp = await _client
             .from('tally_companies')
             .select('id')
-            .ilike('company_name', companyName)
+            .eq('company_name', companyName)
             .maybeSingle();
         if (comp != null) {
           final compId = comp['id'];
@@ -540,12 +532,12 @@ class SupabaseService {
             return _parseFeatureMap(inserted);
           }
         }
-        return _defaultFeatureMap();
+        return _defaultFeatureMap().map((key, value) => MapEntry(key, false));
       }
       return _parseFeatureMap(response);
     } catch (e, st) {
       print('getCompanyFeatures error for $companyName: $e\n$st');
-      return _defaultFeatureMap();
+      return _defaultFeatureMap().map((key, value) => MapEntry(key, false));
     }
   }
 
@@ -555,7 +547,7 @@ class SupabaseService {
         .stream(primaryKey: ['id'])
         .eq('company_name', companyName)
         .map((events) {
-      if (events.isEmpty) return _defaultFeatureMap();
+      if (events.isEmpty) return _defaultFeatureMap().map((key, value) => MapEntry(key, false));
       return _parseFeatureMap(events.first);
     });
   }
@@ -643,7 +635,7 @@ class SupabaseService {
             'bank':        features['db_np_bank']        ?? true,
           },
         },
-      }).ilike('company_name', companyName);
+      }).eq('company_name', companyName).select('company_name').single();
     } catch (e) {
       throw Exception('Failed to update company features: $e');
     }
@@ -862,7 +854,7 @@ class SupabaseService {
       }
       return total;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
@@ -889,29 +881,29 @@ class SupabaseService {
   Future<double> getTotalCash({String? companyName}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
     try {
-      final response = await _client
+      final response = await _readPages(() => _client
           .from('customers')
           .select('closing_balance')
-          .ilike('company_name', companyName)
-          .or('ledger_type.ilike.Cash-in-Hand,ledger_type.ilike.Cash') as List;
+          .eq('company_name', companyName)
+          .or('ledger_type.ilike.Cash-in-Hand,ledger_type.ilike.Cash').order('id', ascending: true));
       double total = 0;
       for (var item in response) {
         total += _toDouble(item['closing_balance']);
       }
       return total;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
   Future<double> getTotalBank({String? companyName}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
     try {
-      final response = await _client
+      final response = await _readPages(() => _client
           .from('customers')
           .select('customer_name, ledger_type, closing_balance')
-          .ilike('company_name', companyName)
-          .or('ledger_type.ilike.Bank Accounts,ledger_type.ilike.Bank OD A/c,ledger_type.ilike.Bank OCC A/c') as List;
+          .eq('company_name', companyName)
+          .or('ledger_type.ilike.Bank Accounts,ledger_type.ilike.Bank OD A/c,ledger_type.ilike.Bank OCC A/c').order('id', ascending: true));
       double total = 0;
       for (var item in response) {
         final name = (item['customer_name'] ?? '').toString().toLowerCase();
@@ -923,18 +915,18 @@ class SupabaseService {
       }
       return total;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
   Future<List<Ledger>> getCashBankLedgers({String? companyName}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _client
+      final response = await _readPages(() => _client
           .from('customers')
           .select()
-          .ilike('company_name', companyName)
-          .or('ledger_type.ilike.Bank Accounts,ledger_type.ilike.Bank OD A/c,ledger_type.ilike.Bank OCC A/c,ledger_type.ilike.Cash-in-Hand,ledger_type.ilike.Cash') as List;
+          .eq('company_name', companyName)
+          .or('ledger_type.ilike.Bank Accounts,ledger_type.ilike.Bank OD A/c,ledger_type.ilike.Bank OCC A/c,ledger_type.ilike.Cash-in-Hand,ledger_type.ilike.Cash').order('id', ascending: true));
       
       final list = <Ledger>[];
       for (var item in response) {
@@ -947,7 +939,7 @@ class SupabaseService {
       }
       return list;
     } catch (e) {
-      return [];
+      rethrow;
     }
   }
 
@@ -957,7 +949,7 @@ class SupabaseService {
       final response = await _client
           .from('sync_logs')
           .select('finished_at, updated_at')
-          .ilike('company_name', companyName)
+          .eq('company_name', companyName)
           .or('status.ilike.%success%,status.ilike.%completed%')
           .order('finished_at', ascending: false)
           .limit(1) as List;
@@ -1038,7 +1030,7 @@ class SupabaseService {
       }
       return total;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
@@ -1068,7 +1060,7 @@ class SupabaseService {
       }
       return total;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
   Future<double> getTotalReceivables({String? companyName}) async {
@@ -1086,7 +1078,7 @@ class SupabaseService {
       }
       return total;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
@@ -1105,7 +1097,7 @@ class SupabaseService {
       }
       return total;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
@@ -1113,25 +1105,18 @@ class SupabaseService {
   Future<List<SalesInvoice>> getSalesInvoices({String? searchQuery, String? companyName}) async {
     try {
       if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
-      var query = _client.from('sales_invoices').select().ilike('company_name', companyName);
-      if (searchQuery != null && searchQuery.isNotEmpty) {
-        query = query.or('customer_name.ilike.%$searchQuery%,invoice_number.ilike.%$searchQuery%');
-      }
-      final response = await query.order('invoice_date', ascending: false).limit(5000);
-      final data = response as List;
-      
-      // Fetch outstanding guids to determine status
-      final outstandingResponse = await _client
-          .from('outstanding_receivables')
-          .select('guid')
-          .ilike('company_name', companyName);
-      final outstandingGuids = (outstandingResponse as List).map((e) => e['guid'].toString()).toSet();
+      final data = await _fetchAll('sales_invoices', companyName: companyName,
+        searchQuery: searchQuery, orderColumn: 'invoice_date', ascending: false);
+      final outstanding = await _fetchAll('outstanding_receivables', select: 'guid', companyName: companyName);
+      final outstandingGuids = outstanding.where((e) => e['guid'] != null).map((e) => e['guid'].toString()).toSet();
 
       return data.map((e) {
         final Map<String, dynamic> mutableData = Map<String, dynamic>.from(e);
-        if (mutableData['id'] != null) {
-          mutableData['status'] = outstandingGuids.contains(mutableData['id'].toString()) ? 'Pending' : 'Paid';
+        final guid = mutableData['guid'] ?? mutableData['id'];
+        if (guid != null && outstandingGuids.contains(guid.toString())) {
+          mutableData['status'] = 'Pending';
         }
+        // An absent bill is not proof of payment; preserve the synced status.
         return SalesInvoice.fromJson(mutableData);
       }).toList();
     } catch (e) {
@@ -1140,83 +1125,61 @@ class SupabaseService {
   }
 
 
+  Future<List<dynamic>> _todayRows(String table, String columns, String company) {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+    final end = DateTime(now.year, now.month, now.day + 1);
+    return _readPages(() => _client.from(table).select(columns)
+      .eq('company_name', company)
+      .gte('invoice_date', start.toIso8601String())
+      .lt('invoice_date', end.toIso8601String()).order('id', ascending: true));
+  }
+
   Future<int> getTodaysSalesCount({String? companyName}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
     try {
-      final today = DateTime.now();
-      final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-      final data = await _client
-          .from('sales_invoices')
-          .select('id')
-          .ilike('company_name', companyName)
-          .gte('invoice_date', dateStr)
-          .lte('invoice_date', dateStr)
-          .limit(5000) as List;
+      final data = await _todayRows('sales_invoices', 'id', companyName);
       return data.length;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
   Future<int> getTodaysPurchasesCount({String? companyName}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
     try {
-      final today = DateTime.now();
-      final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-      final data = await _client
-          .from('purchase_invoices')
-          .select('id')
-          .ilike('company_name', companyName)
-          .gte('invoice_date', dateStr)
-          .lte('invoice_date', dateStr)
-          .limit(5000) as List;
+      final data = await _todayRows('purchase_invoices', 'id', companyName);
       return data.length;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
   Future<double> getTodaysSales({String? companyName}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
     try {
-      final today = DateTime.now();
-      final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-      final data = await _client
-          .from('sales_invoices')
-          .select('total_amount')
-          .ilike('company_name', companyName)
-          .gte('invoice_date', dateStr)
-          .lte('invoice_date', dateStr)
-          .limit(5000) as List;
+      final data = await _todayRows('sales_invoices', 'total_amount', companyName);
       double total = 0;
       for (var item in data) {
         total += _toDouble(item['total_amount']);
       }
       return total;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
   Future<double> getTodaysPurchases({String? companyName}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
     try {
-      final today = DateTime.now();
-      final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-      final data = await _client
-          .from('purchase_invoices')
-          .select('total_amount')
-          .ilike('company_name', companyName)
-          .gte('invoice_date', dateStr)
-          .lte('invoice_date', dateStr)
-          .limit(5000) as List;
+      final data = await _todayRows('purchase_invoices', 'total_amount', companyName);
       double total = 0;
       for (var item in data) {
         total += _toDouble(item['total_amount']);
       }
       return total;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
   Future<double> getTotalSales({String? companyName}) async {
@@ -1232,7 +1195,7 @@ class SupabaseService {
       }
       return total;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
@@ -1242,26 +1205,23 @@ class SupabaseService {
 
   Future<List<InvoiceItem>> getInvoiceItems(String invoiceId) async {
     try {
-      final response = await _client
+      final response = await _readPages(() => _client
           .from('invoice_items')
           .select()
-          .eq('invoice_id', invoiceId);
-      return (response as List).map((e) => InvoiceItem.fromJson(e)).toList();
+          .eq('invoice_id', invoiceId).order('id', ascending: true));
+      return response.map((e) => InvoiceItem.fromJson(e)).toList();
     } catch (e) {
-      return [];
+      rethrow;
     }
   }
 
   Future<Map<String, double>> getProductSalesTotals({required String companyName}) async {
     if (companyName.isEmpty || companyName == 'No Company Linked') return {};
     try {
-      final response = await _client
-          .from('invoice_items')
-          .select('product_name, total_amount')
-          .ilike('company_name', companyName);
+      final response = await _fetchAll('invoice_items', select: 'product_name, total_amount', companyName: companyName);
           
       final Map<String, double> salesTotals = {};
-      for (var item in response as List) {
+      for (var item in response) {
         final String name = item['product_name'] ?? '';
         if (name.isNotEmpty) {
           final double amount = _toDouble(item['total_amount']);
@@ -1270,7 +1230,7 @@ class SupabaseService {
       }
       return salesTotals;
     } catch (e) {
-      return {};
+      rethrow;
     }
   }
 
@@ -1278,25 +1238,18 @@ class SupabaseService {
   Future<List<PurchaseInvoice>> getPurchaseInvoices({String? searchQuery, String? companyName}) async {
     try {
       if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
-      var query = _client.from('purchase_invoices').select().ilike('company_name', companyName);
-      if (searchQuery != null && searchQuery.isNotEmpty) {
-        query = query.or('supplier_name.ilike.%$searchQuery%,invoice_number.ilike.%$searchQuery%');
-      }
-      final response = await query.order('invoice_date', ascending: false).limit(5000);
-      final data = response as List;
-      
-      // Fetch outstanding guids to determine status
-      final outstandingResponse = await _client
-          .from('outstanding_payables')
-          .select('guid')
-          .ilike('company_name', companyName);
-      final outstandingGuids = (outstandingResponse as List).map((e) => e['guid'].toString()).toSet();
+      final data = await _fetchAll('purchase_invoices', companyName: companyName,
+        searchQuery: searchQuery, orderColumn: 'invoice_date', ascending: false);
+      final outstanding = await _fetchAll('outstanding_payables', select: 'guid', companyName: companyName);
+      final outstandingGuids = outstanding.where((e) => e['guid'] != null).map((e) => e['guid'].toString()).toSet();
 
       return data.map((e) {
         final Map<String, dynamic> mutableData = Map<String, dynamic>.from(e);
-        if (mutableData['id'] != null) {
-          mutableData['status'] = outstandingGuids.contains(mutableData['id'].toString()) ? 'Pending' : 'Paid';
+        final guid = mutableData['guid'] ?? mutableData['id'];
+        if (guid != null && outstandingGuids.contains(guid.toString())) {
+          mutableData['status'] = 'Pending';
         }
+        // An absent bill is not proof of payment; preserve the synced status.
         return PurchaseInvoice.fromJson(mutableData);
       }).toList();
     } catch (e) {
@@ -1317,7 +1270,7 @@ class SupabaseService {
       }
       return total;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
@@ -1327,13 +1280,13 @@ class SupabaseService {
 
   Future<List<PurchaseInvoiceItem>> getPurchaseInvoiceItems(String invoiceId) async {
     try {
-      final response = await _client
+      final response = await _readPages(() => _client
           .from('invoice_items_purchase')
           .select()
-          .eq('purchase_invoice_id', invoiceId);
-      return (response as List).map((e) => PurchaseInvoiceItem.fromJson(e)).toList();
+          .eq('purchase_invoice_id', invoiceId).order('id', ascending: true));
+      return response.map((e) => PurchaseInvoiceItem.fromJson(e)).toList();
     } catch (e) {
-      return [];
+      rethrow;
     }
   }
 
@@ -1341,7 +1294,7 @@ class SupabaseService {
   Future<List<DaybookEntry>> getDaybookEntries({DateTime? date, String? companyName, String? searchQuery}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      dynamic query = _client.from('tally_daybook').select().ilike('company_name', companyName).not('guid', 'ilike', '%#sub#%');
+      dynamic query = _client.from('tally_daybook').select().eq('company_name', companyName).not('guid', 'ilike', '%#sub#%');
       
       if (date != null) {
         // Filter by specific date (ignore time)
@@ -1354,10 +1307,10 @@ class SupabaseService {
         query = query.or('voucher_number.ilike.%$searchQuery%,ledger_name.ilike.%$searchQuery%,voucher_type.ilike.%$searchQuery%,particulars.ilike.%$searchQuery%,narration.ilike.%$searchQuery%');
       }
 
-      final response = await query.order('date', ascending: false).limit(1000);
-      return (response as List).map((e) => DaybookEntry.fromJson(e)).toList();
+      final response = await _readPages(() => query.order('date', ascending: false).order('id', ascending: true));
+      return response.map((e) => DaybookEntry.fromJson(e)).toList();
     } catch (e) {
-      return [];
+      rethrow;
     }
   }
 
@@ -1371,8 +1324,8 @@ class SupabaseService {
       dynamic query = _client
           .from('tally_daybook')
           .select()
-          .ilike('company_name', companyName)
-          .ilike('ledger_name', ledgerName);
+          .eq('company_name', companyName)
+          .eq('ledger_name', ledgerName);
 
       if (startDate != null) {
         final start = DateTime(startDate.year, startDate.month, startDate.day).toUtc().toIso8601String();
@@ -1384,10 +1337,10 @@ class SupabaseService {
       }
 
       // Order ascending to calculate running balances
-      final response = await query.order('date', ascending: true).limit(1000);
-      return (response as List).map((e) => DaybookEntry.fromJson(e)).toList();
+      final response = await _readPages(() => query.order('date', ascending: true).order('id', ascending: true));
+      return response.map((e) => DaybookEntry.fromJson(e)).toList();
     } catch (e) {
-      return [];
+      rethrow;
     }
   }
 
@@ -1398,9 +1351,9 @@ class SupabaseService {
       double outflow = 0;
       for (var entry in entries) {
         final vType = entry.voucherType.toLowerCase();
-        if (vType == 'receipt' || vType == 'sales' || vType.contains('debit note')) {
+        if (vType == 'receipt') {
           inflow += entry.amount.abs();
-        } else if (vType == 'payment' || vType == 'purchase' || vType.contains('credit note')) {
+        } else if (vType == 'payment') {
           outflow += entry.amount.abs();
         } else {
           // For Journal and Contra (internal transfers), we can ignore them for net cash flow,
@@ -1409,73 +1362,79 @@ class SupabaseService {
       }
       return {'inflow': inflow, 'outflow': outflow};
     } catch (e) {
-      return {'inflow': 0, 'outflow': 0};
+      rethrow;
     }
   }
 
   // ─── Reports & Analytics ───────────────────────────────────────
   
   Future<List<Map<String, dynamic>>> getFastMovingItems({String? companyName, int days = 30}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _client.rpc('get_fast_moving_items', params: {
+      final response = await _readPages(() => _client.rpc('get_fast_moving_items', params: {
         'p_company_name': companyName,
         'p_days': days,
-      });
+      }).order('total_sold', ascending: false).order('product_name', ascending: true));
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       print('Error in getFastMovingItems: $e');
-      return [];
+      rethrow;
     }
   }
 
   Future<List<Map<String, dynamic>>> getSlowMovingItems({String? companyName, int days = 30}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _client.rpc('get_slow_moving_items', params: {
+      final response = await _readPages(() => _client.rpc('get_slow_moving_items', params: {
         'p_company_name': companyName,
         'p_days': days,
-      });
+      }).order('total_sold', ascending: true).order('product_name', ascending: true));
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      return [];
+      rethrow;
     }
   }
 
   Future<List<Map<String, dynamic>>> getHighValueItems({String? companyName}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _client.rpc('get_high_value_items', params: {
+      final response = await _readPages(() => _client.rpc('get_high_value_items', params: {
         'p_company_name': companyName,
-      });
+      }).order('stock_value', ascending: false).order('product_name', ascending: true));
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      return [];
+      rethrow;
     }
   }
 
   Future<List<Map<String, dynamic>>> getUnusedLedgers({String? companyName, int days = 180}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _client.rpc('get_unused_ledgers', params: {
+      final response = await _readPages(() => _client.rpc('get_unused_ledgers', params: {
         'p_company_name': companyName,
         'p_days': days,
-      });
+      }).order('customer_name', ascending: true));
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      return [];
+      rethrow;
     }
   }
 
   Future<List<Map<String, dynamic>>> getUnusedItems({String? companyName, int days = 180}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _client.rpc('get_unused_items', params: {
+      final response = await _readPages(() => _client.rpc('get_unused_items', params: {
         'p_company_name': companyName,
         'p_days': days,
-      });
+      }).order('stock_value', ascending: false).order('product_name', ascending: true));
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      return [];
+      rethrow;
     }
   }
 
   Future<int> getUnusedLedgersCount({String? companyName, int days = 180}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
     try {
       final response = await _client.rpc('get_unused_ledgers', params: {
         'p_company_name': companyName,
@@ -1483,11 +1442,12 @@ class SupabaseService {
       }).count(CountOption.exact);
       return response.count;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
   Future<int> getUnusedItemsCount({String? companyName, int days = 180}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
     try {
       final response = await _client.rpc('get_unused_items', params: {
         'p_company_name': companyName,
@@ -1495,20 +1455,21 @@ class SupabaseService {
       }).count(CountOption.exact);
       return response.count;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
   Future<List<Map<String, dynamic>>> getDailyProfit({String? companyName, int days = 7}) async {
+    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _client.rpc('get_daily_profit', params: {
+      final response = await _readPages(() => _client.rpc('get_daily_profit', params: {
         'p_company_name': companyName,
         'p_days': days,
-      });
+      }).order('sale_date', ascending: false));
       return List<Map<String, dynamic>>.from(response);
     } catch (e, st) {
       print('Error in getDailyProfit: $e\n$st');
-      return [];
+      rethrow;
     }
   }
 
@@ -1523,14 +1484,8 @@ class SupabaseService {
     bool ascending = true,
   }) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
-    List<dynamic> allData = [];
-    int offset = 0;
-    const int limit = 1000;
-    bool hasMore = true;
-
-    while (hasMore) {
-      dynamic query = _client.from(table).select(select).ilike('company_name', companyName);
-      
+    return _readPages(() {
+      dynamic query = _client.from(table).select(select).eq('company_name', companyName);
       if (searchQuery != null && searchQuery.isNotEmpty) {
         if (table == 'sales_invoices') {
           query = query.or('customer_name.ilike.%$searchQuery%,invoice_number.ilike.%$searchQuery%');
@@ -1547,22 +1502,17 @@ class SupabaseService {
         }
       }
 
-      if (orderColumn != null) {
-        query = query.order(orderColumn, ascending: ascending);
-      }
+      return orderColumn == null ? query.order('id', ascending: true) : query.order(orderColumn, ascending: ascending).order('id', ascending: true);
+    });
+  }
 
-      if (select != '*') {
-        final response = await query.limit(5000);
-        return response as List;
-      }
-
-      final response = await query.range(offset, offset + limit - 1);
-      final data = response as List;
-      allData.addAll(data);
-      hasMore = data.length == limit;
-      offset += limit;
+  Future<List<dynamic>> _readPages(dynamic Function() query) async {
+    final rows = <dynamic>[];
+    while (true) {
+      final page = await query().range(rows.length, rows.length + 999) as List;
+      if (page.isEmpty) return rows;
+      rows.addAll(page);
     }
-    return allData;
   }
 
   Future<int> _fetchCount(String table, {String? companyName}) async {
@@ -1571,35 +1521,18 @@ class SupabaseService {
       final response = await _client
           .from(table)
           .select('id')
-          .ilike('company_name', companyName)
+          .eq('company_name', companyName)
           .count(CountOption.exact);
       return response.count;
     } catch (e) {
-      return 0;
+      rethrow;
     }
   }
 
   // ── Money Flow / Settlements ────────────────────────────────────────────────
   
   Future<List<LedgerBillSettlement>> getBillSettlements(String companyName) async {
-    // Fetch all pages of settlement data
-    List<dynamic> allData = [];
-    int offset = 0;
-    const int pageSize = 1000;
-    bool hasMore = true;
-
-    while (hasMore) {
-      final response = await _client
-          .from('ledger_bill_settlements')
-          .select()
-          .ilike('company_name', companyName)
-          .order('cleared_date', ascending: false)
-          .range(offset, offset + pageSize - 1);
-      final page = response as List;
-      allData.addAll(page);
-      hasMore = page.length == pageSize;
-      offset += pageSize;
-    }
+    final allData = await _fetchAll('ledger_bill_settlements', companyName: companyName, orderColumn: 'cleared_date', ascending: false);
     return allData.map((json) => LedgerBillSettlement.fromJson(json)).toList();
   }
 
@@ -1608,8 +1541,8 @@ class SupabaseService {
       final response = await _client
           .from('customers')
           .select()
-          .ilike('company_name', companyName)
-          .ilike('customer_name', ledgerName)
+          .eq('company_name', companyName)
+          .eq('customer_name', ledgerName)
           .limit(5);
       return (response as List).map((e) => Ledger.fromJson(e)).toList();
     } catch (e) {
@@ -1645,8 +1578,8 @@ class SupabaseService {
       final custRes = await _client
           .from('customers')
           .select('closing_balance')
-          .ilike('company_name', companyName)
-          .ilike('customer_name', ledgerName)
+          .eq('company_name', companyName)
+          .eq('customer_name', ledgerName)
           .limit(1) as List;
 
       if (custRes.isEmpty) return null;
@@ -1663,14 +1596,14 @@ class SupabaseService {
       // 3. Sum all Sales debit entries from tally_daybook for this ledger
       //    since the start of the financial year
       final fyStartUtc = fyStart.toUtc().toIso8601String();
-      final salesRes = await _client
+      final salesRes = await _readPages(() => _client
           .from('tally_daybook')
           .select('amount')
-          .ilike('company_name', companyName)
-          .ilike('ledger_name', ledgerName)
+          .eq('company_name', companyName)
+          .eq('ledger_name', ledgerName)
           .ilike('voucher_type', '%Sales%')
           .eq('is_debit', true)
-          .gte('date', fyStartUtc) as List;
+          .gte('date', fyStartUtc).order('id', ascending: true));
 
       double totalSales = 0;
       for (final row in salesRes) {
@@ -1692,5 +1625,45 @@ class SupabaseService {
     if (val is int) return val.toDouble();
     return double.tryParse(val.toString()) ?? 0;
   }
-}
 
+  // ─── Sync Machines & Licensing (script_control) ───────────────────
+  Future<List<Map<String, dynamic>>> getAllSyncMachines() async {
+    try {
+      final response = await _client
+          .from('script_control')
+          .select()
+          .order('last_seen_at', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      print('getAllSyncMachines error: $e');
+      return [];
+    }
+  }
+
+  Future<bool> updateSyncMachineControl(
+    String id, {
+    bool? syncShouldRun,
+    DateTime? expiresAt,
+  }) async {
+    try {
+      final updateData = <String, dynamic>{
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      if (syncShouldRun != null) {
+        updateData['sync_should_run'] = syncShouldRun;
+      }
+      if (expiresAt != null) {
+        updateData['expires_at'] = expiresAt.toUtc().toIso8601String();
+      }
+
+      await _client
+          .from('script_control')
+          .update(updateData)
+          .eq('id', id);
+      return true;
+    } catch (e) {
+      print('updateSyncMachineControl error: $e');
+      return false;
+    }
+  }
+}

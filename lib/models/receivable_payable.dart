@@ -1,6 +1,8 @@
 class OutstandingRecord {
   final String? id;
   final String customerName;
+  final String? groupName;
+  final String? mobile;
   final DateTime? date;
   final String invoiceNumber;
   final double openingBalance;
@@ -8,6 +10,7 @@ class OutstandingRecord {
   final double amount;
   final DateTime? dueDate;
   final int? overdueDays;
+  final int? creditDays;
   final String? billType;
   final String? companyName;
   final String? guid;
@@ -16,6 +19,8 @@ class OutstandingRecord {
   OutstandingRecord({
     this.id,
     required this.customerName,
+    this.groupName,
+    this.mobile,
     this.date,
     this.invoiceNumber = '',
     this.openingBalance = 0,
@@ -23,6 +28,7 @@ class OutstandingRecord {
     this.amount = 0,
     this.dueDate,
     this.overdueDays,
+    this.creditDays,
     this.billType,
     this.companyName,
     this.guid,
@@ -33,6 +39,8 @@ class OutstandingRecord {
     return OutstandingRecord(
       id: json['id']?.toString(),
       customerName: json['customer_name']?.toString() ?? '',
+      groupName: json['group_name']?.toString(),
+      mobile: json['mobile']?.toString(),
       date: json['date'] != null ? DateTime.tryParse(json['date'].toString())?.toLocal() : null,
       invoiceNumber: json['invoicenumber']?.toString() ?? '',
       openingBalance: _toDouble(json['opening_balance']),
@@ -43,6 +51,11 @@ class OutstandingRecord {
           ? (json['overdue_days'] is num
               ? (json['overdue_days'] as num).toInt()
               : int.tryParse(json['overdue_days'].toString()))
+          : null,
+      creditDays: json['credit_days'] != null
+          ? (json['credit_days'] is num
+              ? (json['credit_days'] as num).toInt()
+              : int.tryParse(json['credit_days'].toString()))
           : null,
       billType: json['bill_type']?.toString(),
       companyName: json['company_name']?.toString(),

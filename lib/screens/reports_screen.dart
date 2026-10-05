@@ -1,3 +1,4 @@
+import '../widgets/error_state_widget.dart';
 import 'package:flutter/material.dart';
 import '../utils/error_handler.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -37,10 +38,13 @@ class ReportsScreen extends StatefulWidget {
   State<ReportsScreen> createState() => _ReportsScreenState();
 }
 
-class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProviderStateMixin {
+class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateMixin {
   late TabController _tabController;
   final SupabaseService _service = SupabaseService();
   bool _isLoading = true;
+  String? _error;
+  int _loadGeneration = 0;
+  String? _permissionKey;
 
   List<Map<String, dynamic>> _profitData = [];
   List<Map<String, dynamic>> _fastItems = [];
@@ -82,12 +86,16 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final syncTrigger = CompanyProvider.of(context).syncTrigger;
+    final state = CompanyProvider.of(context);
+    final permissionKey = '${state.selectedCompany}:${state.isFeatureEnabled('stock_cost')}:${state.isFeatureEnabled('rep_sales')}:${state.isFeatureEnabled('rep_purchases')}:${state.isFeatureEnabled('rep_ledgers')}';
+    final permissionsChanged = _permissionKey != permissionKey;
+    _permissionKey = permissionKey;
+    final syncTrigger = state.syncTrigger;
     if (!_initialized) {
       _initialized = true;
       _lastSyncTrigger = syncTrigger;
       _loadData();
-    } else if (_lastSyncTrigger != syncTrigger) {
+    } else if (permissionsChanged || _lastSyncTrigger != syncTrigger) {
       _lastSyncTrigger = syncTrigger;
       _loadData(silent: true);
     }
@@ -100,27 +108,37 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   }
 
   Future<void> _loadData({bool silent = false}) async {
-    if (!silent) setState(() => _isLoading = true);
+    final generation = ++_loadGeneration;
+    setState(() { _error = null; _isLoading = true; });
     try {
-      final company = CompanyProvider.of(context).selectedCompany;
+      final state = CompanyProvider.of(context);
+      final company = state.selectedCompany;
+      final costs = state.isFeatureEnabled('stock_cost');
+      final sales = state.isFeatureEnabled('rep_sales') && costs;
+      final velocity = state.isFeatureEnabled('rep_purchases');
+      final dormant = state.isFeatureEnabled('rep_ledgers');
       final results = await Future.wait([
-        _service.getDailyProfit(companyName: company, days: _overviewDays),
-        _service.getFastMovingItems(companyName: company, days: _velocityCutoffDays),
-        _service.getSlowMovingItems(companyName: company, days: _velocityCutoffDays),
-        _service.getUnusedLedgers(companyName: company, days: _ledgerCutoffDays),
-        _service.getUnusedItems(companyName: company, days: _itemCutoffDays),
-        _service.getUnusedLedgersCount(companyName: company, days: _ledgerCutoffDays),
-        _service.getUnusedItemsCount(companyName: company, days: _itemCutoffDays),
-        _service.getHighValueItems(companyName: company),
+        sales ? _service.getDailyProfit(companyName: company, days: _overviewDays) : Future.value(<Map<String, dynamic>>[]),
+        velocity ? _service.getFastMovingItems(companyName: company, days: _velocityCutoffDays) : Future.value(<Map<String, dynamic>>[]),
+        velocity ? _service.getSlowMovingItems(companyName: company, days: _velocityCutoffDays) : Future.value(<Map<String, dynamic>>[]),
+        dormant ? _service.getUnusedLedgers(companyName: company, days: _ledgerCutoffDays) : Future.value(<Map<String, dynamic>>[]),
+        dormant ? _service.getUnusedItems(companyName: company, days: _itemCutoffDays) : Future.value(<Map<String, dynamic>>[]),
+        dormant ? _service.getUnusedLedgersCount(companyName: company, days: _ledgerCutoffDays) : Future.value(0),
+        dormant ? _service.getUnusedItemsCount(companyName: company, days: _itemCutoffDays) : Future.value(0),
+        velocity && costs ? _service.getHighValueItems(companyName: company) : Future.value(<Map<String, dynamic>>[]),
       ]);
 
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         setState(() {
           _profitData = (results[0] as List).cast<Map<String, dynamic>>();
           _fastItems = (results[1] as List).cast<Map<String, dynamic>>();
           _slowItems = (results[2] as List).cast<Map<String, dynamic>>();
           _unusedLedgers = (results[3] as List).cast<Map<String, dynamic>>();
-          _unusedItems = (results[4] as List).cast<Map<String, dynamic>>();
+          _unusedItems = (results[4] as List).map((row) => Map<String, dynamic>.from(row)).toList();
+          if (!costs) {
+            for (final item in _unusedItems) { item.remove('stock_value'); }
+            _unusedItems.sort((a, b) => '${a['product_name']}'.compareTo('${b['product_name']}'));
+          }
           _totalUnusedLedgersCount = results[5] as int;
           _totalUnusedItemsCount = results[6] as int;
           _highValueItems = (results[7] as List).cast<Map<String, dynamic>>();
@@ -132,78 +150,28 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     } catch (e, st) {
       print('Error loading data: $e');
       print(st);
-      if (mounted && !silent) setState(() => _isLoading = false);
+      if (mounted && generation == _loadGeneration) setState(() { _isLoading = false; _error = AppErrorHandler.getFriendlyError(e); });
     }
   }
 
   Future<void> _reloadOverviewData(int days) async {
-    setState(() {
-      _overviewDays = days;
-      _isLoading = true;
-    });
-    try {
-      final company = CompanyProvider.of(context).selectedCompany;
-      final res = await _service.getDailyProfit(companyName: company, days: days);
-      if (mounted) {
-        setState(() {
-          _profitData = res;
-          _useLineChart = days > 30;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    _overviewDays = days;
+    await _loadData();
   }
 
-  // Re-fetches only the unused-ledgers section with a new cutoff.
   Future<void> _reloadLedgers(int cutoffDays) async {
-    setState(() => _ledgerCutoffDays = cutoffDays);
-    final company = CompanyProvider.of(context).selectedCompany;
-    final results = await Future.wait([
-      _service.getUnusedLedgers(companyName: company, days: cutoffDays),
-      _service.getUnusedLedgersCount(companyName: company, days: cutoffDays),
-    ]);
-    if (mounted) {
-      setState(() {
-        _unusedLedgers = (results[0] as List).cast<Map<String, dynamic>>();
-        _totalUnusedLedgersCount = results[1] as int;
-      });
-    }
+    _ledgerCutoffDays = cutoffDays;
+    await _loadData();
   }
 
-  // Re-fetches only the unused-items section with a new cutoff.
   Future<void> _reloadItems(int cutoffDays) async {
-    setState(() => _itemCutoffDays = cutoffDays);
-    final company = CompanyProvider.of(context).selectedCompany;
-    final results = await Future.wait([
-      _service.getUnusedItems(companyName: company, days: cutoffDays),
-      _service.getUnusedItemsCount(companyName: company, days: cutoffDays),
-    ]);
-    if (mounted) {
-      setState(() {
-        _unusedItems = (results[0] as List).cast<Map<String, dynamic>>();
-        _totalUnusedItemsCount = results[1] as int;
-      });
-    }
+    _itemCutoffDays = cutoffDays;
+    await _loadData();
   }
 
-  // Re-fetches only the velocity sections with a new cutoff.
   Future<void> _reloadVelocity(int cutoffDays) async {
-    setState(() => _velocityCutoffDays = cutoffDays);
-    final company = CompanyProvider.of(context).selectedCompany;
-    final res = await Future.wait([
-      _service.getFastMovingItems(companyName: company, days: cutoffDays),
-      _service.getSlowMovingItems(companyName: company, days: cutoffDays),
-      _service.getHighValueItems(companyName: company),
-    ]);
-    if (mounted) {
-      setState(() {
-        _fastItems = (res[0] as List).cast<Map<String, dynamic>>();
-        _slowItems = (res[1] as List).cast<Map<String, dynamic>>();
-        _highValueItems = (res[2] as List).cast<Map<String, dynamic>>();
-      });
-    }
+    _velocityCutoffDays = cutoffDays;
+    await _loadData();
   }
 
   // ---------------------------------------------------------------------
@@ -221,7 +189,9 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     final companyState = CompanyProvider.of(context);
-    final showSales = companyState.isFeatureEnabled('rep_sales');
+    final showCosts = companyState.isFeatureEnabled('stock_cost');
+    if (!showCosts && _velocityFilter == 'value') _velocityFilter = 'fast';
+    final showSales = companyState.isFeatureEnabled('rep_sales') && showCosts;
     final showPurchases = companyState.isFeatureEnabled('rep_purchases');
     final showLedgers = companyState.isFeatureEnabled('rep_ledgers');
 
@@ -285,7 +255,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           tabs: visibleTabLabels.map((l) => Tab(text: l)).toList(),
         ),
       ),
-      body: _isLoading
+      body: _error != null ? ErrorStateWidget(error: _error!, onRetry: _loadData) : _isLoading
           ? const ShimmerGridLoading(itemCount: 5)
           : Builder(builder: (context) {
             // Build views in order matching visible tabs
@@ -386,7 +356,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                               ),
                               const SizedBox(width: 8),
-                              ChoiceChip(
+                              if (showCosts) ChoiceChip(
                                 label: const Text('High Value'),
                                 selected: _velocityFilter == 'value',
                                 onSelected: (_) => setState(() => _velocityFilter = 'value'),
@@ -1285,7 +1255,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
                     ),
                     Expanded(
                       flex: 2,
-                      child: Text(currency.format(val),
+                      child: Text(CompanyProvider.of(context).isFeatureEnabled('stock_cost') ? currency.format(val) : '—',
                           textAlign: TextAlign.right,
                           style: const TextStyle(fontWeight: FontWeight.w700, color: _Palette.red, fontSize: 13)),
                     ),

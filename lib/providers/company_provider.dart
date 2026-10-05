@@ -5,22 +5,55 @@ class CompanyState extends ChangeNotifier {
   Map<String, bool> _enabledFeatures = {};
 
   int _syncTrigger = 0;
+  bool _featuresLoaded = false;
+  bool get featuresLoaded => _featuresLoaded;
 
   String? get selectedCompany => _selectedCompany;
   Map<String, bool> get enabledFeatures => _enabledFeatures;
   int get syncTrigger => _syncTrigger;
 
   bool isFeatureEnabled(String feature) {
-    return _enabledFeatures[feature] ?? true;
+    if (!_featuresLoaded) return false;
+    bool enabled(String key) => _enabledFeatures[key] ?? true;
+    if (!enabled(feature)) return false;
+    final parent = feature.startsWith('stock_') ? 'stock'
+      : feature.startsWith('out_') ? 'outstanding'
+      : feature.startsWith('ls_') ? 'ledgers'
+      : feature.startsWith('cf_') ? 'cash_flow'
+      : feature.startsWith('rep_') ? 'analytics'
+      : feature.startsWith('db_') ? 'dashboard' : null;
+    if (parent != null && !enabled(parent)) return false;
+    const dependencies = <String, List<String>>{
+      'db_card_stock_value': ['stock', 'stock_cost'],
+      'db_np_stock': ['stock', 'stock_cost'],
+      'db_qa_stock': ['stock'],
+      'db_card_today_sales': ['sales'],
+      'db_qa_sales': ['sales'],
+      'db_card_today_purchases': ['purchases'],
+      'db_card_total_receivables': ['outstanding', 'out_receivables'],
+      'db_card_overdue_receivables': ['outstanding', 'out_receivables'],
+      'db_np_receivables': ['outstanding', 'out_receivables'],
+      'db_card_total_payables': ['outstanding', 'out_payables'],
+      'db_card_overdue_payables': ['outstanding', 'out_payables'],
+      'db_np_payables': ['outstanding', 'out_payables'],
+      'db_card_cash_bank': ['ledgers'],
+      'db_np_cash': ['ledgers'],
+      'db_np_bank': ['ledgers'],
+      'db_qa_ledgers': ['ledgers'],
+      'db_qa_reports': ['analytics'],
+    };
+    return (dependencies[feature] ?? const <String>[]).every(enabled);
   }
 
   void selectCompany(String company) {
+    if (_selectedCompany != company) { _enabledFeatures = {}; _featuresLoaded = false; }
     _selectedCompany = company;
     notifyListeners();
   }
 
   void setFeatures(Map<String, bool> features) {
-    _enabledFeatures = features;
+    _enabledFeatures = Map<String, bool>.from(features);
+    _featuresLoaded = true;
     notifyListeners();
   }
 
@@ -30,6 +63,7 @@ class CompanyState extends ChangeNotifier {
   }
 
   void clearCompany() {
+    _featuresLoaded = false;
     _selectedCompany = null;
     _enabledFeatures = {};
     _syncTrigger = 0;

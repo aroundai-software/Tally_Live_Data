@@ -38,6 +38,10 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   
   bool _sortAscending = true;
   bool _isInit = false;
+  bool? _lastTransactionPermission;
+  String? _loadedCompany;
+  int _loadGeneration = 0;
+  bool get _canReadTransactions => CompanyProvider.of(context).isFeatureEnabled('ls_transactions');
   bool _isListView = false;
   bool _isListViewInitialized = false;
 
@@ -49,7 +53,11 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
       _isListView = MediaQuery.of(context).size.width < 800;
       _isListViewInitialized = true;
     }
-    if (!_isInit) {
+    final permission = _canReadTransactions;
+    final company = CompanyProvider.of(context).selectedCompany;
+    if (!_isInit || permission != _lastTransactionPermission || company != _loadedCompany) {
+      _lastTransactionPermission = permission;
+      _loadedCompany = company;
       _loadData();
       _isInit = true;
     }
@@ -77,6 +85,17 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   }
 
   Future<void> _loadData() async {
+    final generation = ++_loadGeneration;
+    if (!_canReadTransactions) {
+      setState(() {
+        _transactions = [];
+        _availableVoucherTypes.clear();
+        _totalDebits = _totalCredits = _openingBalance = _closingBalance = 0;
+        _isLoading = false;
+        _error = null;
+      });
+      return;
+    }
     setState(() {
       _isLoading = true;
       _error = null;
@@ -90,6 +109,8 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
         ledgerName: widget.ledger.name,
         endDate: null,
       );
+
+      if (!mounted || generation != _loadGeneration || !_canReadTransactions) return;
 
       double runningBalance = widget.ledger.openingBalance;
       double openingForPeriod = runningBalance;
@@ -251,6 +272,9 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   }
 
   Future<pw.Document> _generatePdfDocument() async {
+    if (!_canReadTransactions || _isLoading || _error != null) {
+      throw StateError('A permitted, successfully loaded statement is required for export.');
+    }
     final pdf = pw.Document();
 
     final sortedTransactions = List<DaybookEntry>.from(_transactions)
@@ -379,10 +403,18 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   }
 
   Future<void> _downloadPdf() async {
+    final generation = _loadGeneration;
     try {
       final pdf = await _generatePdfDocument();
+      if (!mounted || generation != _loadGeneration || !_canReadTransactions) return;
       await Printing.layoutPdf(
-        onLayout: (PdfPageFormat format) async => pdf.save(),
+        onLayout: (PdfPageFormat format) async {
+          final bytes = await pdf.save();
+          if (!mounted || generation != _loadGeneration || !_canReadTransactions) {
+            throw StateError('Statement access changed. Reload before exporting.');
+          }
+          return bytes;
+        },
         name: '${widget.ledger.name}_Statement.pdf',
       );
     } catch (e, stack) {
@@ -402,10 +434,13 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   }
 
   Future<void> _sharePdf() async {
+    final generation = _loadGeneration;
     try {
       final pdf = await _generatePdfDocument();
+      final bytes = await pdf.save();
+      if (!mounted || generation != _loadGeneration || !_canReadTransactions) return;
       await Printing.sharePdf(
-        bytes: await pdf.save(),
+        bytes: bytes,
         filename: '${widget.ledger.name}_Statement.pdf',
       );
     } catch (e, stack) {
@@ -440,7 +475,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: numeric ? MainAxisAlignment.end : MainAxisAlignment.start,
             children: [
-              Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+              Flexible(child: Text(text, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87))),
               if (isSortable) ...[
                 const SizedBox(width: 4),
                 Icon(_sortAscending ? Icons.arrow_downward : Icons.arrow_upward, size: 14, color: Colors.grey),
@@ -666,15 +701,15 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                 }
               },
               itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                PopupMenuItem<String>(value: 'view_toggle', child: Row(children: [Icon(_isListView ? Icons.table_chart_outlined : Icons.view_list_outlined, size: 20), const SizedBox(width: 12), Text(_isListView ? 'Table View' : 'List View')])),
+                if (showTransactions) PopupMenuItem<String>(value: 'view_toggle', child: Row(children: [Icon(_isListView ? Icons.table_chart_outlined : Icons.view_list_outlined, size: 20), const SizedBox(width: 12), Text(_isListView ? 'Table View' : 'List View')])),
                 const PopupMenuItem<String>(value: 'refresh', child: Row(children: [Icon(Icons.refresh, size: 20), SizedBox(width: 12), Text('Refresh Data')])),
                 const PopupMenuDivider(),
-                const PopupMenuItem<String>(value: 'filter_voucher', child: Row(children: [Icon(Icons.filter_alt_outlined, size: 20), SizedBox(width: 12), Text('Filter Voucher Type')])),
+                if (showTransactions) const PopupMenuItem<String>(value: 'filter_voucher', child: Row(children: [Icon(Icons.filter_alt_outlined, size: 20), SizedBox(width: 12), Text('Filter Voucher Type')])),
                 const PopupMenuDivider(),
-                PopupMenuItem<String>(value: 'sort', child: Row(children: [const Icon(Icons.swap_vert, size: 20), const SizedBox(width: 12), Text(_sortAscending ? 'Sort Newest First' : 'Sort Oldest First')])),
+                if (showTransactions) PopupMenuItem<String>(value: 'sort', child: Row(children: [const Icon(Icons.swap_vert, size: 20), const SizedBox(width: 12), Text(_sortAscending ? 'Sort Newest First' : 'Sort Oldest First')])),
                 const PopupMenuDivider(),
-                const PopupMenuItem<String>(value: 'share', child: Row(children: [Icon(Icons.share, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Share via...')])),
-                const PopupMenuItem<String>(value: 'download', child: Row(children: [Icon(Icons.download, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Save / Print')])),
+                if (showTransactions) const PopupMenuItem<String>(value: 'share', child: Row(children: [Icon(Icons.share, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Share via...')])),
+                if (showTransactions) const PopupMenuItem<String>(value: 'download', child: Row(children: [Icon(Icons.download, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Save / Print')])),
               ],
             ),
           ],
@@ -730,18 +765,18 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
               }
             },
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              PopupMenuItem<String>(
+              if (showTransactions) PopupMenuItem<String>(
                 value: 'view_toggle',
                 child: Row(children: [Icon(_isListView ? Icons.table_chart_outlined : Icons.view_list_outlined, size: 20), const SizedBox(width: 12), Text(_isListView ? 'Table View' : 'List View')]),
               ),
               const PopupMenuItem<String>(value: 'refresh', child: Row(children: [Icon(Icons.refresh, size: 20), SizedBox(width: 12), Text('Refresh Data')])),
               const PopupMenuDivider(),
-              const PopupMenuItem<String>(value: 'filter_voucher', child: Row(children: [Icon(Icons.filter_alt_outlined, size: 20), SizedBox(width: 12), Text('Filter Voucher Type')])),
+              if (showTransactions) const PopupMenuItem<String>(value: 'filter_voucher', child: Row(children: [Icon(Icons.filter_alt_outlined, size: 20), SizedBox(width: 12), Text('Filter Voucher Type')])),
               const PopupMenuDivider(),
-              PopupMenuItem<String>(value: 'sort', child: Row(children: [const Icon(Icons.swap_vert, size: 20), const SizedBox(width: 12), Text(_sortAscending ? 'Sort Newest First' : 'Sort Oldest First')])),
+              if (showTransactions) PopupMenuItem<String>(value: 'sort', child: Row(children: [const Icon(Icons.swap_vert, size: 20), const SizedBox(width: 12), Text(_sortAscending ? 'Sort Newest First' : 'Sort Oldest First')])),
               const PopupMenuDivider(),
-              const PopupMenuItem<String>(value: 'share', child: Row(children: [Icon(Icons.share, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Share via...')])),
-              const PopupMenuItem<String>(value: 'download', child: Row(children: [Icon(Icons.download, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Save / Print')])),
+              if (showTransactions) const PopupMenuItem<String>(value: 'share', child: Row(children: [Icon(Icons.share, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Share via...')])),
+              if (showTransactions) const PopupMenuItem<String>(value: 'download', child: Row(children: [Icon(Icons.download, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Save / Print')])),
             ],
           ),
         ],

@@ -22,6 +22,7 @@ enum InvoiceSortOption {
 enum DateRangeOption {
   all,
   today,
+  yesterday,
   thisMonth,
   custom,
 }
@@ -99,7 +100,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   void _setDateFilter(DateRangeOption option) {
     setState(() => _dateRangeOption = option);
-    final s = option == DateRangeOption.thisMonth ? 'thisMonth'
+    final s = option == DateRangeOption.yesterday ? 'yesterday'
+      : option == DateRangeOption.thisMonth ? 'thisMonth'
       : option == DateRangeOption.all ? 'all'
       : option == DateRangeOption.custom ? 'custom'
       : 'today';
@@ -141,6 +143,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     if (_dateRangeOption == DateRangeOption.today) {
       filterStart = DateTime(now.year, now.month, now.day);
       filterEnd = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
+    } else if (_dateRangeOption == DateRangeOption.yesterday) {
+      final yesterday = now.subtract(const Duration(days: 1));
+      filterStart = DateTime(yesterday.year, yesterday.month, yesterday.day);
+      filterEnd = DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59, 999);
     } else if (_dateRangeOption == DateRangeOption.thisMonth) {
       filterStart = DateTime(now.year, now.month, 1);
       filterEnd = DateTime(now.year, now.month + 1, 1).subtract(const Duration(milliseconds: 1));
@@ -175,15 +181,27 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               
           if (dateComp != 0) return dateComp;
 
-          // If same date, group by Voucher Type (ascending alphabetical)
+          // For invoices on the same date:
+          // 1. Primary same-day tie-breaker: Tally sequential master_id (numerical)
+          final masterIdA = int.tryParse(a.masterId ?? '');
+          final masterIdB = int.tryParse(b.masterId ?? '');
+          if (masterIdA != null && masterIdB != null && masterIdA != masterIdB) {
+            return _currentSort == InvoiceSortOption.dateNewest
+                ? masterIdB.compareTo(masterIdA)
+                : masterIdA.compareTo(masterIdB);
+          }
+
+          // 2. Secondary tie-breaker: Voucher Type (ascending alphabetical)
           final typeA = a.type ?? '';
           final typeB = b.type ?? '';
           int typeComp = typeA.compareTo(typeB);
           
           if (typeComp != 0) return typeComp;
 
-          // If same date and same type, sort sequentially by Invoice Number (ascending)
-          return a.invoiceNumber.compareTo(b.invoiceNumber);
+          // 3. Tertiary tie-breaker: Invoice Number
+          return _currentSort == InvoiceSortOption.dateNewest
+              ? b.invoiceNumber.compareTo(a.invoiceNumber)
+              : a.invoiceNumber.compareTo(b.invoiceNumber);
 
         case InvoiceSortOption.amountHighest:
           return b.totalAmount.compareTo(a.totalAmount);
@@ -236,6 +254,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   DateRangeOption _dateFromString(String s) {
     switch (s) {
+      case 'yesterday': return DateRangeOption.yesterday;
       case 'thisMonth': return DateRangeOption.thisMonth;
       case 'all': return DateRangeOption.all;
       default: return DateRangeOption.today;
@@ -350,11 +369,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             child: RefreshIndicator(
               onRefresh: _loadData,
               color: AppTheme.primaryColor,
-              child: NestedScrollView(
-                headerSliverBuilder: (context, innerBoxIsScrolled) => [
+              child: CustomScrollView(
+                controller: _scrollController,
+                cacheExtent: 1500,
+                slivers: [
                   SliverToBoxAdapter(child: _buildHeader()),
+                  _buildSliverBody(),
                 ],
-                body: _buildBody(),
               ),
             ),
           ),
@@ -461,44 +482,57 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     );
   }
 
-  Widget _buildBody() {
-    if (_isLoading) return const ShimmerLoading(height: 120);
-    if (_error != null) return ErrorState(message: _error!, onRetry: _loadData);
-    if (_filteredInvoices.isEmpty) {
-      return EmptyState(
-        icon: Icons.receipt_long_outlined,
-        title: 'No Purchase Invoices Found',
-        subtitle: _searchController.text.isNotEmpty ? 'Try a different search term or check filters' : 'Purchases invoice data will appear here once synced from Tally',
-        onRetry: _loadData,
+  Widget _buildSliverBody() {
+    if (_isLoading) {
+      return const SliverToBoxAdapter(child: ShimmerLoading(height: 120));
+    }
+    if (_error != null) {
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: ErrorState(message: _error!, onRetry: _loadData),
       );
     }
-    return ListView.builder(
-      controller: _scrollController,
+    if (_filteredInvoices.isEmpty) {
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: EmptyState(
+          icon: Icons.receipt_long_outlined,
+          title: 'No Purchase Invoices Found',
+          subtitle: _searchController.text.isNotEmpty ? 'Try a different search term or check filters' : 'Purchases invoice data will appear here once synced from Tally',
+          onRetry: _loadData,
+        ),
+      );
+    }
+    return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      itemCount: _filteredInvoices.length,
-      itemBuilder: (context, index) {
-        final invoice = _filteredInvoices[index];
-        final showHeader = index == 0 ||
-            invoice.invoiceDate == null ||
-            _filteredInvoices[index - 1].invoiceDate == null ||
-            invoice.invoiceDate!.month != _filteredInvoices[index - 1].invoiceDate!.month ||
-            invoice.invoiceDate!.year != _filteredInvoices[index - 1].invoiceDate!.year;
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final invoice = _filteredInvoices[index];
+            final showHeader = index == 0 ||
+                invoice.invoiceDate == null ||
+                _filteredInvoices[index - 1].invoiceDate == null ||
+                invoice.invoiceDate!.month != _filteredInvoices[index - 1].invoiceDate!.month ||
+                invoice.invoiceDate!.year != _filteredInvoices[index - 1].invoiceDate!.year;
 
-        Widget card = _InvoiceCard(invoice: invoice, onTap: () => _showInvoiceDetail(invoice));
-        
-        if (showHeader && invoice.invoiceDate != null) {
-          final monthStr = DateFormat('MMMM yyyy').format(invoice.invoiceDate!);
-          card = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildMonthHeader(monthStr),
-              card,
-            ],
-          );
-        }
+            Widget card = _InvoiceCard(invoice: invoice, onTap: () => _showInvoiceDetail(invoice));
+            
+            if (showHeader && invoice.invoiceDate != null) {
+              final monthStr = DateFormat('MMMM yyyy').format(invoice.invoiceDate!);
+              card = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildMonthHeader(monthStr),
+                  card,
+                ],
+              );
+            }
 
-        return card;
-      },
+            return card;
+          },
+          childCount: _filteredInvoices.length,
+        ),
+      ),
     );
   }
 
@@ -715,6 +749,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       child: Row(
         children: [
           _buildPill('Today', DateRangeOption.today),
+          _buildPill('Yesterday', DateRangeOption.yesterday),
           _buildPill('This Month', DateRangeOption.thisMonth),
           _buildPill('All Time', DateRangeOption.all),
           _buildCalendarPill(customLabel),

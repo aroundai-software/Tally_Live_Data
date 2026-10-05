@@ -19,6 +19,7 @@ class PurchaseInvoice {
   final String? supplierCategoryName;
   final double? roundOff;
   final bool syncedToTally;
+  final String? masterId;
   final DateTime? updatedAt;
 
   PurchaseInvoice({
@@ -42,6 +43,7 @@ class PurchaseInvoice {
     this.supplierCategoryName,
     this.roundOff,
     this.syncedToTally = false,
+    this.masterId,
     this.updatedAt,
   });
 
@@ -67,6 +69,7 @@ class PurchaseInvoice {
       supplierCategoryName: json['supplier_category_name'],
       roundOff: _toDoubleNullable(json['round_off']),
       syncedToTally: json['synced_to_tally'] ?? false,
+      masterId: json['master_id']?.toString() ?? json['MasterId']?.toString(),
       updatedAt: json['updated_at'] != null ? DateTime.tryParse(json['updated_at'])?.toLocal() : null,
     );
   }
@@ -91,8 +94,8 @@ class PurchaseInvoiceItem {
   final String? purchaseInvoiceId;
   final String productName;
   final String? productCode;
-  final int quantity;
-  final int freeQuantity;
+  final double quantity;
+  final double freeQuantity;
   final double unitPrice;
   final double gstRate;
   final double gstAmount;
@@ -123,8 +126,8 @@ class PurchaseInvoiceItem {
       purchaseInvoiceId: json['purchase_invoice_id']?.toString(),
       productName: json['product_name'] ?? '',
       productCode: json['product_code'],
-      quantity: _toInt(json['quantity']),
-      freeQuantity: _toInt(json['free_quantity']),
+      quantity: _toDouble(json['quantity']),
+      freeQuantity: _toDouble(json['free_quantity']),
       unitPrice: _toDouble(json['unit_price']),
       gstRate: _toDouble(json['gst_rate']),
       gstAmount: _toDouble(json['gst_amount']),
@@ -140,12 +143,5 @@ class PurchaseInvoiceItem {
     if (val is double) return val;
     if (val is int) return val.toDouble();
     return double.tryParse(val.toString()) ?? 0;
-  }
-
-  static int _toInt(dynamic val) {
-    if (val == null) return 0;
-    if (val is int) return val;
-    if (val is double) return val.toInt();
-    return int.tryParse(val.toString()) ?? 0;
   }
 }

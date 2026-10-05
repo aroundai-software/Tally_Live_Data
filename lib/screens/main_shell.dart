@@ -22,9 +22,12 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
+  final Set<int> _activatedTabs = {0};
   bool _stockScreenShowSales = false;
   int _receivablesPayablesTab = 0;
+  String _receivablesPayablesFilter = 'all';
   String? _lastCompany;
+  Object? _featureError;
   StreamSubscription<Map<String, bool>>? _featureSubscription;
   StreamSubscription<Map<String, dynamic>>? _syncSubscription;
   StreamSubscription<Map<String, dynamic>>? _userProfileSubscription;
@@ -83,6 +86,7 @@ class _MainShellState extends State<MainShell> {
     if (currentCompany != _lastCompany) {
       _lastCompany = currentCompany;
       if (currentCompany != null) {
+        _activatedTabs.removeWhere((idx) => idx != 0);
         _listenToCompanyFeatures(currentCompany, companyState);
         _listenToSyncLogs(currentCompany, companyState);
       } else {
@@ -103,13 +107,17 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _listenToCompanyFeatures(String companyName, CompanyState companyState) {
+    _featureError = null;
     _featureSubscription?.cancel();
     _featureSubscription = SupabaseService().streamCompanyFeatures(companyName).listen((features) {
-      if (mounted) {
+      if (mounted && companyState.selectedCompany == companyName) {
+        _featureError = null;
         companyState.setFeatures(features);
       }
-    }, onError: (_) {
-      // Keep existing features on error
+    }, onError: (Object error) {
+      if (mounted && companyState.selectedCompany == companyName) {
+        setState(() => _featureError = error);
+      }
     });
   }
 
@@ -128,11 +136,14 @@ class _MainShellState extends State<MainShell> {
     int index, {
     bool showSalesInStock = false,
     int receivablesPayablesTab = 0,
+    String? receivablesPayablesFilter,
   }) {
     setState(() {
       _currentIndex = index;
+      _activatedTabs.add(index);
       _stockScreenShowSales = showSalesInStock;
       _receivablesPayablesTab = receivablesPayablesTab;
+      _receivablesPayablesFilter = receivablesPayablesFilter ?? 'all';
     });
   }
 
@@ -156,6 +167,38 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     final companyState = CompanyProvider.of(context);
     final companyName = companyState.selectedCompany ?? '';
+    if (_featureError != null || !companyState.featuresLoaded) {
+      return Scaffold(
+        backgroundColor: AppTheme.surfaceColor,
+        body: Center(
+          child: _featureError == null
+              ? const CircularProgressIndicator(color: AppTheme.primaryColor)
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Unable to verify company access.', style: TextStyle(color: Color(0xFF1A1F36), fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _listenToCompanyFeatures(companyName, companyState);
+                        });
+                      },
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+        ),
+      );
+    }
+    if (!['dashboard','stock','ledgers','outstanding','sales','purchases','analytics','cash_flow'].any(companyState.isFeatureEnabled)) {
+      return Scaffold(appBar: AppBar(title: const Text('TallyLive')), body: Center(child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [const Text('Company access is unavailable. Contact your administrator.'),
+          TextButton(onPressed: _switchCompany, child: const Text('Switch company')),
+          TextButton(onPressed: _logout, child: const Text('Log out'))],
+      )));
+    }
 
     // Calculate outstanding tab label and icon dynamically
     final showRec = companyState.isFeatureEnabled('out_receivables');
@@ -169,18 +212,29 @@ class _MainShellState extends State<MainShell> {
 
     final screens = [
       DashboardScreen(onNavigate: _onNavigate),
-      StockScreen(
-        onBack: () => _onNavigate(0),
-        showSalesValue: _stockScreenShowSales,
-      ),
-      LedgerScreen(onBack: () => _onNavigate(0)),
-      ReceivablesPayablesScreen(
-        onBack: () => _onNavigate(0),
-        initialTabIndex: _receivablesPayablesTab,
-        isActive: _currentIndex == 3,
-      ),
-      SalesInvoiceScreen(onBack: () => _onNavigate(0)),
-      PurchaseInvoiceScreen(onBack: () => _onNavigate(0)),
+      _activatedTabs.contains(1)
+          ? StockScreen(
+              onBack: () => _onNavigate(0),
+              showSalesValue: _stockScreenShowSales,
+            )
+          : const SizedBox.shrink(),
+      _activatedTabs.contains(2)
+          ? LedgerScreen(onBack: () => _onNavigate(0))
+          : const SizedBox.shrink(),
+      _activatedTabs.contains(3)
+          ? ReceivablesPayablesScreen(
+              onBack: () => _onNavigate(0),
+              initialTabIndex: _receivablesPayablesTab,
+              initialFilter: _receivablesPayablesFilter,
+              isActive: _currentIndex == 3,
+            )
+          : const SizedBox.shrink(),
+      _activatedTabs.contains(4)
+          ? SalesInvoiceScreen(onBack: () => _onNavigate(0))
+          : const SizedBox.shrink(),
+      _activatedTabs.contains(5)
+          ? PurchaseInvoiceScreen(onBack: () => _onNavigate(0))
+          : const SizedBox.shrink(),
     ];
 
     return Scaffold(
