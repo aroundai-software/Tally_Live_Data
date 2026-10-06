@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
@@ -6,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
+import '../utils/company_scope.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/error_state_widget.dart';
@@ -60,6 +62,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   bool _initialized = false;
   int? _lastSyncTrigger;
+  int? _lastCompanyRevision;
+  int _loadGeneration = 0;
   bool _isNetPositionExpanded = false;
   bool _isCashBankDetailsOpen = false;
   final Set<String> _cashBankExpandedSections = {'cash', 'bank', 'bank_od'};
@@ -73,29 +77,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final syncTrigger = CompanyProvider.of(context).syncTrigger;
+    final companyState = CompanyProvider.of(context);
+    final syncTrigger = companyState.syncTrigger;
+    final revision = companyState.companyRevision;
     final c = _company;
     if (!_initialized) {
       _initialized = true;
       _lastSyncTrigger = syncTrigger;
-      if (c != null) {
-        _loadCachedDashboard(c);
-      }
-      _loadDashboardData(silent: _hasCachedData);
+      _lastCompanyRevision = revision;
+      _bootstrapDashboard(c);
+    } else if (_lastCompanyRevision != revision) {
+      _lastCompanyRevision = revision;
+      _lastSyncTrigger = syncTrigger;
+      _resetDashboardMetrics();
+      _bootstrapDashboard(c);
     } else if (_lastSyncTrigger != syncTrigger) {
       _lastSyncTrigger = syncTrigger;
       _loadDashboardData(silent: true);
     }
   }
 
-  Future<void> _loadCachedDashboard(String company) async {
+  /// Load disk cache first (awaited), then always refresh from Supabase.
+  /// Previously cache was fired without await and could overwrite live totals.
+  Future<void> _bootstrapDashboard(String? company) async {
+    if (!CompanyScope.isValid(company)) {
+      if (mounted) {
+        setState(() {
+          _resetDashboardMetrics();
+          _isLoading = false;
+          _error = 'No company selected';
+        });
+      }
+      return;
+    }
+    final generation = ++_loadGeneration;
+    await _loadCachedDashboard(company!, generation: generation);
+    if (!mounted || generation != _loadGeneration) return;
+    await _loadDashboardData(silent: _hasCachedData);
+  }
+
+  void _resetDashboardMetrics() {
+    _hasCachedData = false;
+    _isLoading = true;
+    _error = null;
+    _totalStockValue = 0;
+    _stockItemCount = 0;
+    _totalReceivables = 0;
+    _totalOverdueReceivables = 0;
+    _totalPayables = 0;
+    _totalOverduePayables = 0;
+    _totalSales = 0;
+    _salesCount = 0;
+    _totalPurchases = 0;
+    _purchaseCount = 0;
+    _todaysSales = 0;
+    _todaysPurchases = 0;
+    _todaysSalesCount = 0;
+    _todaysPurchasesCount = 0;
+    _daybookInflow = 0;
+    _daybookOutflow = 0;
+    _totalCash = 0;
+    _totalBank = 0;
+    _cashBankLedgers = [];
+    _lastSyncedTime = null;
+  }
+
+  Future<void> _loadCachedDashboard(String company, {int? generation}) async {
+    final gen = generation ?? _loadGeneration;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString('cache_dashboard_$company');
       if (raw != null && raw.isNotEmpty) {
         final map = jsonDecode(raw) as Map<String, dynamic>;
-        if (mounted && _company == company) {
-          setState(() {
+        // Never apply cache after a newer live load has started/finished
+        if (!mounted ||
+            gen != _loadGeneration ||
+            !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+          return;
+        }
+        setState(() {
             _totalStockValue = (map['stockValue'] as num?)?.toDouble() ?? 0;
             _stockItemCount = (map['stockCount'] as num?)?.toInt() ?? 0;
             _totalReceivables = (map['receivables'] as num?)?.toDouble() ?? 0;
@@ -120,7 +180,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _hasCachedData = true;
             _isLoading = false;
           });
-        }
       }
     } catch (_) {}
   }
@@ -156,6 +215,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? get _company => CompanyProvider.of(context).selectedCompany;
 
   Future<void> _loadDashboardData({bool silent = false}) async {
+    final generation = ++_loadGeneration;
+    final c = _company;
+    if (!CompanyScope.isValid(c)) {
+      if (mounted) {
+        setState(() {
+          _resetDashboardMetrics();
+          _isLoading = false;
+          _error = 'No company selected';
+        });
+      }
+      return;
+    }
     if (!silent && !_hasCachedData) {
       setState(() {
         _isLoading = true;
@@ -163,79 +234,95 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
     }
     try {
-      final c = _company;
       final results = await Future.wait<dynamic>([
-        _service.getTotalStockValue(companyName: c),
-        _service.getProductCount(companyName: c),
-        _service.getTotalReceivables(companyName: c),
-        _service.getTotalPayables(companyName: c),
-        _service.getTotalSales(companyName: c),
-        _service.getSalesInvoiceCount(companyName: c),
-        _service.getTotalPurchases(companyName: c),
-        _service.getPurchaseInvoiceCount(companyName: c),
-        _service.getDaybookSummary(date: DateTime.now(), companyName: c),
-        _service.getTotalOverdueReceivables(companyName: c),
-        _service.getTotalOverduePayables(companyName: c),
-        _service.getTodaysSales(companyName: c),
-        _service.getTodaysPurchases(companyName: c),
-        _service.getTodaysSalesCount(companyName: c),
-        _service.getTodaysPurchasesCount(companyName: c),
-        _service.getCashBankLedgers(companyName: c),
+        _service.getDashboardAggregates(companyName: c!),
         _service.getLastSyncTime(companyName: c),
       ]);
 
-      if (mounted) {
-        setState(() {
-          _totalStockValue = results[0] as double;
-          _stockItemCount = results[1] as int;
-          _totalReceivables = results[2] as double;
-          _totalPayables = results[3] as double;
-          _totalSales = results[4] as double;
-          _salesCount = results[5] as int;
-          _totalPurchases = results[6] as double;
-          _purchaseCount = results[7] as int;
-          
-          _totalOverdueReceivables = results[9] as double;
-          _totalOverduePayables = results[10] as double;
-          _todaysSales = results[11] as double;
-          _todaysPurchases = results[12] as double;
-          _todaysSalesCount = results[13] as int;
-          _todaysPurchasesCount = results[14] as int;
-          final dbSummary = results[8] as Map<String, double>;
-          _daybookInflow = dbSummary['inflow'] ?? 0.0;
-          _daybookOutflow = dbSummary['outflow'] ?? 0.0;
+      if (!mounted ||
+          generation != _loadGeneration ||
+          !CompanyScope.stillActive(c, CompanyProvider.of(context).selectedCompany)) {
+        return;
+      }
+      final agg = Map<String, dynamic>.from(results[0] as Map);
+      double numVal(String key) => (agg[key] as num?)?.toDouble() ?? 0.0;
+      int intVal(String key) => (agg[key] as num?)?.toInt() ?? 0;
 
-          _cashBankLedgers = List<Ledger>.from(results[15] as List);
-          double cTot = 0, bTot = 0;
-          for (var l in _cashBankLedgers) {
-            final type = l.ledgerType?.toLowerCase().trim() ?? '';
-            final name = l.name.toLowerCase().trim();
-            if (type.contains('charge') || type.contains('expense') || name.contains('charges') || name.contains('vetting')) continue;
-            if (type.contains('cash') || name.startsWith('cash') || name.startsWith('petty cash')) {
-              cTot += l.closingBalance;
-            } else {
-              bTot += l.closingBalance;
-            }
-          }
-          _totalCash = cTot;
-          _totalBank = bTot;
-          _lastSyncedTime = results[16] as DateTime?;
+      setState(() {
+          _totalStockValue = numVal('stock_value');
+          _stockItemCount = intVal('stock_count');
+          _totalReceivables = numVal('receivables');
+          _totalPayables = numVal('payables');
+          _totalSales = numVal('sales');
+          _salesCount = intVal('sales_count');
+          _totalPurchases = numVal('purchases');
+          _purchaseCount = intVal('purchase_count');
+          
+          _totalOverdueReceivables = numVal('overdue_receivables');
+          _totalOverduePayables = numVal('overdue_payables');
+          _todaysSales = numVal('todays_sales');
+          _todaysPurchases = numVal('todays_purchases');
+          _todaysSalesCount = intVal('todays_sales_count');
+          _todaysPurchasesCount = intVal('todays_purchases_count');
+          _daybookInflow = numVal('daybook_inflow');
+          _daybookOutflow = numVal('daybook_outflow');
+
+          // Prefer RPC cash/bank for first paint; refine when ledger list arrives.
+          _totalCash = numVal('cash');
+          _totalBank = numVal('bank');
+          _lastSyncedTime = results[1] as DateTime?;
 
           _isLoading = false;
           _error = null;
         });
 
-        if (c != null) {
-          _saveDashboardCache(c);
-        }
-      }
+      _saveDashboardCache(c);
+
+      // Cash/bank ledger details (for drill-down) — don't block Overview on this.
+      unawaited(_loadCashBankLedgers(c, generation));
     } catch (e) {
-      if (mounted) {
+      if (mounted &&
+          generation == _loadGeneration &&
+          CompanyScope.stillActive(c, CompanyProvider.of(context).selectedCompany)) {
         setState(() {
           _error = e;
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _loadCashBankLedgers(String company, int generation) async {
+    try {
+      final ledgers = await _service.getCashBankLedgers(companyName: company);
+      if (!mounted ||
+          generation != _loadGeneration ||
+          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+        return;
+      }
+      double cTot = 0, bTot = 0;
+      for (var l in ledgers) {
+        final type = l.ledgerType?.toLowerCase().trim() ?? '';
+        final name = l.name.toLowerCase().trim();
+        if (type.contains('charge') || type.contains('expense') ||
+            name.contains('charges') || name.contains('vetting') ||
+            name == 'opening balance' || name == 'closing balance') {
+          continue;
+        }
+        if (type.contains('cash') || name.startsWith('cash') || name.startsWith('petty cash')) {
+          cTot += l.closingBalance;
+        } else if (type.contains('bank')) {
+          bTot += l.closingBalance;
+        }
+      }
+      setState(() {
+        _cashBankLedgers = ledgers;
+        _totalCash = cTot;
+        _totalBank = bTot;
+      });
+      _saveDashboardCache(company);
+    } catch (_) {
+      // Keep RPC/cached cash-bank totals if detail fetch fails.
     }
   }
 
@@ -999,8 +1086,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final type = l.ledgerType?.toLowerCase().trim() ?? '';
       final name = l.name.toLowerCase().trim();
 
-      // Exclude charges and expenses
-      if (type.contains('charge') || type.contains('expense') || name.contains('charges') || name.contains('vetting')) {
+      // Exclude charges, expenses, and non-account control ledgers
+      if (type.contains('charge') || type.contains('expense') ||
+          name.contains('charges') || name.contains('vetting') ||
+          name == 'opening balance' || name == 'closing balance') {
         continue;
       }
 
@@ -1008,7 +1097,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         cashLedgers.add(l);
       } else if (type.contains('od') || type.contains('occ') || name.contains('(od)') || name.contains(' od') || name.endsWith('od')) {
         bankOdLedgers.add(l);
-      } else {
+      } else if (type.contains('bank')) {
         bankLedgers.add(l);
       }
     }

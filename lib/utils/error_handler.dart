@@ -1,23 +1,33 @@
 class AppErrorHandler {
   static String getFriendlyError(dynamic e) {
-    String errorMsg = e.toString();
-    
-    if (errorMsg.contains('ClientException') || 
-        errorMsg.contains('connection abort') || 
-        errorMsg.contains('SocketException') ||
-        errorMsg.contains('Failed host lookup')) {
-      return 'Network connection lost. Please check your internet connection and try again.';
-    }
-    
-    if (errorMsg.contains('Failed to fetch') || errorMsg.contains('PostgrestException')) {
-      return 'Failed to load data. Please try again.';
+    final errorMsg = e.toString().toLowerCase();
+
+    if (errorMsg.contains('statement timeout') ||
+        errorMsg.contains('57014') ||
+        errorMsg.contains('canceling statement') ||
+        errorMsg.contains('cancelling statement')) {
+      return 'This is taking longer than usual. Please try again in a moment.';
     }
 
-    // You can add more generic database or auth errors here
-    if (errorMsg.contains('AuthException')) {
-      return 'Authentication failed. Please login again.';
+    if (errorMsg.contains('clientexception') ||
+        errorMsg.contains('connection abort') ||
+        errorMsg.contains('socketexception') ||
+        errorMsg.contains('failed host lookup') ||
+        errorMsg.contains('network') ||
+        errorMsg.contains('timed out') ||
+        errorMsg.contains('timeout')) {
+      return 'Network connection lost. Please check your internet and try again.';
     }
 
-    return errorMsg;
+    if (errorMsg.contains('failed to fetch') || errorMsg.contains('postgrestexception')) {
+      return 'Could not load data right now. Please try again.';
+    }
+
+    if (errorMsg.contains('authexception') || errorMsg.contains('jwt')) {
+      return 'Your session expired. Please sign in again.';
+    }
+
+    // Never show raw exception text to users.
+    return 'Something went wrong. Please try again.';
   }
 }

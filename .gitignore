@@ -65,7 +65,12 @@ ios/Flutter/flutter_export_environment.sh
 
 # Python sync Script
 /python_sync_tallylive
-/python_sync_tallylive.zip
+/python_sync_tallylive*.zip
+
+# Local debug / temp probes
+/phone_ui_check/
+/scratch/
+
 *.db
 *.sqlite3
 data/

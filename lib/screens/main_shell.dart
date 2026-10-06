@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
+import '../utils/company_scope.dart';
 import '../services/supabase_service.dart';
 import 'company_selection_screen.dart';
 import 'dashboard_screen.dart';
@@ -85,6 +86,10 @@ class _MainShellState extends State<MainShell> {
     final currentCompany = companyState.selectedCompany;
     if (currentCompany != _lastCompany) {
       _lastCompany = currentCompany;
+      _currentIndex = 0;
+      _stockScreenShowSales = false;
+      _receivablesPayablesTab = 0;
+      _receivablesPayablesFilter = 'all';
       if (currentCompany != null) {
         _activatedTabs.removeWhere((idx) => idx != 0);
         _listenToCompanyFeatures(currentCompany, companyState);
@@ -211,18 +216,26 @@ class _MainShellState extends State<MainShell> {
         : (showRec ? Icons.trending_up_rounded : Icons.trending_down_rounded);
 
     final screens = [
-      DashboardScreen(onNavigate: _onNavigate),
+      DashboardScreen(
+        key: CompanyScope.screenKey('dash', companyName),
+        onNavigate: _onNavigate,
+      ),
       _activatedTabs.contains(1)
           ? StockScreen(
+              key: CompanyScope.screenKey('stock', companyName),
               onBack: () => _onNavigate(0),
               showSalesValue: _stockScreenShowSales,
             )
           : const SizedBox.shrink(),
       _activatedTabs.contains(2)
-          ? LedgerScreen(onBack: () => _onNavigate(0))
+          ? LedgerScreen(
+              key: CompanyScope.screenKey('ledger', companyName),
+              onBack: () => _onNavigate(0),
+            )
           : const SizedBox.shrink(),
       _activatedTabs.contains(3)
           ? ReceivablesPayablesScreen(
+              key: CompanyScope.screenKey('outstanding', companyName),
               onBack: () => _onNavigate(0),
               initialTabIndex: _receivablesPayablesTab,
               initialFilter: _receivablesPayablesFilter,
@@ -230,10 +243,16 @@ class _MainShellState extends State<MainShell> {
             )
           : const SizedBox.shrink(),
       _activatedTabs.contains(4)
-          ? SalesInvoiceScreen(onBack: () => _onNavigate(0))
+          ? SalesInvoiceScreen(
+              key: CompanyScope.screenKey('sales', companyName),
+              onBack: () => _onNavigate(0),
+            )
           : const SizedBox.shrink(),
       _activatedTabs.contains(5)
-          ? PurchaseInvoiceScreen(onBack: () => _onNavigate(0))
+          ? PurchaseInvoiceScreen(
+              key: CompanyScope.screenKey('purchase', companyName),
+              onBack: () => _onNavigate(0),
+            )
           : const SizedBox.shrink(),
     ];
 

@@ -8,6 +8,7 @@ import '../widgets/empty_state.dart';
 import 'customer_ranking_screen.dart';
 import 'ledger_statement_screen.dart';
 import '../providers/company_provider.dart';
+import '../utils/company_scope.dart';
 import '../config/app_theme.dart';
 
 class MoneyFlowScreen extends StatefulWidget {
@@ -43,33 +44,58 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
 
   bool _hasLoaded = false;
   bool _trendIsLine = false;
+  int? _lastCompanyRevision;
+  int _loadGeneration = 0;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final revision = CompanyProvider.of(context).companyRevision;
     if (!_hasLoaded) {
       _hasLoaded = true;
+      _lastCompanyRevision = revision;
+      _loadData();
+    } else if (_lastCompanyRevision != revision) {
+      _lastCompanyRevision = revision;
+      _loadGeneration++;
+      _allSettlements = [];
       _loadData();
     }
   }
 
   Future<void> _loadData() async {
-    setState(() { _isLoading = true; _error = null; });
-    try {
-      final companyName = CompanyProvider.of(context).selectedCompany;
-      if (companyName == null) throw 'No company selected';
-
-      final data = await _service.getBillSettlements(companyName);
-
+    final generation = ++_loadGeneration;
+    final companyName = CompanyProvider.of(context).selectedCompany;
+    if (!CompanyScope.isValid(companyName)) {
       if (mounted) {
-        _applyFilter(data, _selectedPeriod);
         setState(() {
-          _allSettlements = data;
           _isLoading = false;
+          _error = 'No company selected';
+          _allSettlements = [];
         });
       }
+      return;
+    }
+    setState(() { _isLoading = true; _error = null; });
+    try {
+      final data = await _service.getBillSettlements(companyName!);
+
+      if (!mounted ||
+          generation != _loadGeneration ||
+          !CompanyScope.stillActive(companyName, CompanyProvider.of(context).selectedCompany)) {
+        return;
+      }
+      _applyFilter(data, _selectedPeriod);
+      setState(() {
+        _allSettlements = data;
+        _isLoading = false;
+      });
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _isLoading = false; });
+      if (mounted &&
+          generation == _loadGeneration &&
+          CompanyScope.stillActive(companyName, CompanyProvider.of(context).selectedCompany)) {
+        setState(() { _error = e.toString(); _isLoading = false; });
+      }
     }
   }
 

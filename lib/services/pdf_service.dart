@@ -120,32 +120,54 @@ class PdfService {
   static pw.Widget _buildHeader(String companyName, String title,
       String invoiceNumber, DateTime? date, pw.Font bold) {
     return pw.Row(
-      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text(companyName,
-                style: pw.TextStyle(font: bold, fontSize: 22)),
-            pw.SizedBox(height: 4),
-            pw.Text('Authorized Dealer',
-                style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700)),
-          ],
+        pw.Expanded(
+          flex: 3,
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                companyName,
+                style: pw.TextStyle(font: bold, fontSize: 16),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                'Authorized Dealer',
+                style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
+              ),
+            ],
+          ),
         ),
-        pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.end,
-          children: [
-            pw.Text(title,
+        pw.SizedBox(width: 16),
+        pw.Expanded(
+          flex: 2,
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Text(
+                title,
                 style: pw.TextStyle(
-                    font: bold, fontSize: 18, color: PdfColors.blue800)),
-            pw.SizedBox(height: 6),
-            pw.Text('Invoice #: $invoiceNumber',
-                style: pw.TextStyle(font: bold, fontSize: 11)),
-            if (date != null)
-              pw.Text('Date: ${DateFormat('dd MMM yyyy').format(date)}',
-                  style: const pw.TextStyle(fontSize: 11)),
-          ],
+                  font: bold,
+                  fontSize: 16,
+                  color: PdfColors.blue800,
+                ),
+                textAlign: pw.TextAlign.right,
+              ),
+              pw.SizedBox(height: 6),
+              pw.Text(
+                'Invoice #: $invoiceNumber',
+                style: pw.TextStyle(font: bold, fontSize: 10),
+                textAlign: pw.TextAlign.right,
+              ),
+              if (date != null)
+                pw.Text(
+                  'Date: ${DateFormat('dd MMM yyyy').format(date)}',
+                  style: const pw.TextStyle(fontSize: 10),
+                  textAlign: pw.TextAlign.right,
+                ),
+            ],
+          ),
         ),
       ],
     );
@@ -198,10 +220,17 @@ class PdfService {
       headers: headers,
       data: data,
       border: pw.TableBorder.all(color: PdfColors.grey300),
-      headerStyle: pw.TextStyle(font: bold, color: PdfColors.white),
+      headerStyle: pw.TextStyle(font: bold, color: PdfColors.white, fontSize: 10),
       headerDecoration: const pw.BoxDecoration(color: PdfColors.blue800),
-      cellStyle: pw.TextStyle(font: regular),
-      cellHeight: 28,
+      cellStyle: pw.TextStyle(font: regular, fontSize: 9),
+      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      columnWidths: {
+        0: const pw.FlexColumnWidth(4.5),
+        1: const pw.FlexColumnWidth(1.2),
+        2: const pw.FlexColumnWidth(1.8),
+        3: const pw.FlexColumnWidth(1.3),
+        4: const pw.FlexColumnWidth(2),
+      },
       cellAlignments: {
         0: pw.Alignment.centerLeft,
         1: pw.Alignment.centerRight,
@@ -218,8 +247,8 @@ class PdfService {
     return pw.Row(
       mainAxisAlignment: pw.MainAxisAlignment.end,
       children: [
-        pw.Container(
-          width: 220,
+        pw.SizedBox(
+          width: 240,
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
@@ -242,14 +271,24 @@ class PdfService {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(vertical: 3),
       child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
-          pw.Text(title,
+          pw.Expanded(
+            child: pw.Text(
+              title,
               style: pw.TextStyle(
-                  font: isBold ? bold : regular, fontSize: 11)),
-          pw.Text(value,
-              style: pw.TextStyle(
-                  font: isBold ? bold : regular, fontSize: 11)),
+                font: isBold ? bold : regular,
+                fontSize: 11,
+              ),
+            ),
+          ),
+          pw.SizedBox(width: 8),
+          pw.Text(
+            value,
+            style: pw.TextStyle(
+              font: isBold ? bold : regular,
+              fontSize: 11,
+            ),
+          ),
         ],
       ),
     );

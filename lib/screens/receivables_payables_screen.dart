@@ -449,10 +449,43 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
       final state = CompanyProvider.of(context);
       final company = state.selectedCompany;
       final generation = ++_loadGeneration;
-      final recs = state.isFeatureEnabled('out_receivables')
-          ? await _service.getOutstandingReceivables(companyName: company) : <OutstandingRecord>[];
-      final pays = state.isFeatureEnabled('out_payables')
-          ? await _service.getOutstandingPayables(companyName: company) : <OutstandingRecord>[];
+
+      void applyPartial({
+        List<OutstandingRecord>? recs,
+        List<OutstandingRecord>? pays,
+      }) {
+        if (!mounted || generation != _loadGeneration || company != state.selectedCompany) return;
+        setState(() {
+          if (recs != null) {
+            _allReceivables = recs;
+            _filteredReceivables = recs;
+          }
+          if (pays != null) {
+            _allPayables = pays;
+            _filteredPayables = pays;
+          }
+          _isLoading = false;
+        });
+        _recomputeTotals();
+        _onSearchChanged();
+      }
+
+      final results = await Future.wait<List<OutstandingRecord>>([
+        state.isFeatureEnabled('out_receivables')
+            ? _service.getOutstandingReceivables(
+                companyName: company,
+                onFirstPage: (first) => applyPartial(recs: first),
+              )
+            : Future.value(<OutstandingRecord>[]),
+        state.isFeatureEnabled('out_payables')
+            ? _service.getOutstandingPayables(
+                companyName: company,
+                onFirstPage: (first) => applyPartial(pays: first),
+              )
+            : Future.value(<OutstandingRecord>[]),
+      ]);
+      final recs = results[0];
+      final pays = results[1];
       if (!mounted || generation != _loadGeneration || company != state.selectedCompany) return;
       if (mounted) {
         setState(() { 

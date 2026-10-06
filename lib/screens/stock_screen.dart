@@ -3,6 +3,7 @@ import '../utils/error_handler.dart';
 import '../config/app_theme.dart';
 import '../models/stock_item.dart';
 import '../providers/company_provider.dart';
+import '../utils/company_scope.dart';
 import '../services/supabase_service.dart';
 import '../services/user_preferences_service.dart';
 import '../widgets/search_bar_widget.dart';
@@ -129,15 +130,31 @@ class _StockScreenState extends State<StockScreen> {
   }
 
   int? _lastSyncTrigger;
+  int? _lastCompanyRevision;
+  int _loadGeneration = 0;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final syncTrigger = CompanyProvider.of(context).syncTrigger;
+    final companyState = CompanyProvider.of(context);
+    final syncTrigger = companyState.syncTrigger;
+    final revision = companyState.companyRevision;
     if (_initialized) _onSearchChanged();
     if (!_initialized) {
       _initialized = true;
       _lastSyncTrigger = syncTrigger;
+      _lastCompanyRevision = revision;
+      _loadPreferencesAndData();
+    } else if (_lastCompanyRevision != revision) {
+      _lastCompanyRevision = revision;
+      _lastSyncTrigger = syncTrigger;
+      _loadGeneration++;
+      _searchController.clear();
+      _products = [];
+      _filteredProducts = [];
+      _productSales = {};
+      _pendingProducts = null;
+      _pendingSalesMap = null;
       _loadPreferencesAndData();
     } else if (_lastSyncTrigger != syncTrigger) {
       _lastSyncTrigger = syncTrigger;
@@ -158,14 +175,39 @@ class _StockScreenState extends State<StockScreen> {
   }
 
   Future<void> _loadData() async {
+    final generation = ++_loadGeneration;
+    final company = CompanyProvider.of(context).selectedCompany;
+    if (!CompanyScope.isValid(company)) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = 'No company selected';
+          _products = [];
+          _filteredProducts = [];
+        });
+      }
+      return;
+    }
     setState(() { _isLoading = true; _error = null; });
     try {
-      final company = CompanyProvider.of(context).selectedCompany;
-      final items = await _service.getProducts(companyName: company);
-      Map<String, double> salesMap = {};
-      if (company != null) {
-        salesMap = await _service.getProductSalesTotals(companyName: company);
-      }
+      final salesFuture = _service.getProductSalesTotals(companyName: company!);
+      final items = await _service.getProducts(
+        companyName: company,
+        onFirstPage: (first) {
+          if (!mounted ||
+              generation != _loadGeneration ||
+              !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+            return;
+          }
+          setState(() {
+            _products = first;
+            _filteredProducts = first;
+            _isLoading = false;
+          });
+          _onSearchChanged();
+        },
+      );
+      final salesMap = await salesFuture;
 
       // Count products per parent
       Map<String, int> currentParentCounts = {};
@@ -228,21 +270,26 @@ class _StockScreenState extends State<StockScreen> {
         }
       });
 
-      if (mounted) {
-        setState(() {
-          _products = items;
-          _filteredProducts = items;
-          _productSales = salesMap;
-          _pendingProducts = null;
-          _allParents = currentParentCounts.keys.toList()..sort();
-          _newParents = activeCategories;
-          _hasUnreadCategories = hasUnread;
-          _isLoading = false;
-        });
-        _onSearchChanged();
+      if (!mounted ||
+          generation != _loadGeneration ||
+          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+        return;
       }
+      setState(() {
+        _products = items;
+        _filteredProducts = items;
+        _productSales = salesMap;
+        _pendingProducts = null;
+        _allParents = currentParentCounts.keys.toList()..sort();
+        _newParents = activeCategories;
+        _hasUnreadCategories = hasUnread;
+        _isLoading = false;
+      });
+      _onSearchChanged();
     } catch (e) {
-      if (mounted) {
+      if (mounted &&
+          generation == _loadGeneration &&
+          CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
         setState(() {
           _error = AppErrorHandler.getFriendlyError(e);
           _isLoading = false;
@@ -253,13 +300,13 @@ class _StockScreenState extends State<StockScreen> {
 
   Future<void> _silentRefresh() async {
     if (!mounted) return;
+    final generation = ++_loadGeneration;
     try {
       final company = CompanyProvider.of(context).selectedCompany;
+      if (!CompanyScope.isValid(company)) return;
+      final salesFuture = _service.getProductSalesTotals(companyName: company!);
       final items = await _service.getProducts(companyName: company);
-      Map<String, double> salesMap = {};
-      if (company != null) {
-        salesMap = await _service.getProductSalesTotals(companyName: company);
-      }
+      final salesMap = await salesFuture;
       
       Map<String, int> currentParentCounts = {};
       for (var item in items) {
@@ -315,7 +362,11 @@ class _StockScreenState extends State<StockScreen> {
         }
       });
 
-      if (!mounted) return;
+      if (!mounted ||
+          generation != _loadGeneration ||
+          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+        return;
+      }
       _pendingProducts = items;
       _pendingSalesMap = salesMap;
       

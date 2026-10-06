@@ -4,6 +4,7 @@ import '../utils/error_handler.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../providers/company_provider.dart';
+import '../utils/company_scope.dart';
 import '../services/supabase_service.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/summary_card.dart';
@@ -82,6 +83,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
 
   bool _initialized = false;
   int? _lastSyncTrigger;
+  int? _lastCompanyRevision;
 
   @override
   void didChangeDependencies() {
@@ -91,13 +93,17 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
     final permissionsChanged = _permissionKey != permissionKey;
     _permissionKey = permissionKey;
     final syncTrigger = state.syncTrigger;
+    final revision = state.companyRevision;
     if (!_initialized) {
       _initialized = true;
       _lastSyncTrigger = syncTrigger;
+      _lastCompanyRevision = revision;
       _loadData();
-    } else if (permissionsChanged || _lastSyncTrigger != syncTrigger) {
+    } else if (_lastCompanyRevision != revision || permissionsChanged || _lastSyncTrigger != syncTrigger) {
+      final companyChanged = _lastCompanyRevision != revision;
+      _lastCompanyRevision = revision;
       _lastSyncTrigger = syncTrigger;
-      _loadData(silent: true);
+      _loadData(silent: permissionsChanged || companyChanged);
     }
   }
 
@@ -109,10 +115,19 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
 
   Future<void> _loadData({bool silent = false}) async {
     final generation = ++_loadGeneration;
+    final state = CompanyProvider.of(context);
+    final company = state.selectedCompany;
+    if (!CompanyScope.isValid(company)) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = 'No company selected';
+        });
+      }
+      return;
+    }
     setState(() { _error = null; _isLoading = true; });
     try {
-      final state = CompanyProvider.of(context);
-      final company = state.selectedCompany;
       final costs = state.isFeatureEnabled('stock_cost');
       final sales = state.isFeatureEnabled('rep_sales') && costs;
       final velocity = state.isFeatureEnabled('rep_purchases');
@@ -128,7 +143,9 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
         velocity && costs ? _service.getHighValueItems(companyName: company) : Future.value(<Map<String, dynamic>>[]),
       ]);
 
-      if (mounted && generation == _loadGeneration) {
+      if (mounted &&
+          generation == _loadGeneration &&
+          CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
         setState(() {
           _profitData = (results[0] as List).cast<Map<String, dynamic>>();
           _fastItems = (results[1] as List).cast<Map<String, dynamic>>();
@@ -150,7 +167,11 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
     } catch (e, st) {
       print('Error loading data: $e');
       print(st);
-      if (mounted && generation == _loadGeneration) setState(() { _isLoading = false; _error = AppErrorHandler.getFriendlyError(e); });
+      if (mounted &&
+          generation == _loadGeneration &&
+          CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+        setState(() { _isLoading = false; _error = AppErrorHandler.getFriendlyError(e); });
+      }
     }
   }
 

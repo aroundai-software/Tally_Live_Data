@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../config/app_theme.dart';
 import '../models/daybook_entry.dart';
 import '../providers/company_provider.dart';
+import '../utils/company_scope.dart';
 import '../services/supabase_service.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/shimmer_loading.dart';
@@ -81,14 +82,28 @@ class _DaybookScreenState extends State<DaybookScreen> {
 
   bool _initialized = false;
   int? _lastSyncTrigger;
+  int? _lastCompanyRevision;
+  int _loadGeneration = 0;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final syncTrigger = CompanyProvider.of(context).syncTrigger;
+    final companyState = CompanyProvider.of(context);
+    final syncTrigger = companyState.syncTrigger;
+    final revision = companyState.companyRevision;
     if (!_initialized) {
       _initialized = true;
       _lastSyncTrigger = syncTrigger;
+      _lastCompanyRevision = revision;
+      _loadData();
+    } else if (_lastCompanyRevision != revision) {
+      _lastCompanyRevision = revision;
+      _lastSyncTrigger = syncTrigger;
+      _loadGeneration++;
+      _searchController.clear();
+      _allEntries = [];
+      _entries = [];
+      _pendingAllEntries = null;
       _loadData();
     } else if (_lastSyncTrigger != syncTrigger) {
       _lastSyncTrigger = syncTrigger;
@@ -139,23 +154,40 @@ class _DaybookScreenState extends State<DaybookScreen> {
   }
 
   Future<void> _loadData() async {
+    final generation = ++_loadGeneration;
+    final company = CompanyProvider.of(context).selectedCompany;
+    if (!CompanyScope.isValid(company)) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = 'No company selected';
+          _allEntries = [];
+          _entries = [];
+        });
+      }
+      return;
+    }
     setState(() { _isLoading = true; _error = null; });
     try {
-      final company = CompanyProvider.of(context).selectedCompany;
       final query = _searchController.text.toLowerCase();
       final items = await _service.getDaybookEntries(
         companyName: company,
         date: _selectedDate,
         searchQuery: query.isNotEmpty ? query : null,
       );
-      if (mounted) {
-        _allEntries = _sortItems(items);
-        _pendingAllEntries = null;
-        _applyFilter();
-        setState(() { _isLoading = false; });
+      if (!mounted ||
+          generation != _loadGeneration ||
+          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+        return;
       }
+      _allEntries = _sortItems(items);
+      _pendingAllEntries = null;
+      _applyFilter();
+      setState(() { _isLoading = false; });
     } catch (e) {
-      if (mounted) {
+      if (mounted &&
+          generation == _loadGeneration &&
+          CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
         setState(() {
           _error = AppErrorHandler.getFriendlyError(e);
           _isLoading = false;
@@ -166,15 +198,21 @@ class _DaybookScreenState extends State<DaybookScreen> {
 
   Future<void> _silentRefresh() async {
     if (!mounted) return;
+    final generation = ++_loadGeneration;
     try {
       final company = CompanyProvider.of(context).selectedCompany;
+      if (!CompanyScope.isValid(company)) return;
       final query = _searchController.text.toLowerCase();
       final items = await _service.getDaybookEntries(
         companyName: company,
         date: _selectedDate,
         searchQuery: query.isNotEmpty ? query : null,
       );
-      if (!mounted) return;
+      if (!mounted ||
+          generation != _loadGeneration ||
+          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+        return;
+      }
       _pendingAllEntries = _sortItems(items);
       // Apply immediately if at top or bottom of list
       if (!_scrollController.hasClients) {

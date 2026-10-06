@@ -22,6 +22,7 @@ class UserPreferencesService {
 
   static const _kOutstandingSortAmount = 'pref_outstanding_sort_amount';
   static const _kOutstandingSortDate   = 'pref_outstanding_sort_date';
+  static const _kLastLoginEmailDomain  = 'pref_last_login_email_domain';
 
   // ─── Company ────────────────────────────────────────────────────────────────
   static Future<void> saveLastCompany(String company) async {
@@ -37,6 +38,17 @@ class UserPreferencesService {
   static Future<void> clearLastCompany() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kLastCompany);
+  }
+
+  // ─── Login alias (phone → email domain that worked last time) ───────────────
+  static Future<void> saveLastLoginEmailDomain(String domain) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kLastLoginEmailDomain, domain.trim().toLowerCase());
+  }
+
+  static Future<String?> loadLastLoginEmailDomain() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kLastLoginEmailDomain);
   }
 
   // ─── Sales Invoice ──────────────────────────────────────────────────────────

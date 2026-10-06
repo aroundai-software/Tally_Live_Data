@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../models/stock_item.dart';
@@ -7,6 +9,7 @@ import '../models/sales_invoice.dart';
 import '../models/purchase_invoice.dart';
 import '../models/daybook_entry.dart';
 import '../models/ledger_bill_settlement.dart';
+import 'user_preferences_service.dart';
 
 class SupabaseService {
   final SupabaseClient _client = Supabase.instance.client;
@@ -18,46 +21,39 @@ class SupabaseService {
   Future<AuthResponse> signInWithPhone({required String phone, required String password}) async {
     final allDigits = phone.replaceAll(RegExp(r'[^0-9]'), '');
     final tenDigits = allDigits.length >= 10 ? allDigits.substring(allDigits.length - 10) : allDigits;
-    
-    final emailAlias1 = '$tenDigits@gmail.com';
-    final emailAlias2 = '$tenDigits@tallylive.com';
-    final emailAlias3 = '$tenDigits@tallylive.app';
 
-    Object? firstError;
-
-    // 1. Try 10-digit gmail.com email alias
-    try {
-      return await _client.auth.signInWithPassword(
-        email: emailAlias1,
-        password: password,
-      );
-    } catch (e) {
-      firstError = e;
+    // New accounts register as @tallylive.app — try that first.
+    // Remember last successful domain so repeat logins skip failed aliases.
+    final savedDomain = await UserPreferencesService.loadLastLoginEmailDomain();
+    final preferred = <String>[
+      if (savedDomain != null && savedDomain.isNotEmpty) '$tenDigits@$savedDomain',
+      '$tenDigits@tallylive.app',
+      '$tenDigits@tallylive.com',
+      '$tenDigits@gmail.com',
+      phone.trim(),
+    ];
+    // De-dupe while preserving order
+    final emails = <String>[];
+    for (final e in preferred) {
+      if (e.isNotEmpty && !emails.contains(e)) emails.add(e);
     }
 
-    // 2. Try 10-digit tallylive.com email alias
-    try {
-      return await _client.auth.signInWithPassword(
-        email: emailAlias2,
-        password: password,
-      );
-    } catch (_) {}
-
-    // 3. Try 10-digit tallylive.app email alias
-    try {
-      return await _client.auth.signInWithPassword(
-        email: emailAlias3,
-        password: password,
-      );
-    } catch (_) {}
-
-    // 3. Try raw input as email
-    try {
-      return await _client.auth.signInWithPassword(
-        email: phone.trim(),
-        password: password,
-      );
-    } catch (_) {}
+    Object? firstError;
+    for (final email in emails) {
+      try {
+        final res = await _client.auth.signInWithPassword(
+          email: email,
+          password: password,
+        );
+        final at = email.lastIndexOf('@');
+        if (at > 0 && email.contains('@') && !email.contains(' ')) {
+          await UserPreferencesService.saveLastLoginEmailDomain(email.substring(at + 1));
+        }
+        return res;
+      } catch (e) {
+        firstError ??= e;
+      }
+    }
 
     if (firstError != null) {
       throw firstError;
@@ -824,7 +820,11 @@ class SupabaseService {
   }
 
   // ─── Products (Stock) ──────────────────────────────────────────
-  Future<List<StockItem>> getProducts({String? searchQuery, String? companyName}) async {
+  Future<List<StockItem>> getProducts({
+    String? searchQuery,
+    String? companyName,
+    void Function(List<StockItem> firstPage)? onFirstPage,
+  }) async {
     try {
       final data = await _fetchAll(
         'stock_items',
@@ -832,6 +832,9 @@ class SupabaseService {
         searchQuery: searchQuery,
         searchColumn: 'ItemName',
         orderColumn: 'ItemName',
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) => onFirstPage(rows.map((e) => StockItem.fromJson(e)).toList()),
       );
       return data.map((e) => StockItem.fromJson(e)).toList();
     } catch (e) {
@@ -863,19 +866,55 @@ class SupabaseService {
   }
 
   // ─── Customers (Ledgers) ───────────────────────────────────────
-  Future<List<Ledger>> getCustomers({String? searchQuery, String? companyName}) async {
-    try {
+  static const _customerSelect =
+      'id, customer_name, address, city, state, pincode, country, '
+      'contact_person, mobile_number, email, gst_number, pan_number, mailing_name, alias, '
+      'credit_period, credit_limit, opening_balance, closing_balance, customer_discount_percentage, '
+      'company_name, is_active, ledger_type, updated_at';
+
+  Future<List<Ledger>> getCustomers({
+    String? searchQuery,
+    String? companyName,
+    void Function(List<Ledger> firstPage)? onFirstPage,
+  }) async {
+    Future<List<Ledger>> load() async {
       final data = await _fetchAll(
         'customers',
+        select: _customerSelect,
         companyName: companyName,
         searchQuery: searchQuery,
         searchColumn: 'customer_name',
         orderColumn: 'customer_name',
+        pageSize: 250,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) => onFirstPage(rows.map((e) => Ledger.fromJson(e)).toList()),
       );
       return data.map((e) => Ledger.fromJson(e)).toList();
+    }
+
+    try {
+      return await load();
     } catch (e) {
+      // One quick retry for transient statement timeouts under load.
+      if (_isStatementTimeout(e)) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        try {
+          return await load();
+        } catch (e2) {
+          throw Exception('Failed to fetch customers: $e2');
+        }
+      }
       throw Exception('Failed to fetch customers: $e');
     }
+  }
+
+  bool _isStatementTimeout(Object e) {
+    final msg = e.toString().toLowerCase();
+    return msg.contains('statement timeout') ||
+        msg.contains('57014') ||
+        msg.contains('canceling statement') ||
+        msg.contains('cancelling statement');
   }
 
   Future<double> getTotalCash({String? companyName}) async {
@@ -975,7 +1014,11 @@ class SupabaseService {
   }
 
   // ─── Outstanding (Receivables & Payables) ──────────────────────
-  Future<List<OutstandingRecord>> getOutstandingReceivables({String? searchQuery, String? companyName}) async {
+  Future<List<OutstandingRecord>> getOutstandingReceivables({
+    String? searchQuery,
+    String? companyName,
+    void Function(List<OutstandingRecord> firstPage)? onFirstPage,
+  }) async {
     try {
       final data = await _fetchAll(
         'outstanding_receivables',
@@ -983,6 +1026,10 @@ class SupabaseService {
         searchQuery: searchQuery,
         searchColumn: 'customer_name',
         orderColumn: 'customer_name',
+        pageSize: 250,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) => onFirstPage(rows.map((e) => OutstandingRecord.fromJson(e)).toList()),
       );
       return data.map((e) => OutstandingRecord.fromJson(e)).toList();
     } catch (e) {
@@ -990,7 +1037,11 @@ class SupabaseService {
     }
   }
 
-  Future<List<OutstandingRecord>> getOutstandingPayables({String? searchQuery, String? companyName}) async {
+  Future<List<OutstandingRecord>> getOutstandingPayables({
+    String? searchQuery,
+    String? companyName,
+    void Function(List<OutstandingRecord> firstPage)? onFirstPage,
+  }) async {
     try {
       final data = await _fetchAll(
         'outstanding_payables',
@@ -998,6 +1049,10 @@ class SupabaseService {
         searchQuery: searchQuery,
         searchColumn: 'customer_name',
         orderColumn: 'customer_name',
+        pageSize: 250,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) => onFirstPage(rows.map((e) => OutstandingRecord.fromJson(e)).toList()),
       );
       return data.map((e) => OutstandingRecord.fromJson(e)).toList();
     } catch (e) {
@@ -1102,21 +1157,119 @@ class SupabaseService {
   }
 
   // ─── Sales Invoices ────────────────────────────────────────────
-  Future<List<SalesInvoice>> getSalesInvoices({String? searchQuery, String? companyName}) async {
+
+  /// Normalize bill / party keys so "VSM/ 0199" and "vsm/0199" match.
+  String _normBillKey(dynamic value) {
+    if (value == null) return '';
+    return value.toString().trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
+  }
+
+  /// Outstanding bills use a different GUID scheme than invoices.
+  /// Match by: voucher guid↔master_id/guid, or invoice# + party name,
+  /// or (purchases) supplier bill ref in remarks + party name.
+  bool _invoiceIsOutstanding(
+    Map<String, dynamic> invoice, {
+    required Set<String> outstandingIds,
+    required Set<String> outstandingBillPartyKeys,
+    String? partyName,
+    String? alternateBillNumber,
+  }) {
+    final guid = invoice['guid']?.toString();
+    if (guid != null && guid.isNotEmpty && outstandingIds.contains(guid)) {
+      return true;
+    }
+    final masterId = invoice['master_id']?.toString();
+    if (masterId != null && masterId.isNotEmpty && outstandingIds.contains(masterId)) {
+      return true;
+    }
+
+    final party = _normBillKey(partyName ?? invoice['customer_name'] ?? invoice['supplier_name']);
+    if (party.isEmpty) return false;
+
+    final invoiceNumber = _normBillKey(invoice['invoice_number']);
+    if (invoiceNumber.isNotEmpty &&
+        outstandingBillPartyKeys.contains('$invoiceNumber|$party')) {
+      return true;
+    }
+
+    final alt = _normBillKey(alternateBillNumber);
+    if (alt.isNotEmpty && outstandingBillPartyKeys.contains('$alt|$party')) {
+      return true;
+    }
+    return false;
+  }
+
+  void _applyOutstandingStatus(
+    Map<String, dynamic> invoice, {
+    required bool isOutstanding,
+  }) {
+    if (isOutstanding) {
+      invoice['status'] = 'Pending';
+      return;
+    }
+    // Sync hardcodes "Pending" on every bill — clear it unless outstanding confirms.
+    final current = (invoice['status'] ?? '').toString().trim().toLowerCase();
+    if (current == 'pending') {
+      invoice['status'] = null;
+    }
+  }
+
+  Future<List<SalesInvoice>> getSalesInvoices({
+    String? searchQuery,
+    String? companyName,
+    void Function(List<SalesInvoice> firstPage)? onFirstPage,
+  }) async {
     try {
       if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
-      final data = await _fetchAll('sales_invoices', companyName: companyName,
-        searchQuery: searchQuery, orderColumn: 'invoice_date', ascending: false);
-      final outstanding = await _fetchAll('outstanding_receivables', select: 'guid', companyName: companyName);
-      final outstandingGuids = outstanding.where((e) => e['guid'] != null).map((e) => e['guid'].toString()).toSet();
+      final outstandingFuture = _fetchAll(
+        'outstanding_receivables',
+        select: 'guid, master_id, invoicenumber, customer_name',
+        companyName: companyName,
+      );
+      final data = await _fetchAll(
+        'sales_invoices',
+        companyName: companyName,
+        searchQuery: searchQuery,
+        orderColumn: 'invoice_date',
+        ascending: false,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) {
+                // First page without outstanding overlay; status refined when full load finishes.
+                onFirstPage(rows.map((e) {
+                  final row = Map<String, dynamic>.from(e);
+                  // Don't show sync-hardcoded Pending on the progressive first paint.
+                  if ((row['status'] ?? '').toString().trim().toLowerCase() == 'pending') {
+                    row['status'] = null;
+                  }
+                  return SalesInvoice.fromJson(row);
+                }).toList());
+              },
+      );
+      final outstanding = await outstandingFuture;
+      final outstandingIds = <String>{};
+      final billPartyKeys = <String>{};
+      for (final row in outstanding) {
+        final g = row['guid']?.toString();
+        final m = row['master_id']?.toString();
+        if (g != null && g.isNotEmpty) outstandingIds.add(g);
+        if (m != null && m.isNotEmpty) outstandingIds.add(m);
+        final inv = _normBillKey(row['invoicenumber']);
+        final party = _normBillKey(row['customer_name']);
+        if (inv.isNotEmpty && party.isNotEmpty) {
+          billPartyKeys.add('$inv|$party');
+        }
+      }
 
       return data.map((e) {
         final Map<String, dynamic> mutableData = Map<String, dynamic>.from(e);
-        final guid = mutableData['guid'] ?? mutableData['id'];
-        if (guid != null && outstandingGuids.contains(guid.toString())) {
-          mutableData['status'] = 'Pending';
-        }
-        // An absent bill is not proof of payment; preserve the synced status.
+        final isOutstanding = _invoiceIsOutstanding(
+          mutableData,
+          outstandingIds: outstandingIds,
+          outstandingBillPartyKeys: billPartyKeys,
+          partyName: mutableData['customer_name']?.toString(),
+        );
+        _applyOutstandingStatus(mutableData, isOutstanding: isOutstanding);
         return SalesInvoice.fromJson(mutableData);
       }).toList();
     } catch (e) {
@@ -1218,8 +1371,24 @@ class SupabaseService {
   Future<Map<String, double>> getProductSalesTotals({required String companyName}) async {
     if (companyName.isEmpty || companyName == 'No Company Linked') return {};
     try {
+      try {
+        final response = await _readPages(() => _client.rpc(
+          'get_product_sales_totals',
+          params: {'p_company_name': companyName},
+        ));
+        final Map<String, double> salesTotals = {};
+        for (var item in response) {
+          final String name = (item['product_name'] ?? '').toString();
+          if (name.isNotEmpty) {
+            salesTotals[name] = _toDouble(item['total_amount']);
+          }
+        }
+        return salesTotals;
+      } catch (_) {
+        // RPC not deployed yet — fall back to client aggregation.
+      }
+
       final response = await _fetchAll('invoice_items', select: 'product_name, total_amount', companyName: companyName);
-          
       final Map<String, double> salesTotals = {};
       for (var item in response) {
         final String name = item['product_name'] ?? '';
@@ -1234,22 +1403,154 @@ class SupabaseService {
     }
   }
 
+  /// Single-roundtrip dashboard totals. Falls back to legacy multi-fetch if RPC missing.
+  Future<Map<String, dynamic>> getDashboardAggregates({required String companyName}) async {
+    if (companyName.isEmpty || companyName == 'No Company Linked') {
+      return _emptyDashboardAggregates();
+    }
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = DateTime(now.year, now.month, now.day + 1);
+
+    try {
+      final response = await _client.rpc('get_dashboard_aggregates', params: {
+        'p_company_name': companyName,
+        'p_today_start': todayStart.toIso8601String(),
+        'p_today_end': todayEnd.toIso8601String(),
+      });
+      if (response is Map) {
+        return Map<String, dynamic>.from(response);
+      }
+      if (response is String) {
+        return Map<String, dynamic>.from(jsonDecode(response) as Map);
+      }
+      return Map<String, dynamic>.from(jsonDecode(jsonEncode(response)) as Map);
+    } catch (_) {
+      // RPC not deployed — lighter parallel batches to avoid statement timeouts.
+    }
+
+    Future<List<dynamic>> batch(List<Future> futures) => Future.wait<dynamic>(futures);
+
+    final batch1 = await batch([
+      getTotalStockValue(companyName: companyName),
+      getProductCount(companyName: companyName),
+      getTotalReceivables(companyName: companyName),
+      getTotalOverdueReceivables(companyName: companyName),
+      getTotalPayables(companyName: companyName),
+      getTotalOverduePayables(companyName: companyName),
+      getDaybookSummary(date: now, companyName: companyName),
+    ]);
+    final batch2 = await batch([
+      getTotalSales(companyName: companyName),
+      getSalesInvoiceCount(companyName: companyName),
+      getTotalPurchases(companyName: companyName),
+      getPurchaseInvoiceCount(companyName: companyName),
+      getTodaysSales(companyName: companyName),
+      getTodaysSalesCount(companyName: companyName),
+      getTodaysPurchases(companyName: companyName),
+      getTodaysPurchasesCount(companyName: companyName),
+    ]);
+    final dbSummary = batch1[6] as Map<String, double>;
+    return {
+      'stock_value': batch1[0],
+      'stock_count': batch1[1],
+      'receivables': batch1[2],
+      'overdue_receivables': batch1[3],
+      'payables': batch1[4],
+      'overdue_payables': batch1[5],
+      'sales': batch2[0],
+      'sales_count': batch2[1],
+      'purchases': batch2[2],
+      'purchase_count': batch2[3],
+      'todays_sales': batch2[4],
+      'todays_sales_count': batch2[5],
+      'todays_purchases': batch2[6],
+      'todays_purchases_count': batch2[7],
+      'daybook_inflow': dbSummary['inflow'] ?? 0.0,
+      'daybook_outflow': dbSummary['outflow'] ?? 0.0,
+      'cash': 0.0,
+      'bank': 0.0,
+    };
+  }
+
+  Map<String, dynamic> _emptyDashboardAggregates() => {
+        'stock_value': 0.0,
+        'stock_count': 0,
+        'receivables': 0.0,
+        'overdue_receivables': 0.0,
+        'payables': 0.0,
+        'overdue_payables': 0.0,
+        'sales': 0.0,
+        'sales_count': 0,
+        'purchases': 0.0,
+        'purchase_count': 0,
+        'todays_sales': 0.0,
+        'todays_sales_count': 0,
+        'todays_purchases': 0.0,
+        'todays_purchases_count': 0,
+        'daybook_inflow': 0.0,
+        'daybook_outflow': 0.0,
+        'cash': 0.0,
+        'bank': 0.0,
+      };
+
   // ─── Purchase Invoices ─────────────────────────────────────────
-  Future<List<PurchaseInvoice>> getPurchaseInvoices({String? searchQuery, String? companyName}) async {
+  Future<List<PurchaseInvoice>> getPurchaseInvoices({
+    String? searchQuery,
+    String? companyName,
+    void Function(List<PurchaseInvoice> firstPage)? onFirstPage,
+  }) async {
     try {
       if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
-      final data = await _fetchAll('purchase_invoices', companyName: companyName,
-        searchQuery: searchQuery, orderColumn: 'invoice_date', ascending: false);
-      final outstanding = await _fetchAll('outstanding_payables', select: 'guid', companyName: companyName);
-      final outstandingGuids = outstanding.where((e) => e['guid'] != null).map((e) => e['guid'].toString()).toSet();
+      final outstandingFuture = _fetchAll(
+        'outstanding_payables',
+        select: 'guid, master_id, invoicenumber, customer_name',
+        companyName: companyName,
+      );
+      final data = await _fetchAll(
+        'purchase_invoices',
+        companyName: companyName,
+        searchQuery: searchQuery,
+        orderColumn: 'invoice_date',
+        ascending: false,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) {
+                onFirstPage(rows.map((e) {
+                  final row = Map<String, dynamic>.from(e);
+                  if ((row['status'] ?? '').toString().trim().toLowerCase() == 'pending') {
+                    row['status'] = null;
+                  }
+                  return PurchaseInvoice.fromJson(row);
+                }).toList());
+              },
+      );
+      final outstanding = await outstandingFuture;
+      final outstandingIds = <String>{};
+      final billPartyKeys = <String>{};
+      for (final row in outstanding) {
+        final g = row['guid']?.toString();
+        final m = row['master_id']?.toString();
+        if (g != null && g.isNotEmpty) outstandingIds.add(g);
+        if (m != null && m.isNotEmpty) outstandingIds.add(m);
+        final inv = _normBillKey(row['invoicenumber']);
+        final party = _normBillKey(row['customer_name']);
+        if (inv.isNotEmpty && party.isNotEmpty) {
+          billPartyKeys.add('$inv|$party');
+        }
+      }
 
       return data.map((e) {
         final Map<String, dynamic> mutableData = Map<String, dynamic>.from(e);
-        final guid = mutableData['guid'] ?? mutableData['id'];
-        if (guid != null && outstandingGuids.contains(guid.toString())) {
-          mutableData['status'] = 'Pending';
-        }
-        // An absent bill is not proof of payment; preserve the synced status.
+        final isOutstanding = _invoiceIsOutstanding(
+          mutableData,
+          outstandingIds: outstandingIds,
+          outstandingBillPartyKeys: billPartyKeys,
+          partyName: mutableData['supplier_name']?.toString(),
+          // Supplier bill ref is often stored in remarks for purchases.
+          alternateBillNumber: mutableData['remarks']?.toString(),
+        );
+        _applyOutstandingStatus(mutableData, isOutstanding: isOutstanding);
         return PurchaseInvoice.fromJson(mutableData);
       }).toList();
     } catch (e) {
@@ -1482,6 +1783,8 @@ class SupabaseService {
     String? searchColumn,
     String? orderColumn,
     bool ascending = true,
+    int pageSize = 1000,
+    void Function(List<dynamic> firstPage)? onFirstPage,
   }) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     return _readPages(() {
@@ -1503,15 +1806,25 @@ class SupabaseService {
       }
 
       return orderColumn == null ? query.order('id', ascending: true) : query.order(orderColumn, ascending: ascending).order('id', ascending: true);
-    });
+    }, onFirstPage: onFirstPage, pageSize: pageSize);
   }
 
-  Future<List<dynamic>> _readPages(dynamic Function() query) async {
+  Future<List<dynamic>> _readPages(
+    dynamic Function() query, {
+    void Function(List<dynamic> firstPage)? onFirstPage,
+    int pageSize = 1000,
+  }) async {
     final rows = <dynamic>[];
+    var notifiedFirst = false;
     while (true) {
-      final page = await query().range(rows.length, rows.length + 999) as List;
+      final page = await query().range(rows.length, rows.length + pageSize - 1) as List;
       if (page.isEmpty) return rows;
       rows.addAll(page);
+      if (!notifiedFirst && onFirstPage != null) {
+        notifiedFirst = true;
+        onFirstPage(List<dynamic>.from(rows));
+      }
+      if (page.length < pageSize) return rows;
     }
   }
 

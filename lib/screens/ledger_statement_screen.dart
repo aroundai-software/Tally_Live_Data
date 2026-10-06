@@ -44,9 +44,28 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   bool get _canReadTransactions => CompanyProvider.of(context).isFeatureEnabled('ls_transactions');
   bool _isListView = false;
   bool _isListViewInitialized = false;
+  bool _datesInitialized = false;
+
+  /// First day of the current month → end of today.
+  static DateTimeRange _currentMonthRange() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, 1);
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    return DateTimeRange(start: start, end: end);
+  }
+
+  String _formatPeriodLabel(DateTime start, DateTime end) {
+    return '${DateFormat('d-MMM-yy').format(start)} to ${DateFormat('d-MMM-yy').format(end)}';
+  }
 
   @override
   void didChangeDependencies() {
+    if (!_datesInitialized) {
+      final month = _currentMonthRange();
+      _startDate = month.start;
+      _endDate = month.end;
+      _datesInitialized = true;
+    }
     super.didChangeDependencies();
     if (!_isListViewInitialized) {
       // Default to list view on mobile screens (width < 800)
@@ -181,13 +200,14 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   }
 
   Future<void> _selectDateRange() async {
+    final month = _currentMonthRange();
     final picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2000),
       lastDate: DateTime.now().add(const Duration(days: 365)),
-      initialDateRange: _startDate != null && _endDate != null 
-          ? DateTimeRange(start: _startDate!, end: _endDate!) 
-          : null,
+      initialDateRange: _startDate != null && _endDate != null
+          ? DateTimeRange(start: _startDate!, end: _endDate!)
+          : DateTimeRange(start: month.start, end: month.end),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -209,14 +229,6 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
       });
       _loadData();
     }
-  }
-
-  void _clearDateRange() {
-    setState(() {
-      _startDate = null;
-      _endDate = null;
-    });
-    _loadData();
   }
 
   void _showVoucherTypeFilterDialog() {
@@ -292,7 +304,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
       if (validDates.isNotEmpty) {
         dateRangeText = '${DateFormat('d-MMM-yy').format(validDates.first)} to ${DateFormat('d-MMM-yy').format(validDates.last)}';
       } else {
-        dateRangeText = '1-Apr-26 to 31-Mar-27'; // fallback
+        dateRangeText = 'All Time';
       }
     }
 
@@ -377,29 +389,73 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
             ),
             pw.Container(
               decoration: const pw.BoxDecoration(
-                border: pw.Border(bottom: pw.BorderSide(width: 1)),
+                border: pw.Border(top: pw.BorderSide(width: 0.5)),
               ),
-              padding: const pw.EdgeInsets.symmetric(vertical: 4),
-              child: pw.Row(
+              padding: const pw.EdgeInsets.only(top: 4),
+              child: pw.Column(
                 children: [
-                  pw.Expanded(flex: 12, child: pw.SizedBox()),
-                  pw.Expanded(
-                    flex: 2, 
-                    child: pw.Text(_formatAmountPdf(_totalDebits), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))
+                  _pdfBalanceRow(
+                    label: 'Opening Balance',
+                    debit: _openingBalance > 0.001 ? _formatAmountPdf(_openingBalance) : '',
+                    credit: _openingBalance < -0.001 ? _formatAmountPdf(_openingBalance) : '',
                   ),
-                  pw.Expanded(
-                    flex: 2, 
-                    child: pw.Text(_formatAmountPdf(_totalCredits), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))
+                  _pdfBalanceRow(
+                    label: 'Current Total',
+                    debit: _formatAmountPdf(_totalDebits),
+                    credit: _formatAmountPdf(_totalCredits),
+                    bold: true,
                   ),
-                ]
-              )
-            )
+                  pw.Container(
+                    decoration: const pw.BoxDecoration(
+                      border: pw.Border(bottom: pw.BorderSide(width: 1)),
+                    ),
+                    child: _pdfBalanceRow(
+                      label: 'Closing Balance',
+                      debit: _closingBalance > 0.001 ? _formatAmountPdf(_closingBalance) : '',
+                      credit: _closingBalance < -0.001 ? _formatAmountPdf(_closingBalance) : '',
+                      bold: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ];
         },
       ),
     );
 
     return pdf;
+  }
+
+  pw.Widget _pdfBalanceRow({
+    required String label,
+    required String debit,
+    required String credit,
+    bool bold = false,
+  }) {
+    final style = pw.TextStyle(
+      fontSize: 9,
+      fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+    );
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 3),
+      child: pw.Row(
+        children: [
+          pw.Expanded(flex: 2, child: pw.SizedBox()),
+          pw.Expanded(flex: 5, child: pw.Text(label, style: style)),
+          pw.Expanded(flex: 3, child: pw.SizedBox()),
+          pw.Expanded(flex: 2, child: pw.SizedBox()),
+          pw.Expanded(
+            flex: 2,
+            child: pw.Text(debit, textAlign: pw.TextAlign.right, style: style),
+          ),
+          pw.Expanded(
+            flex: 2,
+            child: pw.Text(credit, textAlign: pw.TextAlign.right, style: style),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _downloadPdf() async {
@@ -507,11 +563,6 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    String dateRangeText = 'All Time';
-    if (_startDate != null && _endDate != null) {
-      dateRangeText = '${DateFormat('d-MMM-yy').format(_startDate!)} to ${DateFormat('d-MMM-yy').format(_endDate!)}';
-    }
-
     final displayTransactions = _sortAscending ? _transactions : _transactions.reversed.toList();
 
     final companyState = CompanyProvider.of(context);
@@ -669,19 +720,13 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
           surfaceTintColor: Colors.white,
           actions: [
             IconButton(
-              icon: Icon(
+              icon: const Icon(
                 Icons.calendar_month_rounded,
-                color: (_startDate != null || _endDate != null) ? AppTheme.primaryColor : null,
+                color: AppTheme.primaryColor,
               ),
-              tooltip: 'Filter by Date',
+              tooltip: 'Select date range',
               onPressed: _selectDateRange,
             ),
-            if (_startDate != null || _endDate != null)
-              IconButton(
-                icon: const Icon(Icons.close_rounded, color: Colors.red),
-                tooltip: 'Clear Date Filter',
-                onPressed: _clearDateRange,
-              ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
               tooltip: 'More Options',
@@ -733,19 +778,13 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
         surfaceTintColor: Colors.white,
         actions: [
           IconButton(
-            icon: Icon(
+            icon: const Icon(
               Icons.calendar_month_rounded,
-              color: (_startDate != null || _endDate != null) ? AppTheme.primaryColor : null,
+              color: AppTheme.primaryColor,
             ),
-            tooltip: 'Filter by Date',
+            tooltip: 'Select date range',
             onPressed: _selectDateRange,
           ),
-          if (_startDate != null || _endDate != null)
-            IconButton(
-              icon: const Icon(Icons.close_rounded, color: Colors.red),
-              tooltip: 'Clear Date Filter',
-              onPressed: _clearDateRange,
-            ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             tooltip: 'More Options',
@@ -824,7 +863,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
 
     String dateText = '';
     if (_startDate != null && _endDate != null) {
-      dateText = '${DateFormat('d-MMM-yy').format(_startDate!)} to ${DateFormat('d-MMM-yy').format(_endDate!)}';
+      dateText = _formatPeriodLabel(_startDate!, _endDate!);
     }
 
     return Container(
@@ -836,13 +875,13 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
         runSpacing: 8,
         children: [
           if (dateText.isNotEmpty)
-            InputChip(
+            ActionChip(
               label: Text(dateText, style: const TextStyle(fontSize: 12)),
-              onDeleted: _clearDateRange,
-              backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
-              deleteIconColor: AppTheme.primaryColor,
+              onPressed: _selectDateRange,
+              backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.1),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide.none),
               visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           if (_selectedVoucherType != null)
             InputChip(
@@ -851,7 +890,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                 setState(() => _selectedVoucherType = null);
                 _loadData();
               },
-              backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
+              backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.1),
               deleteIconColor: AppTheme.primaryColor,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide.none),
               visualDensity: VisualDensity.compact,

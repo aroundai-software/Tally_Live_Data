@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../config/app_theme.dart';
 import '../models/sales_invoice.dart';
 import '../providers/company_provider.dart';
+import '../utils/company_scope.dart';
 import '../services/supabase_service.dart';
 import '../services/user_preferences_service.dart';
 import '../services/pdf_service.dart';
@@ -216,14 +217,28 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
   }
 
   int? _lastSyncTrigger;
+  int? _lastCompanyRevision;
+  int _loadGeneration = 0;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final syncTrigger = CompanyProvider.of(context).syncTrigger;
+    final companyState = CompanyProvider.of(context);
+    final syncTrigger = companyState.syncTrigger;
+    final revision = companyState.companyRevision;
     if (!_initialized) {
       _initialized = true;
       _lastSyncTrigger = syncTrigger;
+      _lastCompanyRevision = revision;
+      _loadPreferencesAndData();
+    } else if (_lastCompanyRevision != revision) {
+      _lastCompanyRevision = revision;
+      _lastSyncTrigger = syncTrigger;
+      _loadGeneration++;
+      _searchController.clear();
+      _invoices = [];
+      _filteredInvoices = [];
+      _pendingInvoices = null;
       _loadPreferencesAndData();
     } else if (_lastSyncTrigger != syncTrigger) {
       _lastSyncTrigger = syncTrigger;
@@ -263,20 +278,54 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
   }
 
   Future<void> _loadData() async {
+    final generation = ++_loadGeneration;
+    final company = CompanyProvider.of(context).selectedCompany;
+    if (!CompanyScope.isValid(company)) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = 'No company selected';
+          _invoices = [];
+          _filteredInvoices = [];
+        });
+      }
+      return;
+    }
     setState(() { _isLoading = true; _error = null; });
     try {
-      final company = CompanyProvider.of(context).selectedCompany;
-      final items = await _service.getSalesInvoices(companyName: company);
-      if (mounted) {
-        setState(() { 
-          _invoices = items;
-          _pendingInvoices = null;
-          _isLoading = false; 
-        });
-        _applyFiltersAndSort();
+      final items = await _service.getSalesInvoices(
+        companyName: company,
+        onFirstPage: (first) {
+          if (!mounted ||
+              generation != _loadGeneration ||
+              !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+            return;
+          }
+          setState(() {
+            _invoices = first;
+            _pendingInvoices = null;
+            _isLoading = false;
+          });
+          _applyFiltersAndSort();
+        },
+      );
+      if (!mounted ||
+          generation != _loadGeneration ||
+          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+        return;
       }
+      setState(() {
+        _invoices = items;
+        _pendingInvoices = null;
+        _isLoading = false;
+      });
+      _applyFiltersAndSort();
     } catch (e) {
-      if (mounted) setState(() { _error = AppErrorHandler.getFriendlyError(e); _isLoading = false; });
+      if (mounted &&
+          generation == _loadGeneration &&
+          CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+        setState(() { _error = AppErrorHandler.getFriendlyError(e); _isLoading = false; });
+      }
     }
   }
 
@@ -855,7 +904,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
           minChildSize: 0.5,
           builder: (context, scrollController) {
             return Container(
-              margin: const EdgeInsets.only(bottom: 36, left: 16, right: 16),
+              margin: const EdgeInsets.only(bottom: 24, left: 16, right: 16),
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
               clipBehavior: Clip.antiAlias,
               child: Column(
@@ -864,7 +913,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
                   Expanded(
                     child: ListView(
                       controller: scrollController,
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
                       children: [
                         Row(
                           children: [
@@ -887,6 +936,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
                             IconButton(
                               icon: const Icon(Icons.share_rounded),
                               color: AppTheme.salesColor,
+                              tooltip: 'Share',
                               onPressed: () async {
                                 try {
                                   final items = invoice.id != null ? await _service.getInvoiceItems(invoice.id!) : <InvoiceItem>[];
@@ -897,6 +947,12 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
                                   }
                                 }
                               },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded),
+                              color: Colors.grey.shade700,
+                              tooltip: 'Close',
+                              onPressed: () => Navigator.pop(context),
                             ),
                           ],
                         ),
@@ -970,8 +1026,19 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SizedBox(width: 120, child: Text(label, style: TextStyle(fontSize: 13, color: Colors.grey.shade500))),
-        Expanded(child: Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)))),
+        Expanded(
+          flex: 2,
+          child: Text(label, style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          flex: 3,
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)),
+          ),
+        ),
       ]),
     );
   }

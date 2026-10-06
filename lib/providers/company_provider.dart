@@ -5,12 +5,15 @@ class CompanyState extends ChangeNotifier {
   Map<String, bool> _enabledFeatures = {};
 
   int _syncTrigger = 0;
+  int _companyRevision = 0;
   bool _featuresLoaded = false;
   bool get featuresLoaded => _featuresLoaded;
 
   String? get selectedCompany => _selectedCompany;
   Map<String, bool> get enabledFeatures => _enabledFeatures;
   int get syncTrigger => _syncTrigger;
+  /// Increments whenever the selected company changes or is cleared.
+  int get companyRevision => _companyRevision;
 
   bool isFeatureEnabled(String feature) {
     if (!_featuresLoaded) return false;
@@ -46,8 +49,14 @@ class CompanyState extends ChangeNotifier {
   }
 
   void selectCompany(String company) {
-    if (_selectedCompany != company) { _enabledFeatures = {}; _featuresLoaded = false; }
-    _selectedCompany = company;
+    final trimmed = company.trim();
+    if (trimmed.isEmpty) return;
+    if (_selectedCompany != trimmed) {
+      _enabledFeatures = {};
+      _featuresLoaded = false;
+      _companyRevision++;
+    }
+    _selectedCompany = trimmed;
     notifyListeners();
   }
 
@@ -67,6 +76,7 @@ class CompanyState extends ChangeNotifier {
     _selectedCompany = null;
     _enabledFeatures = {};
     _syncTrigger = 0;
+    _companyRevision++;
     notifyListeners();
   }
 }
