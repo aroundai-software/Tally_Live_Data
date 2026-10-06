@@ -862,8 +862,18 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
     }
 
     String dateText = '';
+    bool isCustomDate = false;
+
     if (_startDate != null && _endDate != null) {
       dateText = _formatPeriodLabel(_startDate!, _endDate!);
+      final defaultMonth = _currentMonthRange();
+      final isSameStart = _startDate!.year == defaultMonth.start.year &&
+          _startDate!.month == defaultMonth.start.month &&
+          _startDate!.day == defaultMonth.start.day;
+      final isSameEnd = _endDate!.year == defaultMonth.end.year &&
+          _endDate!.month == defaultMonth.end.month &&
+          _endDate!.day == defaultMonth.end.day;
+      isCustomDate = !(isSameStart && isSameEnd);
     }
 
     return Container(
@@ -875,13 +885,23 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
         runSpacing: 8,
         children: [
           if (dateText.isNotEmpty)
-            ActionChip(
+            InputChip(
               label: Text(dateText, style: const TextStyle(fontSize: 12)),
               onPressed: _selectDateRange,
+              onDeleted: isCustomDate
+                  ? () {
+                      final month = _currentMonthRange();
+                      setState(() {
+                        _startDate = month.start;
+                        _endDate = month.end;
+                      });
+                      _loadData();
+                    }
+                  : null,
               backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.1),
+              deleteIconColor: AppTheme.primaryColor,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide.none),
               visualDensity: VisualDensity.compact,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           if (_selectedVoucherType != null)
             InputChip(
