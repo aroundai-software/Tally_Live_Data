@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../config/app_theme.dart';
 import '../models/ledger.dart';
@@ -35,6 +37,8 @@ class _LedgerScreenState extends State<LedgerScreen> {
   String _sortOption = 'Alphabetical';
 
   bool _initialized = false;
+  bool _awaitingFullCustomerList = false;
+  Timer? _searchDebounce;
 
   bool get _showingUnfilteredAll =>
       _typeFilter == 'All' && _searchController.text.trim().isEmpty;
@@ -81,6 +85,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     _scrollController.removeListener(_onScroll);
@@ -102,28 +107,27 @@ class _LedgerScreenState extends State<LedgerScreen> {
     if (_pendingCustomers == null) return;
     _customers = _pendingCustomers!;
     _pendingCustomers = null;
-    _onSearchChanged();
+    _applySearchFilter();
   }
 
   void _onSearchChanged() {
-    final query = _searchController.text.toLowerCase();
-    
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), _applySearchFilter);
+  }
+
+  void _applySearchFilter() {
+    if (!mounted) return;
+    final query = _searchController.text.trim().toLowerCase();
+
     setState(() {
       _filteredCustomers = _customers.where((customer) {
-        bool matchesSearch = true;
-        if (query.isNotEmpty) {
-          final matchesName = customer.name.toLowerCase().contains(query);
-          final matchesCategory = customer.categoryName?.toLowerCase().contains(query) ?? false;
-          final matchesPlace = (customer.city?.toLowerCase().contains(query) ?? false) || 
-            customer.fullAddress.toLowerCase().contains(query);
-          matchesSearch = matchesName || matchesCategory || matchesPlace;
-        }
+        final matchesSearch = customer.matchesSearchQuery(query);
 
         bool matchesType = true;
         if (_typeFilter == 'Debtors') {
-          matchesType = customer.ledgerType?.toLowerCase().contains('debtor') ?? false;
+          matchesType = customer.isDebtor;
         } else if (_typeFilter == 'Creditors') {
-          matchesType = customer.ledgerType?.toLowerCase().contains('creditor') ?? false;
+          matchesType = customer.isCreditor;
         }
 
         return matchesSearch && matchesType;
@@ -194,6 +198,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
       return;
     }
     setState(() { _isLoading = true; _error = null; });
+    _awaitingFullCustomerList = true;
     try {
       // Count is a cheap head request — paint the real total with the first list page.
       final countFuture = _service.getCustomerCount(companyName: company);
@@ -203,6 +208,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
           countFuture.then((count) {
             if (!mounted ||
                 generation != _loadGeneration ||
+                !_awaitingFullCustomerList ||
                 !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
               return;
             }
@@ -212,10 +218,11 @@ class _LedgerScreenState extends State<LedgerScreen> {
               _filteredCustomers = first;
               _isLoading = false;
             });
-            _onSearchChanged();
+            _applySearchFilter();
           }).catchError((_) {
             if (!mounted ||
                 generation != _loadGeneration ||
+                !_awaitingFullCustomerList ||
                 !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
               return;
             }
@@ -224,7 +231,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
               _filteredCustomers = first;
               _isLoading = false;
             });
-            _onSearchChanged();
+            _applySearchFilter();
           });
         },
       );
@@ -235,14 +242,16 @@ class _LedgerScreenState extends State<LedgerScreen> {
         return;
       }
       setState(() {
+        _awaitingFullCustomerList = false;
         _serverTotalCount = count;
         _customers = items;
         _filteredCustomers = items;
         _pendingCustomers = null;
         _isLoading = false;
       });
-      _onSearchChanged();
+      _applySearchFilter();
     } catch (e) {
+      _awaitingFullCustomerList = false;
       if (mounted &&
           generation == _loadGeneration &&
           CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
@@ -425,7 +434,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
         child: EmptyState(
           icon: Icons.people_outlined,
           title: 'No Customers Found',
-          subtitle: _searchController.text.isNotEmpty ? 'Try a different search term or check filters' : 'Customer data will appear here once synced from Tally',
+          subtitle: _searchController.text.trim().isNotEmpty ? 'Try a different search term or check filters' : 'Customer data will appear here once synced from Tally',
           onRetry: _loadData,
         ),
       );

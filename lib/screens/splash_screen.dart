@@ -47,23 +47,40 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<Widget> _resolveDestination() async {
-    final session = _service.currentSession;
+    // Hot restart can finish initialize slightly before session hydrate completes.
+    var session = _service.currentSession;
+    if (session == null) {
+      try {
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        session = _service.currentSession;
+      } catch (_) {}
+    }
     if (session == null) {
       return const LoginScreen();
     }
 
     try {
       final user = session.user;
-      final profile = await _service.getUserProfile(user.id);
-      
-      if (profile?['is_active'] != true) {
+      Map<String, dynamic>? profile = await _service.getUserProfile(user.id);
+      // One retry for transient RLS / network blips after restart.
+      if (profile == null) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        profile = await _service.getUserProfile(user.id);
+      }
+
+      if (profile == null) {
+        // Keep session — show login only when we know the account is inactive.
+        return const LoginScreen();
+      }
+
+      if (profile['is_active'] != true) {
         await _service.signOut();
         return const LoginScreen();
       }
       // Admin Redirection check
-      final role = profile != null ? profile['role']?.toString() : null;
+      final role = profile['role']?.toString();
       final email = user.email;
-      final phone = profile != null ? profile['phone_number']?.toString() : user.phone;
+      final phone = profile['phone_number']?.toString() ?? user.phone;
       final cleanPhone = phone?.replaceAll(RegExp(r'[^0-9]'), '') ?? '';
       final isSuperAdmin = role == 'super_admin' || email == 'admin@tallylive.com' || cleanPhone == '97000000';
 
@@ -71,7 +88,7 @@ class _SplashScreenState extends State<SplashScreen> {
         return const AdminPanelScreen(isRootAdmin: true);
       }
 
-      final companyName = profile != null ? profile['company_name']?.toString() : null;
+      final companyName = profile['company_name']?.toString();
       if (companyName != null && companyName.isNotEmpty) {
         if (mounted) {
           CompanyProvider.of(context).selectCompany(companyName);
@@ -81,6 +98,16 @@ class _SplashScreenState extends State<SplashScreen> {
         return const CompanySelectionScreen();
       }
     } catch (_) {
+      // Do not sign out on startup errors — session may still be valid.
+      if (_service.currentSession != null) {
+        final user = _service.currentSession!.user;
+        final email = user.email;
+        final phone = user.phone?.replaceAll(RegExp(r'[^0-9]'), '') ?? '';
+        if (email == 'admin@tallylive.com' || phone == '97000000' || phone.endsWith('97000000')) {
+          return const AdminPanelScreen(isRootAdmin: true);
+        }
+        return const CompanySelectionScreen();
+      }
       return const LoginScreen();
     }
   }

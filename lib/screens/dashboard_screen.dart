@@ -15,6 +15,8 @@ import '../models/ledger.dart';
 import 'daybook_screen.dart';
 import 'reports_screen.dart';
 import 'money_flow_screen.dart';
+import 'balance_sheet_screen.dart';
+import 'profit_loss_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Function(int, {
@@ -372,6 +374,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (featureKey == 'sales') featureName = 'Sales Invoices';
     if (featureKey == 'purchases') featureName = 'Purchase Invoices';
     if (featureKey == 'analytics') featureName = 'Analytics & Reports';
+    if (featureKey == 'balance_sheet') featureName = 'Balance Sheet';
+    if (featureKey == 'profit_loss') featureName = 'Profit & Loss';
 
     showDialog(
       context: context,
@@ -409,7 +413,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       (companyState.isFeatureEnabled('stock') && companyState.isFeatureEnabled('db_qa_stock')) ||
       (companyState.isFeatureEnabled('ledgers') && companyState.isFeatureEnabled('db_qa_ledgers')) ||
       (companyState.isFeatureEnabled('sales') && companyState.isFeatureEnabled('db_qa_sales')) ||
-      (companyState.isFeatureEnabled('analytics') && companyState.isFeatureEnabled('db_qa_reports'))
+      (companyState.isFeatureEnabled('analytics') && companyState.isFeatureEnabled('db_qa_reports')) ||
+      companyState.isFeatureEnabled('cash_flow') ||
+      (companyState.isFeatureEnabled('balance_sheet') && companyState.isFeatureEnabled('db_qa_balance_sheet')) ||
+      (companyState.isFeatureEnabled('profit_loss') && companyState.isFeatureEnabled('db_qa_profit_loss'))
     );
 
     return Padding(
@@ -671,77 +678,106 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildQuickActions() {
     final companyState = CompanyProvider.of(context);
-    final actions = [
+    final actions = <Map<String, dynamic>>[
       if (companyState.isFeatureEnabled('stock') && companyState.isFeatureEnabled('db_qa_stock'))
-        {'icon': Icons.inventory_2_rounded, 'label': 'Stock', 'color': AppTheme.stockColor, 'index': 1},
+        {'icon': Icons.inventory_2_rounded, 'label': 'Stock', 'color': AppTheme.stockColor, 'feature': 'stock', 'index': 1},
       if (companyState.isFeatureEnabled('ledgers') && companyState.isFeatureEnabled('db_qa_ledgers'))
-        {'icon': Icons.people_alt_rounded, 'label': 'Ledgers', 'color': AppTheme.primaryColor, 'index': 2},
+        {'icon': Icons.people_alt_rounded, 'label': 'Ledgers', 'color': AppTheme.primaryColor, 'feature': 'ledgers', 'index': 2},
       if (companyState.isFeatureEnabled('sales') && companyState.isFeatureEnabled('db_qa_sales'))
-        {'icon': Icons.receipt_long_rounded, 'label': 'Sales', 'color': AppTheme.salesColor, 'index': 4},
+        {'icon': Icons.receipt_long_rounded, 'label': 'Sales', 'color': AppTheme.salesColor, 'feature': 'sales', 'index': 4},
+      if (companyState.isFeatureEnabled('balance_sheet') && companyState.isFeatureEnabled('db_qa_balance_sheet'))
+        {'icon': Icons.account_balance_outlined, 'label': 'Balance Sheet', 'color': const Color(0xFF0F766E), 'feature': 'balance_sheet', 'index': 96},
+      if (companyState.isFeatureEnabled('profit_loss') && companyState.isFeatureEnabled('db_qa_profit_loss'))
+        {'icon': Icons.trending_up_rounded, 'label': 'P&L', 'color': const Color(0xFFB45309), 'feature': 'profit_loss', 'index': 97},
       if (companyState.isFeatureEnabled('cash_flow'))
-        {'icon': Icons.account_balance_wallet_rounded, 'label': 'Cash Flow', 'color': Colors.green.shade600, 'index': 98},
+        {'icon': Icons.account_balance_wallet_rounded, 'label': 'Cash Flow', 'color': Colors.green.shade600, 'feature': 'cash_flow', 'index': 98},
       if (companyState.isFeatureEnabled('analytics') && companyState.isFeatureEnabled('db_qa_reports'))
-        {'icon': Icons.analytics_rounded, 'label': 'Reports', 'color': Colors.purple.shade500, 'index': 99},
+        {'icon': Icons.analytics_rounded, 'label': 'Reports', 'color': Colors.purple.shade500, 'feature': 'analytics', 'index': 99},
     ];
 
     if (actions.isEmpty) return const SizedBox.shrink();
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: actions.map((action) {
-        final label = action['label']?.toString().toLowerCase() ?? '';
-        final featureKey = label == 'cash flow' ? 'cash_flow' : (label == 'reports' ? 'analytics' : label);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = actions.length <= 4 ? actions.length.clamp(1, 4) : 3;
+        final spacing = 6.0;
+        final itemWidth =
+            (constraints.maxWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
 
-        return Expanded(
-          child: GestureDetector(
-            onTap: () {
-              _checkFeatureAndRun(featureKey, () {
-                if (action['index'] == 99) {
-                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ReportsScreen()));
-                } else if (action['index'] == 98) {
-                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MoneyFlowScreen()));
-                } else {
-                  widget.onNavigate(action['index'] as int);
-                }
-              });
-            },
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: (action['color'] as Color).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      action['icon'] as IconData,
-                      color: action['color'] as Color,
-                      size: 20,
-                    ),
+        return Wrap(
+          spacing: spacing,
+          runSpacing: 8,
+          children: actions.map((action) {
+            final featureKey = action['feature'] as String;
+            final index = action['index'] as int;
+
+            return SizedBox(
+              width: itemWidth,
+              child: GestureDetector(
+                onTap: () {
+                  _checkFeatureAndRun(featureKey, () {
+                    if (index == 99) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ReportsScreen()),
+                      );
+                    } else if (index == 98) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const MoneyFlowScreen()),
+                      );
+                    } else if (index == 97) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ProfitLossScreen()),
+                      );
+                    } else if (index == 96) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const BalanceSheetScreen()),
+                      );
+                    } else {
+                      widget.onNavigate(index);
+                    }
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade200),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    action['label'] as String,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF1A1F36),
-                    ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: (action['color'] as Color).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          action['icon'] as IconData,
+                          color: action['color'] as Color,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        action['label'] as String,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A1F36),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          }).toList(),
         );
-      }).toList(),
+      },
     );
   }
 
@@ -1101,6 +1137,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         bankLedgers.add(l);
       }
     }
+
+    int byName(Ledger a, Ledger b) =>
+        a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    cashLedgers.sort(byName);
+    bankLedgers.sort(byName);
+    bankOdLedgers.sort(byName);
 
     double cashDebit = 0, cashCredit = 0;
     for (var l in cashLedgers) {

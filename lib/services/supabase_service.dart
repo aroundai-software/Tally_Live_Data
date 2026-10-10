@@ -9,6 +9,7 @@ import '../models/sales_invoice.dart';
 import '../models/purchase_invoice.dart';
 import '../models/daybook_entry.dart';
 import '../models/ledger_bill_settlement.dart';
+import '../models/financial_report.dart';
 import 'user_preferences_service.dart';
 
 class SupabaseService {
@@ -141,13 +142,8 @@ class SupabaseService {
 
     final emailAlias = '$tenDigits@tallylive.app';
 
-    final tempClient = SupabaseClient(
-      SupabaseConfig.supabaseUrl,
-      SupabaseConfig.supabaseAnonKey,
-      authOptions: const AuthClientOptions(
-        authFlowType: AuthFlowType.implicit,
-      ),
-    );
+    // Isolated in-memory auth so signup never overwrites the admin session in localStorage.
+    final tempClient = _newIsolatedAuthClient();
 
     AuthResponse res;
     try {
@@ -163,7 +159,8 @@ class SupabaseService {
       final user = res.user;
       if (user != null) {
         try {
-          await tempClient.from('users').upsert({
+          // Write profile with the admin session (RLS), not the new user's session.
+          await _client.from('users').upsert({
             'id': user.id,
             'full_name': fullName.trim(),
             'phone_number': tenDigits,
@@ -171,16 +168,7 @@ class SupabaseService {
             'role': 'owner',
           });
         } catch (err) {
-          print('Profile upsert warning via tempClient: $err');
-          try {
-            await _client.from('users').upsert({
-              'id': user.id,
-              'full_name': fullName.trim(),
-              'phone_number': tenDigits,
-              'company_name': '',
-              'role': 'owner',
-            });
-          } catch (_) {}
+          print('Profile upsert warning: $err');
         }
       }
     } catch (e) {
@@ -194,14 +182,22 @@ class SupabaseService {
       } else {
         rethrow;
       }
-    } finally {
-      // Clean up temporary client auth session to avoid leaks
-      try {
-        await tempClient.auth.signOut();
-      } catch (_) {}
     }
 
     return res;
+  }
+
+  /// Separate client that does not touch the app's persisted auth session.
+  SupabaseClient _newIsolatedAuthClient() {
+    return SupabaseClient(
+      SupabaseConfig.supabaseUrl,
+      SupabaseConfig.supabaseAnonKey,
+      authOptions: const FlutterAuthClientOptions(
+        authFlowType: AuthFlowType.implicit,
+        localStorage: EmptyLocalStorage(),
+        autoRefreshToken: false,
+      ),
+    );
   }
 
   Future<AuthResponse> adminRegisterAdminAccount({
@@ -216,13 +212,7 @@ class SupabaseService {
 
     final emailAlias = '$tenDigits@tallylive.app';
 
-    final tempClient = SupabaseClient(
-      SupabaseConfig.supabaseUrl,
-      SupabaseConfig.supabaseAnonKey,
-      authOptions: const AuthClientOptions(
-        authFlowType: AuthFlowType.implicit,
-      ),
-    );
+    final tempClient = _newIsolatedAuthClient();
 
     AuthResponse res;
     try {
@@ -260,10 +250,6 @@ class SupabaseService {
       } else {
         rethrow;
       }
-    } finally {
-      try {
-        await tempClient.auth.signOut();
-      } catch (_) {}
     }
 
     return res;
@@ -283,18 +269,14 @@ class SupabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getAllUsers() async {
-    try {
-      final response = await _client.from('users').select();
-      final users = List<Map<String, dynamic>>.from(response);
-      users.sort((a, b) {
-        final nameA = (a['full_name'] ?? '').toString().toLowerCase();
-        final nameB = (b['full_name'] ?? '').toString().toLowerCase();
-        return nameA.compareTo(nameB);
-      });
-      return users;
-    } catch (e) {
-      return [];
-    }
+    final response = await _client.from('users').select();
+    final users = List<Map<String, dynamic>>.from(response);
+    users.sort((a, b) {
+      final nameA = (a['full_name'] ?? '').toString().toLowerCase();
+      final nameB = (b['full_name'] ?? '').toString().toLowerCase();
+      return nameA.compareTo(nameB);
+    });
+    return users;
   }
 
   Future<void> updateUserAccess(String userId, bool isActive) async {
@@ -366,36 +348,36 @@ class SupabaseService {
   }
 
   Future<List<String>> getUserCompanies(String userId) async {
+    final names = <String>{};
+
+    // 1. Explicit links (many companies per user — additive)
     try {
-      // 1. Query user_companies mapping table (explicit admin-linked companies)
       final response = await _client
           .from('user_companies')
           .select('company_name')
           .eq('user_id', userId);
-
-      if (response is List && response.isNotEmpty) {
-        final list = response
-            .map((row) => row['company_name']?.toString() ?? '')
-            .where((name) => name.isNotEmpty)
-            .toList();
-        if (list.isNotEmpty) return list;
-      }
-    } catch (_) {}
-
-    // 2. Query primary company in public.users profile
-    try {
-      final profile = await getUserProfile(userId);
-      if (profile != null) {
-        final primaryCompany = profile['company_name']?.toString();
-        if (primaryCompany != null && primaryCompany.trim().isNotEmpty) {
-          return [primaryCompany.trim()];
+      if (response is List) {
+        for (final row in response) {
+          final name = (row['company_name'] ?? '').toString().trim();
+          if (name.isNotEmpty) names.add(name);
         }
       }
     } catch (_) {}
 
-    // No explicit links found — return empty.
-    // Companies must be linked by an admin via the user_companies table.
-    return [];
+    // 2. Merge primary profile company so older single-company users are not dropped
+    // when admin adds a second company into user_companies.
+    try {
+      final profile = await getUserProfile(userId);
+      final primary = profile?['company_name']?.toString().trim() ?? '';
+      if (primary.isNotEmpty) {
+        final hasPrimary = names.any((n) => n.toLowerCase() == primary.toLowerCase());
+        if (!hasPrimary) names.add(primary);
+      }
+    } catch (_) {}
+
+    final list = names.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return list;
   }
 
   Future<String> linkCompanyToUser({
@@ -438,27 +420,227 @@ class SupabaseService {
 
     final matchedCompanyName = matchedRow['company_name'].toString();
 
-    // 3. Upsert into user_companies mapping table or RPC
+    // 3. Additive link — keep any companies already linked.
+    final profile = await getUserProfile(userId);
+    final primary = profile?['company_name']?.toString().trim() ?? '';
+    if (primary.isNotEmpty &&
+        primary.toLowerCase() != matchedCompanyName.toLowerCase()) {
+      await _addUserCompanyLink(userId: userId, companyName: primary);
+    }
+    await _addUserCompanyLink(userId: userId, companyName: matchedCompanyName);
+    if (primary.isEmpty) {
+      try {
+        await _client.from('users').update({
+          'company_name': matchedCompanyName,
+        }).eq('id', userId);
+      } catch (_) {}
+    }
+
+    return matchedCompanyName;
+  }
+
+  /// Admin links a company to a user without mobile verification.
+  /// Always additive: existing linked companies are kept (merged), never replaced.
+  Future<String> adminLinkCompanyToUser({
+    required String userId,
+    required String companyName,
+  }) async {
+    final cleanName = companyName.trim();
+    if (userId.isEmpty) throw 'Invalid user.';
+    if (cleanName.isEmpty) throw 'Please select a company.';
+
+    final response = await _client
+        .from('tally_companies')
+        .select('company_name')
+        .ilike('company_name', cleanName)
+        .eq('is_active', true)
+        .limit(5);
+
+    if (response is! List || response.isEmpty) {
+      throw 'No active company found with name "$cleanName".';
+    }
+
+    // Prefer exact (case-insensitive) match when several ILIKE hits exist.
+    Map<String, dynamic>? matched;
+    for (final item in response) {
+      final row = Map<String, dynamic>.from(item as Map);
+      final name = row['company_name']?.toString() ?? '';
+      if (name.toLowerCase() == cleanName.toLowerCase()) {
+        matched = row;
+        break;
+      }
+      matched ??= row;
+    }
+    final matchedCompanyName = matched!['company_name'].toString();
+
+    // Keep the existing primary company in the mapping table too (merge, don't orphan it).
+    final profile = await getUserProfile(userId);
+    final primary = profile?['company_name']?.toString().trim() ?? '';
+    if (primary.isNotEmpty &&
+        primary.toLowerCase() != matchedCompanyName.toLowerCase()) {
+      await _addUserCompanyLink(userId: userId, companyName: primary);
+    }
+
+    await _addUserCompanyLink(userId: userId, companyName: matchedCompanyName);
+
+    // Set primary only when empty — never overwrite an existing primary.
+    if (primary.isEmpty) {
+      try {
+        await _client.from('users').update({
+          'company_name': matchedCompanyName,
+        }).eq('id', userId);
+      } catch (_) {}
+    }
+
+    // Confirm the new company is present among links.
+    final linked = await getUserCompaniesMappedOnly(userId);
+    final ok = linked.any(
+      (n) => n.toLowerCase() == matchedCompanyName.toLowerCase(),
+    );
+    if (!ok) {
+      throw 'Could not link company. Run migration 20261010_link_company_to_user.sql in Supabase.';
+    }
+
+    return matchedCompanyName;
+  }
+
+  /// Inserts one user↔company row. Does not remove other companies.
+  Future<void> _addUserCompanyLink({
+    required String userId,
+    required String companyName,
+  }) async {
+    final name = companyName.trim();
+    if (userId.isEmpty || name.isEmpty) return;
+
     try {
       await _client.rpc('link_company_to_user', params: {
         'p_user_id': userId,
-        'p_company_name': matchedCompanyName,
+        'p_company_name': name,
+      });
+      return;
+    } catch (_) {}
+
+    try {
+      await _client.from('user_companies').upsert(
+        {
+          'user_id': userId,
+          'company_name': name,
+        },
+        onConflict: 'user_id,company_name',
+      );
+    } catch (_) {
+      // Last resort insert (may error on duplicate — ignore duplicates).
+      try {
+        await _client.from('user_companies').insert({
+          'user_id': userId,
+          'company_name': name,
+        });
+      } catch (e) {
+        final msg = e.toString().toLowerCase();
+        if (!msg.contains('duplicate') && !msg.contains('unique')) {
+          rethrow;
+        }
+      }
+    }
+  }
+
+  /// Admin removes a company link from a user.
+  Future<void> adminUnlinkCompanyFromUser({
+    required String userId,
+    required String companyName,
+  }) async {
+    final cleanName = companyName.trim();
+    if (userId.isEmpty || cleanName.isEmpty) {
+      throw 'Invalid user or company.';
+    }
+
+    // Prefer SECURITY DEFINER RPC (works even when RLS blocks direct DELETE).
+    try {
+      await _client.rpc('unlink_company_from_user', params: {
+        'p_user_id': userId,
+        'p_company_name': cleanName,
       });
     } catch (_) {
-      try {
-        await _client.from('user_companies').upsert({
-          'user_id': userId,
-          'company_name': matchedCompanyName,
-        });
-      } catch (_) {
-        // Fallback: update company_name in public.users profile
+      // Fallback: case-insensitive delete by matching rows, then clear profile.
+      final existing = await _client
+          .from('user_companies')
+          .select('id, company_name')
+          .eq('user_id', userId);
+      final matches = (existing as List).where((row) {
+        final name = (row['company_name'] ?? '').toString().trim();
+        return name.toLowerCase() == cleanName.toLowerCase();
+      }).toList();
+
+      for (final row in matches) {
+        final id = row['id']?.toString();
+        if (id != null && id.isNotEmpty) {
+          await _client.from('user_companies').delete().eq('id', id);
+        } else {
+          await _client
+              .from('user_companies')
+              .delete()
+              .eq('user_id', userId)
+              .eq('company_name', row['company_name']);
+        }
+      }
+
+      final remainingRes = await _client
+          .from('user_companies')
+          .select('company_name')
+          .eq('user_id', userId);
+      final remaining = (remainingRes as List)
+          .map((e) => (e['company_name'] ?? '').toString())
+          .where((n) => n.isNotEmpty)
+          .toList();
+
+      final profile = await getUserProfile(userId);
+      final primary = profile?['company_name']?.toString().trim() ?? '';
+      if (primary.toLowerCase() == cleanName.toLowerCase()) {
         await _client.from('users').update({
-          'company_name': matchedCompanyName,
+          'company_name': remaining.isEmpty ? '' : remaining.first,
         }).eq('id', userId);
       }
     }
 
-    return matchedCompanyName;
+    // Also clear profile primary if it still points at this company.
+    try {
+      final profile = await getUserProfile(userId);
+      final primary = profile?['company_name']?.toString().trim() ?? '';
+      if (primary.toLowerCase() == cleanName.toLowerCase()) {
+        final remaining = await getUserCompaniesMappedOnly(userId);
+        await _client.from('users').update({
+          'company_name': remaining.isEmpty ? '' : remaining.first,
+        }).eq('id', userId);
+      }
+    } catch (_) {}
+
+    // Verify gone from merged view (mapping + primary).
+    final stillVisible = await getUserCompanies(userId);
+    final remains = stillVisible.any(
+      (name) => name.toLowerCase() == cleanName.toLowerCase(),
+    );
+    if (remains) {
+      throw 'Could not unlink company. Run migration 20261010_unlink_company_from_user.sql in Supabase.';
+    }
+  }
+
+  /// Linked companies from [user_companies] only (no profile fallback).
+  Future<List<String>> getUserCompaniesMappedOnly(String userId) async {
+    try {
+      final response = await _client
+          .from('user_companies')
+          .select('company_name')
+          .eq('user_id', userId);
+      final list = (response as List)
+          .map((row) => row['company_name']?.toString() ?? '')
+          .where((name) => name.trim().isNotEmpty)
+          .map((name) => name.trim())
+          .toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      return list;
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<void> signOut() async {
@@ -617,11 +799,15 @@ class SupabaseService {
             'total_receivables':   features['db_card_total_receivables']   ?? true,
             'total_payables':      features['db_card_total_payables']      ?? true,
           },
+          'balance_sheet': features['balance_sheet'] ?? true,
+          'profit_loss': features['profit_loss'] ?? true,
           'quick_actions': {
             'stock':   features['db_qa_stock']   ?? true,
             'ledgers': features['db_qa_ledgers'] ?? true,
             'sales':   features['db_qa_sales']   ?? true,
             'reports': features['db_qa_reports'] ?? true,
+            'balance_sheet': features['db_qa_balance_sheet'] ?? true,
+            'profit_loss': features['db_qa_profit_loss'] ?? true,
           },
           'net_position': {
             'stock':       features['db_np_stock']       ?? true,
@@ -720,6 +906,8 @@ class SupabaseService {
       'rep_purchases': dashCfg['rep_purchases'] as bool? ?? true,
       'rep_ledgers': dashCfg['rep_ledgers'] as bool? ?? true,
       'cash_flow': dashCfg['cash_flow'] as bool? ?? true,
+      'balance_sheet': dashCfg['balance_sheet'] as bool? ?? true,
+      'profit_loss': dashCfg['profit_loss'] as bool? ?? true,
       'cf_summary': dashCfg['cf_summary'] as bool? ?? true,
       'cf_overview': dashCfg['cf_overview'] as bool? ?? true,
       'cf_pie_chart': dashCfg['cf_pie_chart'] as bool? ?? true,
@@ -750,6 +938,8 @@ class SupabaseService {
       'db_qa_ledgers': qa['ledgers'] as bool? ?? true,
       'db_qa_sales':   qa['sales']   as bool? ?? true,
       'db_qa_reports': qa['reports'] as bool? ?? true,
+      'db_qa_balance_sheet': qa['balance_sheet'] as bool? ?? true,
+      'db_qa_profit_loss': qa['profit_loss'] as bool? ?? true,
       // Dashboard JSONB — Net Position detail rows
       'db_np_stock':       netPos['stock']       as bool? ?? true,
       'db_np_receivables': netPos['receivables'] as bool? ?? true,
@@ -781,6 +971,8 @@ class SupabaseService {
       'rep_purchases': true,
       'rep_ledgers': true,
       'cash_flow': true,
+      'balance_sheet': true,
+      'profit_loss': true,
       'cf_summary': true,
       'cf_overview': true,
       'cf_pie_chart': true,
@@ -810,6 +1002,8 @@ class SupabaseService {
       'db_qa_ledgers': true,
       'db_qa_sales': true,
       'db_qa_reports': true,
+      'db_qa_balance_sheet': true,
+      'db_qa_profit_loss': true,
       // Dashboard JSONB — Net Position detail rows
       'db_np_stock': true,
       'db_np_receivables': true,
@@ -866,21 +1060,27 @@ class SupabaseService {
   }
 
   // ─── Customers (Ledgers) ───────────────────────────────────────
-  static const _customerSelect =
+  static const _customerSelectBase =
       'id, customer_name, address, city, state, pincode, country, '
       'contact_person, mobile_number, email, gst_number, pan_number, mailing_name, alias, '
       'credit_period, credit_limit, opening_balance, closing_balance, customer_discount_percentage, '
-      'company_name, is_active, ledger_type, updated_at';
+      'company_name, is_active, ledger_type, guid, updated_at';
+
+  static const _customerSelectWithCategory =
+      'id, customer_name, customer_category_name, address, city, state, pincode, country, '
+      'contact_person, mobile_number, email, gst_number, pan_number, mailing_name, alias, '
+      'credit_period, credit_limit, opening_balance, closing_balance, customer_discount_percentage, '
+      'company_name, is_active, ledger_type, guid, updated_at';
 
   Future<List<Ledger>> getCustomers({
     String? searchQuery,
     String? companyName,
     void Function(List<Ledger> firstPage)? onFirstPage,
   }) async {
-    Future<List<Ledger>> load() async {
+    Future<List<Ledger>> load(String select) async {
       final data = await _fetchAll(
         'customers',
-        select: _customerSelect,
+        select: select,
         companyName: companyName,
         searchQuery: searchQuery,
         searchColumn: 'customer_name',
@@ -893,20 +1093,38 @@ class SupabaseService {
       return data.map((e) => Ledger.fromJson(e)).toList();
     }
 
+    Future<List<Ledger>> loadWithFallback() async {
+      try {
+        return await load(_customerSelectWithCategory);
+      } catch (e) {
+        if (_isMissingColumn(e)) {
+          return load(_customerSelectBase);
+        }
+        rethrow;
+      }
+    }
+
     try {
-      return await load();
+      return await loadWithFallback();
     } catch (e) {
       // One quick retry for transient statement timeouts under load.
       if (_isStatementTimeout(e)) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
         try {
-          return await load();
+          return await loadWithFallback();
         } catch (e2) {
           throw Exception('Failed to fetch customers: $e2');
         }
       }
       throw Exception('Failed to fetch customers: $e');
     }
+  }
+
+  bool _isMissingColumn(Object e) {
+    final msg = e.toString().toLowerCase();
+    return msg.contains('42703') ||
+        msg.contains('does not exist') ||
+        (msg.contains('column') && msg.contains('customer_category_name'));
   }
 
   bool _isStatementTimeout(Object e) {
@@ -1953,6 +2171,87 @@ class SupabaseService {
     }
   }
 
+  /// Companies currently linked to a sync machine via [machine_companies].
+  Future<List<String>> getCompaniesForMachine(String machineName) async {
+    try {
+      final response = await _client
+          .from('machine_companies')
+          .select('company_name')
+          .eq('machine_name', machineName)
+          .order('company_name');
+      return (response as List)
+          .map((e) => (e['company_name'] ?? '').toString())
+          .where((n) => n.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Subscription expiry for a company via machine_companies → script_control.
+  /// If several machines sync the company, the soonest expires_at is used.
+  Future<({DateTime? expiresAt, String? machineName})> getCompanySubscriptionExpiry(
+    String companyName,
+  ) async {
+    final needle = companyName.trim();
+    if (needle.isEmpty) {
+      return (expiresAt: null, machineName: null);
+    }
+    try {
+      final links = await _client
+          .from('machine_companies')
+          .select('machine_name')
+          .eq('company_name', needle);
+      final machineNames = (links as List)
+          .map((e) => (e['machine_name'] ?? '').toString())
+          .where((n) => n.isNotEmpty)
+          .toSet()
+          .toList();
+      if (machineNames.isEmpty) {
+        // Fallback: last-synced company field on script_control.
+        final fallback = await _client
+            .from('script_control')
+            .select('machine_name, expires_at, last_seen_at')
+            .eq('current_company', needle)
+            .order('last_seen_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+        if (fallback == null) {
+          return (expiresAt: null, machineName: null);
+        }
+        return (
+          expiresAt: _parseDateTime(fallback['expires_at']),
+          machineName: fallback['machine_name']?.toString(),
+        );
+      }
+
+      final machines = await _client
+          .from('script_control')
+          .select('machine_name, expires_at')
+          .inFilter('machine_name', machineNames);
+
+      DateTime? soonest;
+      String? soonestMachine;
+      for (final row in (machines as List)) {
+        final exp = _parseDateTime(row['expires_at']);
+        if (exp == null) continue;
+        if (soonest == null || exp.isBefore(soonest)) {
+          soonest = exp;
+          soonestMachine = row['machine_name']?.toString();
+        }
+      }
+      return (expiresAt: soonest, machineName: soonestMachine);
+    } catch (e) {
+      print('getCompanySubscriptionExpiry error: $e');
+      return (expiresAt: null, machineName: null);
+    }
+  }
+
+  DateTime? _parseDateTime(dynamic raw) {
+    if (raw == null) return null;
+    return DateTime.tryParse(raw.toString());
+  }
+
   Future<bool> updateSyncMachineControl(
     String id, {
     bool? syncShouldRun,
@@ -1978,5 +2277,170 @@ class SupabaseService {
       print('updateSyncMachineControl error: $e');
       return false;
     }
+  }
+
+  // ─── Balance Sheet / Profit & Loss (synced snapshots) ─────────
+  Future<BalanceSheetReport?> getBalanceSheetReport(String companyName) async {
+    try {
+      final reportRes = await _client
+          .from('balance_sheet_reports')
+          .select()
+          .eq('company_name', companyName)
+          .maybeSingle();
+      if (reportRes == null) return null;
+
+      final linesRes = await _client
+          .from('balance_sheet_lines')
+          .select()
+          .eq('report_id', reportRes['id'])
+          .order('sort_order', ascending: true);
+
+      final lines = (linesRes as List)
+          .map((e) => FinancialReportLine.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      return BalanceSheetReport.fromJson(
+        Map<String, dynamic>.from(reportRes),
+        lines: lines,
+      );
+    } catch (e) {
+      throw Exception('Failed to load Balance Sheet: $e');
+    }
+  }
+
+  Future<ProfitLossReport?> getProfitLossReport(String companyName) async {
+    try {
+      final reportRes = await _client
+          .from('profit_loss_reports')
+          .select()
+          .eq('company_name', companyName)
+          .maybeSingle();
+      if (reportRes == null) return null;
+
+      final linesRes = await _client
+          .from('profit_loss_lines')
+          .select()
+          .eq('report_id', reportRes['id'])
+          .order('sort_order', ascending: true);
+
+      final lines = (linesRes as List)
+          .map((e) => FinancialReportLine.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      return ProfitLossReport.fromJson(
+        Map<String, dynamic>.from(reportRes),
+        lines: lines,
+      );
+    } catch (e) {
+      throw Exception('Failed to load Profit & Loss: $e');
+    }
+  }
+
+  /// Ledgers / sub-groups under a Tally group, plus which names are nested groups.
+  Future<({List<Ledger> children, Set<String> expandableNames})>
+      getLedgersUnderGroupWithMeta({
+    required String companyName,
+    required String groupName,
+  }) async {
+    final needle = groupName.trim();
+    if (needle.isEmpty) {
+      return (children: <Ledger>[], expandableNames: <String>{});
+    }
+    try {
+      final all = await _loadCompanyLedgers(companyName);
+      final needleLower = needle.toLowerCase();
+      final rawChildren = all
+          .where((l) {
+            final type = (l.ledgerType ?? '').trim().toLowerCase();
+            final category = (l.categoryName ?? '').trim().toLowerCase();
+            return type == needleLower || category == needleLower;
+          })
+          .where((l) => l.name.trim().toLowerCase() != needleLower)
+          .toList();
+      // One row per ledger name; prefer company-GUID sync rows over placeholders.
+      final children = _dedupeLedgersByName(rawChildren)
+          .where((l) => l.closingBalance.abs() > 0.0001)
+          .toList();
+
+      final parentKeys = <String>{};
+      for (final l in all) {
+        final type = (l.ledgerType ?? '').trim().toLowerCase();
+        final category = (l.categoryName ?? '').trim().toLowerCase();
+        if (type.isNotEmpty) parentKeys.add(type);
+        if (category.isNotEmpty) parentKeys.add(category);
+      }
+      final expandable = children
+          .where((l) => parentKeys.contains(l.name.trim().toLowerCase()))
+          .map((l) => l.name)
+          .toSet();
+
+      return (children: children, expandableNames: expandable);
+    } catch (e) {
+      throw Exception('Failed to load group ledgers: $e');
+    }
+  }
+
+  Future<List<Ledger>> getLedgersUnderGroup({
+    required String companyName,
+    required String groupName,
+  }) async {
+    final result = await getLedgersUnderGroupWithMeta(
+      companyName: companyName,
+      groupName: groupName,
+    );
+    return result.children;
+  }
+
+  Future<List<Ledger>> _loadCompanyLedgers(String companyName) async {
+    Future<List<Ledger>> load(String select) async {
+      final data = await _readPages(() => _client
+          .from('customers')
+          .select(select)
+          .eq('company_name', companyName)
+          .eq('is_active', true)
+          .order('customer_name', ascending: true)
+          .order('id', ascending: true));
+      return data
+          .map((e) => Ledger.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
+
+    try {
+      return await load(_customerSelectWithCategory);
+    } catch (e) {
+      if (_isMissingColumn(e)) {
+        return load(_customerSelectBase);
+      }
+      rethrow;
+    }
+  }
+
+  /// Collapse duplicate ledger names; prefer real company GUID, then newer sync.
+  List<Ledger> _dedupeLedgersByName(List<Ledger> ledgers) {
+    final map = <String, Ledger>{};
+    for (final ledger in ledgers) {
+      final key = ledger.name.trim().toLowerCase();
+      if (key.isEmpty) continue;
+      final existing = map[key];
+      if (existing == null) {
+        map[key] = ledger;
+        continue;
+      }
+      map[key] = _preferLedgerRow(existing, ledger);
+    }
+    final list = map.values.toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return list;
+  }
+
+  Ledger _preferLedgerRow(Ledger a, Ledger b) {
+    if (a.hasCompanyGuid != b.hasCompanyGuid) {
+      return b.hasCompanyGuid ? b : a;
+    }
+    final aTs = a.updatedAt;
+    final bTs = b.updatedAt;
+    if (aTs != null && bTs != null && aTs != bTs) {
+      return bTs.isAfter(aTs) ? b : a;
+    }
+    if (b.closingBalance.abs() > a.closingBalance.abs()) return b;
+    return a;
   }
 }

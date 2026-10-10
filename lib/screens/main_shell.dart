@@ -33,6 +33,14 @@ class _MainShellState extends State<MainShell> {
   StreamSubscription<Map<String, dynamic>>? _syncSubscription;
   StreamSubscription<Map<String, dynamic>>? _userProfileSubscription;
 
+  DateTime? _subscriptionExpiresAt;
+  bool _subscriptionExpired = false;
+  int? _subscriptionDaysLeft;
+  String? _subscriptionWarnedCompany;
+
+  static const _warnDialogDays = 15;
+  static const _warnBannerDays = 30;
+
   @override
   void initState() {
     super.initState();
@@ -94,13 +102,100 @@ class _MainShellState extends State<MainShell> {
         _activatedTabs.removeWhere((idx) => idx != 0);
         _listenToCompanyFeatures(currentCompany, companyState);
         _listenToSyncLogs(currentCompany, companyState);
+        _checkSubscriptionExpiry(currentCompany);
       } else {
         _featureSubscription?.cancel();
         _featureSubscription = null;
         _syncSubscription?.cancel();
         _syncSubscription = null;
+        _clearSubscriptionState();
       }
     }
+  }
+
+  void _clearSubscriptionState() {
+    _subscriptionExpiresAt = null;
+    _subscriptionExpired = false;
+    _subscriptionDaysLeft = null;
+    _subscriptionWarnedCompany = null;
+  }
+
+  Future<void> _checkSubscriptionExpiry(String companyName) async {
+    final result =
+        await SupabaseService().getCompanySubscriptionExpiry(companyName);
+    if (!mounted || CompanyProvider.of(context).selectedCompany != companyName) {
+      return;
+    }
+
+    final expiresAt = result.expiresAt;
+    if (expiresAt == null) {
+      setState(_clearSubscriptionState);
+      return;
+    }
+
+    final now = DateTime.now();
+    final expired = now.isAfter(expiresAt);
+    final daysLeft = expiresAt.difference(now).inDays;
+
+    setState(() {
+      _subscriptionExpiresAt = expiresAt;
+      _subscriptionExpired = expired;
+      _subscriptionDaysLeft = daysLeft;
+    });
+
+    final shouldDialog =
+        expired || (!expired && daysLeft <= _warnDialogDays);
+    if (shouldDialog && _subscriptionWarnedCompany != companyName) {
+      _subscriptionWarnedCompany = companyName;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showSubscriptionDialog();
+      });
+    }
+  }
+
+  String _formatExpiryDate(DateTime dt) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final local = dt.toLocal();
+    return '${local.day.toString().padLeft(2, '0')} ${months[local.month - 1]} ${local.year}';
+  }
+
+  void _showSubscriptionDialog() {
+    final expired = _subscriptionExpired;
+    final days = _subscriptionDaysLeft ?? 0;
+    final dateStr = _subscriptionExpiresAt != null
+        ? _formatExpiryDate(_subscriptionExpiresAt!)
+        : '';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(expired ? 'Subscription Expired' : 'Subscription Reminder'),
+        content: Text(
+          expired
+              ? 'Your subscription expired on $dateStr. Please contact the administrator to renew.'
+              : days <= 0
+                  ? 'Your subscription expires today ($dateStr). Please renew soon.'
+                  : 'Your subscription expires in $days day${days == 1 ? '' : 's'} ($dateStr).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool get _showSubscriptionBanner {
+    if (_subscriptionExpiresAt == null || _subscriptionDaysLeft == null) {
+      return false;
+    }
+    if (_subscriptionExpired) return true;
+    return _subscriptionDaysLeft! <= _warnBannerDays;
   }
 
   @override
@@ -260,6 +355,13 @@ class _MainShellState extends State<MainShell> {
       body: Column(
         children: [
           _CompanyBanner(companyName: companyName, onSwitch: _switchCompany),
+          if (_showSubscriptionBanner)
+            _SubscriptionBanner(
+              expired: _subscriptionExpired,
+              daysLeft: _subscriptionDaysLeft ?? 0,
+              expiryDate: _formatExpiryDate(_subscriptionExpiresAt!),
+              onTap: _showSubscriptionDialog,
+            ),
           Expanded(
             child: MediaQuery.removePadding(
               context: context,
@@ -399,6 +501,61 @@ class _NavItem extends StatelessWidget {
         ),
       ),
     ));
+  }
+}
+
+class _SubscriptionBanner extends StatelessWidget {
+  final bool expired;
+  final int daysLeft;
+  final String expiryDate;
+  final VoidCallback onTap;
+
+  const _SubscriptionBanner({
+    required this.expired,
+    required this.daysLeft,
+    required this.expiryDate,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = expired ? const Color(0xFFB91C1C) : const Color(0xFFB45309);
+    final message = expired
+        ? 'Subscription expired on $expiryDate. Contact admin to renew.'
+        : daysLeft <= 0
+            ? 'Subscription expires today ($expiryDate).'
+            : 'Subscription expires in $daysLeft day${daysLeft == 1 ? '' : 's'} ($expiryDate).';
+
+    return Material(
+      color: bg,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            children: [
+              Icon(
+                expired ? Icons.error_outline_rounded : Icons.timelapse_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: Colors.white70, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

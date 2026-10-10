@@ -22,6 +22,7 @@ class Ledger {
   final String? companyName;
   final bool isActive;
   final String? ledgerType;
+  final String? guid;
   final DateTime? updatedAt;
 
   Ledger({
@@ -48,6 +49,7 @@ class Ledger {
     this.companyName,
     this.isActive = true,
     this.ledgerType,
+    this.guid,
     this.updatedAt,
   });
 
@@ -76,13 +78,84 @@ class Ledger {
       companyName: json['company_name'],
       isActive: json['is_active'] ?? true,
       ledgerType: json['ledger_type'],
+      guid: json['guid']?.toString(),
       updatedAt: json['updated_at'] != null ? DateTime.tryParse(json['updated_at']) : null,
     );
+  }
+
+  /// Placeholder company guid from older sync rows (`00000000-…`).
+  bool get hasCompanyGuid {
+    final g = guid?.trim() ?? '';
+    if (g.isEmpty) return false;
+    return !g.startsWith('00000000-0000-0000-0000-000000000000');
   }
 
   String get fullAddress {
     final parts = [address, city, state, pincode].where((p) => p != null && p.isNotEmpty);
     return parts.join(', ');
+  }
+
+  /// Combined ledger group text from type and category (Tally may populate either).
+  String get _groupText {
+    final parts = <String>[];
+    for (final value in [ledgerType, categoryName]) {
+      final trimmed = value?.trim();
+      if (trimmed != null && trimmed.isNotEmpty) {
+        parts.add(trimmed.toLowerCase());
+      }
+    }
+    return parts.join(' ');
+  }
+
+  bool get _isCashOrBank {
+    final type = ledgerType?.toLowerCase().trim() ?? '';
+    final ledgerName = name.toLowerCase().trim();
+    return type.contains('bank') ||
+        type.contains('cash') ||
+        ledgerName.startsWith('cash') ||
+        ledgerName.startsWith('petty cash');
+  }
+
+  bool get _isSystemLedger {
+    final type = ledgerType?.toLowerCase().trim() ?? '';
+    final ledgerName = name.toLowerCase().trim();
+    return type.contains('charge') ||
+        type.contains('expense') ||
+        ledgerName.contains('charges') ||
+        ledgerName == 'opening balance' ||
+        ledgerName == 'closing balance';
+  }
+
+  /// True for sundry debtors and unclassified customer ledgers (excludes bank/cash/creditors).
+  bool get isDebtor {
+    final group = _groupText;
+    if (group.contains('creditor')) return false;
+    if (group.contains('debtor')) return true;
+    if (_isCashOrBank || _isSystemLedger) return false;
+    // Missing group in sync — treat as debtor unless clearly another ledger class.
+    return true;
+  }
+
+  /// True only for ledgers explicitly tagged as creditors.
+  bool get isCreditor {
+    final group = _groupText;
+    if (group.contains('debtor')) return false;
+    if (group.contains('creditor')) return true;
+    if (_isCashOrBank || _isSystemLedger) return false;
+    return false;
+  }
+
+  bool matchesSearchQuery(String query) {
+    if (query.isEmpty) return true;
+    bool contains(String? value) =>
+        value != null && value.toLowerCase().contains(query);
+
+    return contains(name) ||
+        contains(categoryName) ||
+        contains(alias) ||
+        contains(mailingName) ||
+        contains(city) ||
+        fullAddress.toLowerCase().contains(query);
   }
 
   static double _toDouble(dynamic val) {

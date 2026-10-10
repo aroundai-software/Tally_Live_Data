@@ -44,6 +44,8 @@ class CompanyState extends ChangeNotifier {
       'db_np_bank': ['ledgers'],
       'db_qa_ledgers': ['ledgers'],
       'db_qa_reports': ['analytics'],
+      'db_qa_balance_sheet': ['balance_sheet'],
+      'db_qa_profit_loss': ['profit_loss'],
     };
     return (dependencies[feature] ?? const <String>[]).every(enabled);
   }

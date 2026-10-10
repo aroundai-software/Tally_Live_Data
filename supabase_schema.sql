@@ -554,3 +554,21 @@ CREATE TABLE IF NOT EXISTS public.script_control (
 ALTER TABLE public.script_control
   ADD COLUMN IF NOT EXISTS expires_at timestamp with time zone;
 
+-- 18. Machine ↔ Company link (all companies synced by a PC; licence stays on script_control)
+CREATE TABLE IF NOT EXISTS public.machine_companies (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  machine_name text NOT NULL,
+  company_name text NOT NULL,
+  last_seen_at timestamp with time zone DEFAULT now(),
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT machine_companies_pkey PRIMARY KEY (id),
+  CONSTRAINT machine_companies_machine_company_unique UNIQUE (machine_name, company_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_machine_companies_company_name
+  ON public.machine_companies (company_name);
+
+CREATE INDEX IF NOT EXISTS idx_machine_companies_machine_name
+  ON public.machine_companies (machine_name);
+

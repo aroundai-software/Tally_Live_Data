@@ -8,6 +8,18 @@ import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../widgets/shimmer_loading.dart';
 import 'login_screen.dart';
 
+/// Shared AppBar refresh control for admin screens.
+Widget _adminRefreshButton({
+  required VoidCallback? onPressed,
+  Color color = AppTheme.textPrimary,
+}) {
+  return IconButton(
+    tooltip: 'Refresh',
+    icon: Icon(Icons.refresh_rounded, color: color),
+    onPressed: onPressed,
+  );
+}
+
 // ─── Main Admin Shell (Tabs) ──────────────────────────────────
 class AdminPanelScreen extends StatefulWidget {
   final bool isRootAdmin;
@@ -53,8 +65,13 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     if (!_allowed(profile)) { await _denyAccess(); return; }
     setState(() => _verified = true);
     _profileSubscription = service.streamUserProfile(user!.id).listen((profile) {
+      // Realtime can emit empty maps while reconnecting — ignore those.
+      // Only force logout when we receive a real profile that fails the check.
+      if (!mounted || profile.isEmpty) return;
       if (!_allowed(profile)) _denyAccess();
-    }, onError: (Object _) { _denyAccess(); });
+    }, onError: (Object _) {
+      // Stream glitches must not wipe the admin session on hot restart / reconnect.
+    });
   }
 
   @override
@@ -182,6 +199,7 @@ class AdminCompaniesTab extends StatefulWidget {
 
 class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
   final SupabaseService _service = SupabaseService();
+  final TextEditingController _searchController = TextEditingController();
   bool _isLoading = true;
   List<Map<String, dynamic>> _companiesFeatures = [];
   String _searchQuery = '';
@@ -192,21 +210,31 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
     _loadCompanies();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadCompanies() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _searchQuery = '';
+      _searchController.clear();
+    });
     try {
       final data = await _service.getAllCompaniesFeatures();
+      if (!mounted) return;
       setState(() {
         _companiesFeatures = data;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading companies: $e')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading companies: $e')),
+      );
     }
   }
 
@@ -269,6 +297,11 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
         elevation: 0,
         backgroundColor: Colors.white,
         automaticallyImplyLeading: false,
+        actions: [
+          _adminRefreshButton(
+            onPressed: _isLoading ? null : _loadCompanies,
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -276,6 +309,7 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             color: Colors.white,
             child: TextField(
+              controller: _searchController,
               onChanged: (val) => setState(() => _searchQuery = val),
               decoration: InputDecoration(
                 hintText: 'Search companies...',
@@ -387,8 +421,11 @@ class AdminSyncLicensesTab extends StatefulWidget {
 
 class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
   final SupabaseService _service = SupabaseService();
+  final TextEditingController _searchController = TextEditingController();
   bool _isLoading = true;
+  bool _isRefreshing = false;
   List<Map<String, dynamic>> _machines = [];
+  final Map<String, List<String>> _machineCompanies = {};
   String _searchQuery = '';
 
   @override
@@ -397,24 +434,56 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
     _loadMachines();
   }
 
-  Future<void> _loadMachines() async {
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadMachines({bool fullScreenLoader = true}) async {
+    if (fullScreenLoader) {
+      setState(() => _isLoading = true);
+    } else {
+      setState(() => _isRefreshing = true);
+    }
     try {
       final data = await _service.getAllSyncMachines();
+      final links = <String, List<String>>{};
+      await Future.wait(data.map((m) async {
+        final name = m['machine_name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        links[name] = await _service.getCompaniesForMachine(name);
+      }));
       if (mounted) {
         setState(() {
           _machines = data;
+          _machineCompanies
+            ..clear()
+            ..addAll(links);
           _isLoading = false;
+          _isRefreshing = false;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _isRefreshing = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading sync machines: $e')),
         );
       }
     }
+  }
+
+  Future<void> _refreshMachines() async {
+    if (_isRefreshing || _isLoading) return;
+    setState(() {
+      _searchQuery = '';
+      _searchController.clear();
+    });
+    await _loadMachines(fullScreenLoader: false);
   }
 
   String _formatDate(DateTime dt) {
@@ -717,10 +786,14 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
   @override
   Widget build(BuildContext context) {
     final filtered = _machines.where((m) {
+      final machineKey = m['machine_name']?.toString() ?? '';
+      final linked = (_machineCompanies[machineKey] ?? const <String>[])
+          .join(' ')
+          .toLowerCase();
       final comp = m['current_company']?.toString().toLowerCase() ?? '';
       final mach = m['machine_name']?.toString().toLowerCase() ?? '';
       final q = _searchQuery.toLowerCase();
-      return comp.contains(q) || mach.contains(q);
+      return comp.contains(q) || mach.contains(q) || linked.contains(q);
     }).toList();
 
     return Scaffold(
@@ -737,11 +810,28 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
         elevation: 0,
         backgroundColor: Colors.white,
         automaticallyImplyLeading: false,
+        actions: [
+          if (_isRefreshing)
+            const Padding(
+              padding: EdgeInsets.only(right: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else
+            _adminRefreshButton(
+              onPressed: _isLoading ? null : _refreshMachines,
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _loadMachines,
+              onRefresh: _refreshMachines,
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 children: [
@@ -754,6 +844,7 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                     ),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: TextField(
+                      controller: _searchController,
                       decoration: const InputDecoration(
                         icon: Icon(Icons.search, color: Color(0xFF6B7A94)),
                         hintText: 'Search by company or machine...',
@@ -906,7 +997,25 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 12),
+                              Builder(
+                                builder: (_) {
+                                  final linked =
+                                      _machineCompanies[machineName] ?? const <String>[];
+                                  if (linked.isEmpty) return const SizedBox(height: 12);
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 10, bottom: 4),
+                                    child: Text(
+                                      'Linked companies: ${linked.join(', ')}',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        color: AppTheme.textSecondary,
+                                        height: 1.35,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 8),
 
                               // Expiry & Heartbeat Info
                               Container(
@@ -1015,9 +1124,11 @@ class AdminUsersTab extends StatefulWidget {
 
 class _AdminUsersTabState extends State<AdminUsersTab> {
   final SupabaseService _service = SupabaseService();
+  final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _users = [];
   String _searchQuery = '';
   bool _isLoading = true;
+  bool _isRefreshing = false;
 
   final Set<String> _expandedUserIds = {};
   final Set<String> _loadingCompaniesUserIds = {};
@@ -1029,14 +1140,51 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
     _loadUsers();
   }
 
-  Future<void> _loadUsers() async {
-    final users = await _service.getAllUsers();
-    if (mounted) {
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadUsers({bool fullScreenLoader = false}) async {
+    if (fullScreenLoader && mounted) {
+      setState(() => _isLoading = true);
+    }
+    try {
+      final users = await _service.getAllUsers();
+      if (!mounted) return;
       setState(() {
         _users = users;
         _isLoading = false;
+        _isRefreshing = false;
       });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _isRefreshing = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load users: $e'),
+          backgroundColor: AppTheme.errorColor,
+        ),
+      );
     }
+  }
+
+  Future<void> _refreshUsers() async {
+    if (_isRefreshing || _isLoading) return;
+    setState(() {
+      _isRefreshing = true;
+      _userCompaniesMap.clear();
+      _expandedUserIds.clear();
+      _loadingCompaniesUserIds.clear();
+      _searchQuery = '';
+      _searchController.clear();
+    });
+    // Keep current list visible — full-screen loader was wiping users on error/filter.
+    await _loadUsers(fullScreenLoader: false);
   }
 
   Future<void> _toggleExpandUser(String userId) async {
@@ -1085,6 +1233,439 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
     }
   }
 
+  Future<void> _refreshUserCompanies(String userId) async {
+    // Merged list: user_companies + profile primary (additive link model).
+    final companies = await _service.getUserCompanies(userId);
+    if (!mounted) return;
+    setState(() => _userCompaniesMap[userId] = companies);
+  }
+
+  Future<void> _showAdminLinkCompanyDialog({
+    required String userId,
+    required String userName,
+  }) async {
+    final already = _userCompaniesMap[userId] ?? const <String>[];
+    List<String> allCompanies = [];
+    try {
+      allCompanies = await _service.getCompanies();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load companies: $e')),
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    final available = allCompanies
+        .where((c) => !already.any((a) => a.toLowerCase() == c.toLowerCase()))
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    if (available.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No more companies available to link.')),
+      );
+      return;
+    }
+
+    String query = '';
+    String? selected;
+
+    final linked = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final filtered = query.trim().isEmpty
+                ? available
+                : available
+                    .where((c) =>
+                        c.toLowerCase().contains(query.trim().toLowerCase()))
+                    .toList();
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: SizedBox(
+                width: 420,
+                height: 480,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Link company to $userName',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Select a Tally company. No mobile verification required.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        decoration: InputDecoration(
+                          hintText: 'Search companies…',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          filled: true,
+                          fillColor: AppTheme.surfaceColor,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        onChanged: (v) => setDialogState(() => query = v),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: filtered.isEmpty
+                            ? const Center(
+                                child: Text(
+                                  'No matching companies',
+                                  style: TextStyle(color: AppTheme.textSecondary),
+                                ),
+                              )
+                            : ListView.builder(
+                                itemCount: filtered.length,
+                                itemBuilder: (_, i) {
+                                  final name = filtered[i];
+                                  final isSel = selected == name;
+                                  return ListTile(
+                                    dense: true,
+                                    selected: isSel,
+                                    selectedTileColor: AppTheme.primaryColor
+                                        .withValues(alpha: 0.08),
+                                    title: Text(
+                                      name,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: isSel
+                                            ? FontWeight.w700
+                                            : FontWeight.w500,
+                                      ),
+                                    ),
+                                    trailing: isSel
+                                        ? const Icon(
+                                            Icons.check_circle_rounded,
+                                            color: AppTheme.primaryColor,
+                                            size: 20,
+                                          )
+                                        : null,
+                                    onTap: () =>
+                                        setDialogState(() => selected = name),
+                                  );
+                                },
+                              ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: selected == null
+                                ? null
+                                : () => Navigator.of(ctx).pop(selected),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primaryColor,
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('Link'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (linked == null || linked.isEmpty || !mounted) return;
+
+    try {
+      final name = await _service.adminLinkCompanyToUser(
+        userId: userId,
+        companyName: linked,
+      );
+      await _refreshUserCompanies(userId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Linked “$name”'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceAll('Exception:', '').trim()),
+          backgroundColor: AppTheme.errorColor,
+        ),
+      );
+    }
+  }
+
+  Future<void> _unlinkCompany({
+    required String userId,
+    required String companyName,
+  }) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Unlink company?'),
+        content: Text(
+          'Remove “$companyName” from this user’s access?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFC2372A),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Unlink'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    try {
+      await _service.adminUnlinkCompanyFromUser(
+        userId: userId,
+        companyName: companyName,
+      );
+      if (!mounted) return;
+      // Immediate UI update, then reconcile from DB.
+      setState(() {
+        final current = List<String>.from(_userCompaniesMap[userId] ?? const []);
+        current.removeWhere(
+          (c) => c.trim().toLowerCase() == companyName.trim().toLowerCase(),
+        );
+        _userCompaniesMap[userId] = current;
+      });
+      await _refreshUserCompanies(userId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unlinked “$companyName”')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      await _refreshUserCompanies(userId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceAll('Exception:', '').trim()),
+          backgroundColor: AppTheme.errorColor,
+        ),
+      );
+    }
+  }
+
+  void _showCreateUserDialog() {
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
+
+    final nameFocus = FocusNode();
+    final phoneFocus = FocusNode();
+    final passwordFocus = FocusNode();
+
+    final formKey = GlobalKey<FormState>();
+    var isRegistering = false;
+    var obscure = true;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submitRegistration() async {
+              if (!formKey.currentState!.validate() || isRegistering) return;
+              setDialogState(() => isRegistering = true);
+              try {
+                await _service.adminRegisterUser(
+                  fullName: nameCtrl.text.trim(),
+                  phone: phoneCtrl.text.trim(),
+                  password: passwordCtrl.text.trim(),
+                );
+                if (!mounted) return;
+                Navigator.of(ctx).pop();
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  const SnackBar(
+                    content: Text('User account created successfully!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+                await _refreshUsers();
+              } catch (e) {
+                setDialogState(() => isRegistering = false);
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(e.toString().replaceAll('Exception:', '').trim()),
+                    backgroundColor: const Color(0xFFC2372A),
+                  ),
+                );
+              }
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.person_add_rounded, color: Color(0xFF2453FF)),
+                          SizedBox(width: 8),
+                          Text('Create New User', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Register a new business owner. Link companies after creating the account.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: nameCtrl,
+                        focusNode: nameFocus,
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) {
+                          FocusScope.of(context).requestFocus(phoneFocus);
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'Full Name *',
+                          hintText: 'John Doe',
+                          prefixIcon: Icon(Icons.person_outline_rounded),
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Please enter user\'s full name';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: phoneCtrl,
+                        focusNode: phoneFocus,
+                        keyboardType: TextInputType.phone,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(10),
+                        ],
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) {
+                          FocusScope.of(context).requestFocus(passwordFocus);
+                        },
+                        decoration: const InputDecoration(
+                          labelText: '10-Digit Mobile Number *',
+                          hintText: '9876543210',
+                          prefixIcon: Icon(Icons.phone_rounded),
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Please enter mobile number';
+                          }
+                          if (val.trim().length != 10) {
+                            return 'Enter a valid 10-digit phone number';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: passwordCtrl,
+                        focusNode: passwordFocus,
+                        obscureText: obscure,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) => submitRegistration(),
+                        decoration: InputDecoration(
+                          labelText: 'Temporary Password *',
+                          hintText: '••••••••',
+                          prefixIcon: const Icon(Icons.lock_outline_rounded),
+                          suffixIcon: IconButton(
+                            icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                            onPressed: () => setDialogState(() => obscure = !obscure),
+                          ),
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Please create a temporary password';
+                          }
+                          if (val.length < 6) {
+                            return 'Password must be at least 6 characters';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: isRegistering ? null : () => Navigator.of(ctx).pop(),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: isRegistering ? null : submitRegistration,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2453FF),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: isRegistering
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Text('Create User'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final displayedUsers = _users.where((user) {
@@ -1104,7 +1685,33 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
         elevation: 0,
         backgroundColor: Colors.white,
         automaticallyImplyLeading: false,
+        actions: [
+          if (_isRefreshing)
+            const Padding(
+              padding: EdgeInsets.only(right: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else
+            _adminRefreshButton(
+              onPressed: _isLoading ? null : _refreshUsers,
+            ),
+        ],
       ),
+      floatingActionButton: _isLoading
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _showCreateUserDialog,
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.person_add_rounded),
+              label: const Text('Create User'),
+            ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
           : Column(
@@ -1113,6 +1720,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                   color: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   child: TextField(
+                    controller: _searchController,
                     decoration: InputDecoration(
                       hintText: 'Search by name or phone...',
                       hintStyle: const TextStyle(color: AppTheme.textSecondary),
@@ -1134,10 +1742,25 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                 ),
                 Expanded(
                   child: RefreshIndicator(
-                    onRefresh: _loadUsers,
+                    onRefresh: _refreshUsers,
                     color: AppTheme.primaryColor,
                     child: displayedUsers.isEmpty
-                        ? const Center(child: Text('No users found', style: TextStyle(color: AppTheme.textSecondary)))
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              SizedBox(
+                                height: MediaQuery.of(context).size.height * 0.4,
+                                child: Center(
+                                  child: Text(
+                                    _users.isEmpty
+                                        ? 'No users found'
+                                        : 'No users match your search',
+                                    style: const TextStyle(color: AppTheme.textSecondary),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
                         : ListView.builder(
                             padding: const EdgeInsets.all(16),
                             itemCount: displayedUsers.length,
@@ -1239,12 +1862,27 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                               children: [
                                                 const Icon(Icons.business_rounded, size: 16, color: AppTheme.primaryColor),
                                                 const SizedBox(width: 6),
-                                                Text(
-                                                  'Linked Companies (${companies.length})',
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w700,
-                                                    fontSize: 13,
-                                                    color: AppTheme.textPrimary,
+                                                Expanded(
+                                                  child: Text(
+                                                    'Linked Companies (${companies.length})',
+                                                    style: const TextStyle(
+                                                      fontWeight: FontWeight.w700,
+                                                      fontSize: 13,
+                                                      color: AppTheme.textPrimary,
+                                                    ),
+                                                  ),
+                                                ),
+                                                TextButton.icon(
+                                                  onPressed: () => _showAdminLinkCompanyDialog(
+                                                    userId: userId,
+                                                    userName: user['full_name']?.toString() ?? 'User',
+                                                  ),
+                                                  icon: const Icon(Icons.add_rounded, size: 16),
+                                                  label: const Text('Link'),
+                                                  style: TextButton.styleFrom(
+                                                    foregroundColor: AppTheme.primaryColor,
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                                                    visualDensity: VisualDensity.compact,
                                                   ),
                                                 ),
                                               ],
@@ -1263,7 +1901,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                               )
                                             else if (companies.isEmpty)
                                               const Text(
-                                                'No companies linked to this user.',
+                                                'No companies linked. Tap Link to assign companies.',
                                                 style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontStyle: FontStyle.italic),
                                               )
                                             else
@@ -1319,8 +1957,22 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                                 ),
                                                               ),
                                                             ),
-                                                            const SizedBox(width: 4),
-                                                            const Icon(Icons.arrow_forward_ios_rounded, size: 10, color: AppTheme.textSecondary),
+                                                            const SizedBox(width: 2),
+                                                            InkWell(
+                                                              onTap: () => _unlinkCompany(
+                                                                userId: userId,
+                                                                companyName: comp,
+                                                              ),
+                                                              borderRadius: BorderRadius.circular(10),
+                                                              child: const Padding(
+                                                                padding: EdgeInsets.all(2),
+                                                                child: Icon(
+                                                                  Icons.close_rounded,
+                                                                  size: 14,
+                                                                  color: AppTheme.textSecondary,
+                                                                ),
+                                                              ),
+                                                            ),
                                                           ],
                                                         ),
                                                       ),
@@ -1366,6 +2018,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
   }
 
   Future<void> _loadProfile() async {
+    setState(() => _isLoading = true);
     try {
       final user = _service.currentUser;
       if (user != null) {
@@ -1373,14 +2026,17 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
         
         final info = await PackageInfo.fromPlatform();
 
+        if (!mounted) return;
         setState(() {
           _adminPhone = profile?['phone_number']?.toString() ?? user.phone ?? '97000000';
           _appVersion = 'v${info.version}';
           _isLoading = false;
         });
+      } else if (mounted) {
+        setState(() => _isLoading = false);
       }
     } catch (_) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -1430,6 +2086,11 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
         elevation: 0,
         backgroundColor: Colors.white,
         automaticallyImplyLeading: false,
+        actions: [
+          _adminRefreshButton(
+            onPressed: _isLoading ? null : _loadProfile,
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
@@ -1498,11 +2159,10 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                       ),
                       const SizedBox(height: 32),
                       
-                      // User Management Section
                       const Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'USER MANAGEMENT',
+                          'ACCOUNT',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w800,
@@ -1512,15 +2172,6 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      
-                      _buildActionItem(
-                        icon: Icons.person_add_rounded,
-                        title: 'Create New User Account',
-                        subtitle: 'Add an owner account & link a company',
-                        color: AppTheme.primaryColor,
-                        onTap: _showCreateUserDialog,
-                      ),
-                      const SizedBox(height: 12),
                       
                       _buildActionItem(
                         icon: Icons.admin_panel_settings_rounded,
@@ -1771,183 +2422,6 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
     );
   }
 
-  void _showCreateUserDialog() {
-    final nameCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final passwordCtrl = TextEditingController();
-
-    final nameFocus = FocusNode();
-    final phoneFocus = FocusNode();
-    final passwordFocus = FocusNode();
-
-    final formKey = GlobalKey<FormState>();
-    bool isRegistering = false;
-    bool obscure = true;
-
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Future<void> submitRegistration() async {
-              if (!formKey.currentState!.validate() || isRegistering) return;
-              setDialogState(() => isRegistering = true);
-              try {
-                await _service.adminRegisterUser(
-                  fullName: nameCtrl.text.trim(),
-                  phone: phoneCtrl.text.trim(),
-                  password: passwordCtrl.text.trim(),
-                );
-                if (!mounted) return;
-                Navigator.of(ctx).pop();
-                
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('User account created successfully!'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              } catch (e) {
-                setDialogState(() => isRegistering = false);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(e.toString().replaceAll('Exception:', '').trim()),
-                    backgroundColor: const Color(0xFFC2372A),
-                  ),
-                );
-              }
-            }
-
-            return Dialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.person_add_rounded, color: Color(0xFF2453FF)),
-                          SizedBox(width: 8),
-                          Text('Create New User', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Register a new business owner profile to let them access TallyLive analytics.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: nameCtrl,
-                        focusNode: nameFocus,
-                        textInputAction: TextInputAction.next,
-                        onFieldSubmitted: (_) {
-                          FocusScope.of(context).requestFocus(phoneFocus);
-                        },
-                        decoration: const InputDecoration(
-                          labelText: 'Full Name *',
-                          hintText: 'John Doe',
-                          prefixIcon: Icon(Icons.person_outline_rounded),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) {
-                            return 'Please enter user\'s full name';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: phoneCtrl,
-                        focusNode: phoneFocus,
-                        keyboardType: TextInputType.phone,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                          LengthLimitingTextInputFormatter(10),
-                        ],
-                        textInputAction: TextInputAction.next,
-                        onFieldSubmitted: (_) {
-                          FocusScope.of(context).requestFocus(passwordFocus);
-                        },
-                        decoration: const InputDecoration(
-                          labelText: '10-Digit Mobile Number *',
-                          hintText: '9876543210',
-                          prefixIcon: Icon(Icons.phone_rounded),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) {
-                            return 'Please enter mobile number';
-                          }
-                          if (val.trim().length != 10) {
-                            return 'Enter a valid 10-digit phone number';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: passwordCtrl,
-                        focusNode: passwordFocus,
-                        obscureText: obscure,
-                        textInputAction: TextInputAction.done,
-                        onFieldSubmitted: (_) => submitRegistration(),
-                        decoration: InputDecoration(
-                          labelText: 'Temporary Password *',
-                          hintText: '••••••••',
-                          prefixIcon: const Icon(Icons.lock_outline_rounded),
-                          suffixIcon: IconButton(
-                            icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                            onPressed: () => setDialogState(() => obscure = !obscure),
-                          ),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) {
-                            return 'Please create a temporary password';
-                          }
-                          if (val.length < 6) {
-                            return 'Password must be at least 6 characters';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            onPressed: isRegistering ? null : () => Navigator.of(ctx).pop(),
-                            child: const Text('Cancel'),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton(
-                            onPressed: isRegistering ? null : submitRegistration,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2453FF),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                            child: isRegistering
-                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                : const Text('Create User'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   void _showCreateAdminDialog() {
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
@@ -2152,6 +2626,21 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
     _features = Map<String, bool>.from(widget.initialFeatures);
   }
 
+  Future<void> _refreshFeatures() async {
+    if (_savingFeature) return;
+    try {
+      final features = await _service.getCompanyFeatures(widget.companyName);
+      if (!mounted) return;
+      setState(() => _features = Map<String, bool>.from(features));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to refresh: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
     if (_savingFeature) return;
     _savingFeature = true;
@@ -2190,6 +2679,10 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           _features['db_np_payables'] = false;
         } else if (featureKey == 'analytics') {
           _features['db_qa_reports'] = false;
+        } else if (featureKey == 'balance_sheet') {
+          _features['db_qa_balance_sheet'] = false;
+        } else if (featureKey == 'profit_loss') {
+          _features['db_qa_profit_loss'] = false;
         } else if (featureKey == 'dashboard') {
           _features['db_net_position'] = false;
           _features['db_summary_cards'] = false;
@@ -2225,6 +2718,10 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           _features['db_np_payables'] = true;
         } else if (featureKey == 'analytics') {
           _features['db_qa_reports'] = true;
+        } else if (featureKey == 'balance_sheet') {
+          _features['db_qa_balance_sheet'] = true;
+        } else if (featureKey == 'profit_loss') {
+          _features['db_qa_profit_loss'] = true;
         } else if (featureKey == 'dashboard') {
           _features['db_net_position'] = true;
           _features['db_summary_cards'] = true;
@@ -2274,6 +2771,12 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
+          actions: [
+            _adminRefreshButton(
+              color: const Color(0xFF0F1A2B),
+              onPressed: _savingFeature ? null : _refreshFeatures,
+            ),
+          ],
         ),
         body: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
@@ -2352,6 +2855,8 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
                         initialFeatures: _features,
                       ),
                     ),
+                    const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
+                    _buildFinancialStatementsNavItem(),
                     
                     // Simple Toggles for other screens
                     const Divider(color: Color(0xFFE4E9F1), height: 1, indent: 36),
@@ -2376,6 +2881,53 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildFinancialStatementsNavItem() {
+    final bsOn = _features['balance_sheet'] ?? true;
+    final plOn = _features['profit_loss'] ?? true;
+    final isEnabled = bsOn || plOn;
+    final detail = [
+      if (bsOn) 'Balance Sheet',
+      if (plOn) 'Profit & Loss',
+    ].join(' • ');
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.account_balance_outlined, size: 20, color: Color(0xFF6B7A94)),
+      title: const Text(
+        'Financial Statements',
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF3A4A63),
+        ),
+      ),
+      subtitle: Text(
+        isEnabled ? 'Enabled • $detail' : 'Disabled',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: isEnabled ? const Color(0xFF2453FF) : const Color(0xFF6B7A94),
+        ),
+      ),
+      trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF6B7A94)),
+      onTap: () async {
+        if (_savingFeature) return;
+        final updatedFeatures = await Navigator.of(context).push<Map<String, bool>>(
+          MaterialPageRoute(
+            builder: (_) => FinancialReportsFeaturesScreen(
+              companyName: widget.companyName,
+              initialFeatures: _features,
+            ),
+          ),
+        );
+        if (updatedFeatures != null) {
+          setState(() {
+            _features = updatedFeatures;
+          });
+        }
+      },
     );
   }
 
@@ -2471,6 +3023,21 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
     _features = Map<String, bool>.from(widget.initialFeatures);
   }
 
+  Future<void> _refreshFeatures() async {
+    if (_savingFeature) return;
+    try {
+      final features = await _service.getCompanyFeatures(widget.companyName);
+      if (!mounted) return;
+      setState(() => _features = Map<String, bool>.from(features));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to refresh: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
     if (_savingFeature) return;
     _savingFeature = true;
@@ -2533,6 +3100,12 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
+          actions: [
+            _adminRefreshButton(
+              color: const Color(0xFF0F1A2B),
+              onPressed: _savingFeature ? null : _refreshFeatures,
+            ),
+          ],
         ),
         body: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
@@ -2810,6 +3383,18 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
         'icon': Icons.analytics_rounded,
         'color': Colors.purple.shade500,
       },
+      {
+        'key': 'db_qa_balance_sheet',
+        'label': 'Balance Sheet',
+        'icon': Icons.account_balance_outlined,
+        'color': const Color(0xFF0F766E),
+      },
+      {
+        'key': 'db_qa_profit_loss',
+        'label': 'P&L',
+        'icon': Icons.trending_up_rounded,
+        'color': const Color(0xFFB45309),
+      },
     ];
 
     return Container(
@@ -2832,51 +3417,72 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: quickActionItems.map((item) {
-              final key = item['key'] as String;
-              final isItemEnabled = _features[key] ?? true;
-              final color = item['color'] as Color;
-
-              return Expanded(
-                child: GestureDetector(
-                  onTap: () => _toggleFeature(key, isItemEnabled),
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isItemEnabled ? color.withOpacity(0.06) : Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: isItemEnabled ? color : const Color(0xFFE4E9F1),
-                        width: isItemEnabled ? 1.5 : 1.0,
+          ...List.generate((quickActionItems.length / 3).ceil(), (rowIndex) {
+            final start = rowIndex * 3;
+            final rowItems = quickActionItems.sublist(
+              start,
+              (start + 3).clamp(0, quickActionItems.length),
+            );
+            return Padding(
+              padding: EdgeInsets.only(bottom: rowIndex == 0 ? 8 : 0),
+              child: Row(
+                children: [
+                  for (final item in rowItems)
+                    Expanded(
+                      child: Builder(
+                        builder: (context) {
+                          final key = item['key'] as String;
+                          final isItemEnabled = _features[key] ?? true;
+                          final color = item['color'] as Color;
+                          return GestureDetector(
+                            onTap: () => _toggleFeature(key, isItemEnabled),
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: isItemEnabled ? color.withOpacity(0.06) : Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isItemEnabled ? color : const Color(0xFFE4E9F1),
+                                  width: isItemEnabled ? 1.5 : 1.0,
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    item['icon'] as IconData,
+                                    size: 18,
+                                    color: isItemEnabled ? color : Colors.grey.shade400,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    item['label'] as String,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: isItemEnabled
+                                          ? const Color(0xFF0F1A2B)
+                                          : Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          item['icon'] as IconData,
-                          size: 18,
-                          color: isItemEnabled ? color : Colors.grey.shade400,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          item['label'] as String,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: isItemEnabled ? const Color(0xFF0F1A2B) : Colors.grey.shade500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
+                  if (rowItems.length < 3)
+                    for (var i = rowItems.length; i < 3; i++)
+                      const Expanded(child: SizedBox()),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );
@@ -3107,6 +3713,21 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
     _features = Map<String, bool>.from(widget.initialFeatures);
   }
 
+  Future<void> _refreshFeatures() async {
+    if (_savingFeature) return;
+    try {
+      final features = await _service.getCompanyFeatures(widget.companyName);
+      if (!mounted) return;
+      setState(() => _features = Map<String, bool>.from(features));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to refresh: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
     if (_savingFeature) return;
     _savingFeature = true;
@@ -3167,6 +3788,12 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
+          actions: [
+            _adminRefreshButton(
+              color: const Color(0xFF0F1A2B),
+              onPressed: _savingFeature ? null : _refreshFeatures,
+            ),
+          ],
         ),
         body: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
@@ -3303,6 +3930,21 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
     _features = Map<String, bool>.from(widget.initialFeatures);
   }
 
+  Future<void> _refreshFeatures() async {
+    if (_savingFeature) return;
+    try {
+      final features = await _service.getCompanyFeatures(widget.companyName);
+      if (!mounted) return;
+      setState(() => _features = Map<String, bool>.from(features));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to refresh: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
     if (_savingFeature) return;
     _savingFeature = true;
@@ -3369,6 +4011,12 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
+          actions: [
+            _adminRefreshButton(
+              color: const Color(0xFF0F1A2B),
+              onPressed: _savingFeature ? null : _refreshFeatures,
+            ),
+          ],
         ),
         body: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
@@ -3482,6 +4130,21 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
     _features = Map<String, bool>.from(widget.initialFeatures);
   }
 
+  Future<void> _refreshFeatures() async {
+    if (_savingFeature) return;
+    try {
+      final features = await _service.getCompanyFeatures(widget.companyName);
+      if (!mounted) return;
+      setState(() => _features = Map<String, bool>.from(features));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to refresh: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
     if (_savingFeature) return;
     _savingFeature = true;
@@ -3551,6 +4214,12 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
+          actions: [
+            _adminRefreshButton(
+              color: const Color(0xFF0F1A2B),
+              onPressed: _savingFeature ? null : _refreshFeatures,
+            ),
+          ],
         ),
         body: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
@@ -3689,6 +4358,21 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
     _features = Map<String, bool>.from(widget.initialFeatures);
   }
 
+  Future<void> _refreshFeatures() async {
+    if (_savingFeature) return;
+    try {
+      final features = await _service.getCompanyFeatures(widget.companyName);
+      if (!mounted) return;
+      setState(() => _features = Map<String, bool>.from(features));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to refresh: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
     if (_savingFeature) return;
     _savingFeature = true;
@@ -3762,6 +4446,12 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
+          actions: [
+            _adminRefreshButton(
+              color: const Color(0xFF0F1A2B),
+              onPressed: _savingFeature ? null : _refreshFeatures,
+            ),
+          ],
         ),
         body: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
@@ -3870,6 +4560,21 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
     _features = Map<String, bool>.from(widget.initialFeatures);
   }
 
+  Future<void> _refreshFeatures() async {
+    if (_savingFeature) return;
+    try {
+      final features = await _service.getCompanyFeatures(widget.companyName);
+      if (!mounted) return;
+      setState(() => _features = Map<String, bool>.from(features));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to refresh: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _toggleFeature(String featureKey, bool currentValue) async {
     if (_savingFeature) return;
     _savingFeature = true;
@@ -3967,6 +4672,12 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
             icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
+          actions: [
+            _adminRefreshButton(
+              color: const Color(0xFF0F1A2B),
+              onPressed: _savingFeature ? null : _refreshFeatures,
+            ),
+          ],
         ),
         body: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
@@ -4061,6 +4772,259 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF3A4A63))),
+          ),
+          Switch.adaptive(
+            value: isEnabled,
+            activeColor: const Color(0xFF2453FF),
+            onChanged: (_) => _toggleFeature(featureKey, isEnabled),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Sub-features: Financial Statements (Balance Sheet / P&L) ──
+class FinancialReportsFeaturesScreen extends StatefulWidget {
+  final String companyName;
+  final Map<String, bool> initialFeatures;
+
+  const FinancialReportsFeaturesScreen({
+    super.key,
+    required this.companyName,
+    required this.initialFeatures,
+  });
+
+  @override
+  State<FinancialReportsFeaturesScreen> createState() =>
+      _FinancialReportsFeaturesScreenState();
+}
+
+class _FinancialReportsFeaturesScreenState
+    extends State<FinancialReportsFeaturesScreen> {
+  final SupabaseService _service = SupabaseService();
+  late Map<String, bool> _features;
+  bool _savingFeature = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _features = Map<String, bool>.from(widget.initialFeatures);
+  }
+
+  Future<void> _refreshFeatures() async {
+    if (_savingFeature) return;
+    try {
+      final features = await _service.getCompanyFeatures(widget.companyName);
+      if (!mounted) return;
+      setState(() => _features = Map<String, bool>.from(features));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to refresh: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleFeature(String featureKey, bool currentValue) async {
+    if (_savingFeature) return;
+    _savingFeature = true;
+    final previousFeatures = Map<String, bool>.from(_features);
+    final updatedValue = !currentValue;
+    setState(() {
+      _features[featureKey] = updatedValue;
+      if (featureKey == 'balance_sheet') {
+        _features['db_qa_balance_sheet'] = updatedValue;
+      } else if (featureKey == 'profit_loss') {
+        _features['db_qa_profit_loss'] = updatedValue;
+      } else if (featureKey == 'db_qa_balance_sheet' && updatedValue) {
+        _features['balance_sheet'] = true;
+      } else if (featureKey == 'db_qa_profit_loss' && updatedValue) {
+        _features['profit_loss'] = true;
+      }
+    });
+
+    try {
+      await _service.updateCompanyFeatures(
+        widget.companyName,
+        Map<String, bool>.from(_features),
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _features = previousFeatures;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update setting: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _savingFeature = false);
+      } else {
+        _savingFeature = false;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isBsEnabled = _features['balance_sheet'] ?? true;
+    final isPlEnabled = _features['profit_loss'] ?? true;
+
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (didPop || _savingFeature) return;
+        Navigator.of(context).pop(_features);
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F7FB),
+        appBar: AppBar(
+          title: const Text(
+            'Financial Statements',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF0F1A2B),
+              fontSize: 16,
+            ),
+          ),
+          elevation: 0,
+          backgroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
+            onPressed:
+                _savingFeature ? null : () => Navigator.of(context).pop(_features),
+          ),
+          actions: [
+            _adminRefreshButton(
+              color: const Color(0xFF0F1A2B),
+              onPressed: _savingFeature ? null : _refreshFeatures,
+            ),
+          ],
+        ),
+        body: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          children: [
+            const Text(
+              'BALANCE SHEET',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF6B7A94),
+                letterSpacing: 1.0,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 0,
+              color: Colors.white,
+              child: ListTile(
+                title: const Text(
+                  'Balance Sheet Screen',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0F1A2B)),
+                ),
+                subtitle: const Text('Enable or disable the Balance Sheet report'),
+                trailing: Switch.adaptive(
+                  value: isBsEnabled,
+                  activeColor: const Color(0xFF2453FF),
+                  onChanged: (_) => _toggleFeature('balance_sheet', isBsEnabled),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            IgnorePointer(
+              ignoring: !isBsEnabled,
+              child: Opacity(
+                opacity: isBsEnabled ? 1.0 : 0.5,
+                child: Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                  color: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
+                    child: _buildSubToggleItem(
+                      'Dashboard Quick Action',
+                      'db_qa_balance_sheet',
+                      Icons.flash_on_rounded,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'PROFIT & LOSS',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF6B7A94),
+                letterSpacing: 1.0,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 0,
+              color: Colors.white,
+              child: ListTile(
+                title: const Text(
+                  'Profit & Loss Screen',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0F1A2B)),
+                ),
+                subtitle: const Text('Enable or disable the Profit & Loss report'),
+                trailing: Switch.adaptive(
+                  value: isPlEnabled,
+                  activeColor: const Color(0xFF2453FF),
+                  onChanged: (_) => _toggleFeature('profit_loss', isPlEnabled),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            IgnorePointer(
+              ignoring: !isPlEnabled,
+              child: Opacity(
+                opacity: isPlEnabled ? 1.0 : 0.5,
+                child: Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                  color: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
+                    child: _buildSubToggleItem(
+                      'Dashboard Quick Action',
+                      'db_qa_profit_loss',
+                      Icons.flash_on_rounded,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubToggleItem(String label, String featureKey, IconData icon) {
+    final isEnabled = _features[featureKey] ?? true;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: const Color(0xFF6B7A94)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF3A4A63),
+              ),
+            ),
           ),
           Switch.adaptive(
             value: isEnabled,
