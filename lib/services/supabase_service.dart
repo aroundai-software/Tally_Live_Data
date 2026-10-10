@@ -2158,8 +2158,39 @@ class SupabaseService {
   }
 
   // ─── Sync Machines & Licensing (script_control) ───────────────────
+
+  /// Sets [sync_should_run] = false for any machine whose [expires_at] is past.
+  /// Prefers DB RPC [pause_expired_sync_machines] when migration is applied;
+  /// falls back to a direct update. Safe to call often.
+  Future<int> pauseExpiredSyncMachines() async {
+    try {
+      final rpcCount = await _client.rpc('pause_expired_sync_machines');
+      if (rpcCount is int) return rpcCount;
+      if (rpcCount is num) return rpcCount.toInt();
+    } catch (_) {
+      // RPC missing or not granted — use direct update below.
+    }
+    try {
+      final now = DateTime.now().toUtc().toIso8601String();
+      final updated = await _client
+          .from('script_control')
+          .update({
+            'sync_should_run': false,
+            'updated_at': now,
+          })
+          .eq('sync_should_run', true)
+          .lt('expires_at', now)
+          .select('id');
+      return (updated as List).length;
+    } catch (e) {
+      print('pauseExpiredSyncMachines error: $e');
+      return 0;
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getAllSyncMachines() async {
     try {
+      await pauseExpiredSyncMachines();
       final response = await _client
           .from('script_control')
           .select()
@@ -2190,6 +2221,7 @@ class SupabaseService {
 
   /// Subscription expiry for a company via machine_companies → script_control.
   /// If several machines sync the company, the soonest expires_at is used.
+  /// Also pauses any expired linked machines so sync stops without a manual toggle.
   Future<({DateTime? expiresAt, String? machineName})> getCompanySubscriptionExpiry(
     String companyName,
   ) async {
@@ -2198,6 +2230,9 @@ class SupabaseService {
       return (expiresAt: null, machineName: null);
     }
     try {
+      // Keep script_control in sync with wall-clock expiry whenever the app checks.
+      await pauseExpiredSyncMachines();
+
       final links = await _client
           .from('machine_companies')
           .select('machine_name')
@@ -2252,6 +2287,19 @@ class SupabaseService {
     return DateTime.tryParse(raw.toString());
   }
 
+  /// Date-picker values are midnight local; treat those as end of that local day
+  /// so "expires today" stays valid until 23:59:59.
+  DateTime _normalizeExpiryDate(DateTime expiresAt) {
+    final local = expiresAt.toLocal();
+    final isDateOnly = local.hour == 0 &&
+        local.minute == 0 &&
+        local.second == 0 &&
+        local.millisecond == 0 &&
+        local.microsecond == 0;
+    if (!isDateOnly) return expiresAt;
+    return DateTime(local.year, local.month, local.day, 23, 59, 59);
+  }
+
   Future<bool> updateSyncMachineControl(
     String id, {
     bool? syncShouldRun,
@@ -2261,21 +2309,52 @@ class SupabaseService {
       final updateData = <String, dynamic>{
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       };
-      if (syncShouldRun != null) {
-        updateData['sync_should_run'] = syncShouldRun;
+
+      final normalizedExpiry =
+          expiresAt != null ? _normalizeExpiryDate(expiresAt) : null;
+
+      if (normalizedExpiry != null) {
+        updateData['expires_at'] = normalizedExpiry.toUtc().toIso8601String();
       }
-      if (expiresAt != null) {
-        updateData['expires_at'] = expiresAt.toUtc().toIso8601String();
+
+      var refusedEnableWhileExpired = false;
+      if (syncShouldRun != null) {
+        final effectiveExpiry =
+            normalizedExpiry ?? await _getMachineExpiresAt(id);
+        final expired = effectiveExpiry != null &&
+            DateTime.now().isAfter(effectiveExpiry);
+        // Never leave sync on past expiry; still save expires_at above.
+        if (syncShouldRun == true && expired) {
+          updateData['sync_should_run'] = false;
+          // Fail only when caller tried to turn sync on without a new expiry.
+          refusedEnableWhileExpired = expiresAt == null;
+        } else {
+          updateData['sync_should_run'] = syncShouldRun;
+        }
       }
 
       await _client
           .from('script_control')
           .update(updateData)
           .eq('id', id);
+      if (refusedEnableWhileExpired) return false;
       return true;
     } catch (e) {
       print('updateSyncMachineControl error: $e');
       return false;
+    }
+  }
+
+  Future<DateTime?> _getMachineExpiresAt(String id) async {
+    try {
+      final row = await _client
+          .from('script_control')
+          .select('expires_at')
+          .eq('id', id)
+          .maybeSingle();
+      return _parseDateTime(row?['expires_at']);
+    } catch (_) {
+      return null;
     }
   }
 
