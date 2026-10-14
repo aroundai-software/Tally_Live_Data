@@ -10,6 +10,7 @@ import '../services/supabase_service.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../widgets/ledger_performance_tab.dart';
+import '../widgets/ledger_voucher_detail_sheet.dart';
 
 class LedgerStatementScreen extends StatefulWidget {
   final Ledger ledger;
@@ -645,17 +646,25 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                                   delegate: SliverChildBuilderDelegate(
                                     (context, index) {
                                       final entry = displayTransactions[index];
-                                      return Container(
-                                        decoration: BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
-                                        child: Row(
-                                          children: [
-                                            _buildDataCell(entry.date != null ? DateFormat('dd-MMM-yy').format(entry.date!) : '', flex: 2),
-                                            _buildDataCell(entry.particulars ?? entry.ledgerName, flex: 4, isBold: true),
-                                            _buildDataCell(entry.voucherType, flex: 2),
-                                            _buildDataCell(entry.voucherNumber ?? '', flex: 2),
-                                            _buildDataCell(entry.isDebit ? _formatAmount(entry.amount) : '', flex: 2, numeric: true),
-                                            _buildDataCell(!entry.isDebit ? _formatAmount(entry.amount) : '', flex: 2, numeric: true),
-                                          ],
+                                      return Material(
+                                        color: Colors.white,
+                                        child: InkWell(
+                                          onTap: () => _openVoucherDetail(entry),
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                _buildDataCell(entry.date != null ? DateFormat('dd-MMM-yy').format(entry.date!) : '', flex: 2),
+                                                _buildDataCell(entry.particulars ?? entry.ledgerName, flex: 4, isBold: true),
+                                                _buildDataCell(entry.voucherType, flex: 2),
+                                                _buildDataCell(entry.voucherNumber ?? '', flex: 2),
+                                                _buildDataCell(entry.isDebit ? _formatAmount(entry.amount) : '', flex: 2, numeric: true),
+                                                _buildDataCell(!entry.isDebit ? _formatAmount(entry.amount) : '', flex: 2, numeric: true),
+                                              ],
+                                            ),
+                                          ),
                                         ),
                                       );
                                     },
@@ -920,71 +929,90 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
     );
   }
 
+  void _openVoucherDetail(DaybookEntry entry) {
+    final company = CompanyProvider.of(context).selectedCompany;
+    showLedgerVoucherDetailSheet(
+      context: context,
+      entry: entry,
+      ledger: widget.ledger,
+      companyName: company,
+    );
+  }
+
   Widget _buildListCard(DaybookEntry entry) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.grey.shade200),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                entry.date != null ? DateFormat('dd-MMM-yy').format(entry.date!) : '',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => _openVoucherDetail(entry),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      entry.date != null ? DateFormat('dd-MMM-yy').format(entry.date!) : '',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        entry.voucherType,
+                        style: const TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
+                      ),
+                    )
+                  ],
                 ),
-                child: Text(
-                  entry.voucherType,
-                  style: const TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
+                const SizedBox(height: 8),
+                Text(
+                  entry.particulars ?? entry.ledgerName,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
-              )
-            ],
+                if (entry.voucherNumber != null && entry.voucherNumber!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text('Ref: ${entry.voucherNumber}', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                  ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      entry.isDebit ? 'DEBIT' : 'CREDIT',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: entry.isDebit ? Colors.red.shade700 : Colors.green.shade700,
+                      ),
+                    ),
+                    Text(
+                      _formatAmount(entry.amount),
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: entry.isDebit ? Colors.red.shade700 : Colors.green.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            entry.particulars ?? entry.ledgerName,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-          ),
-          if (entry.voucherNumber != null && entry.voucherNumber!.isNotEmpty)
-             Padding(
-               padding: const EdgeInsets.only(top: 4),
-               child: Text('Ref: ${entry.voucherNumber}', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
-             ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                entry.isDebit ? 'DEBIT' : 'CREDIT',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: entry.isDebit ? Colors.red.shade700 : Colors.green.shade700,
-                ),
-              ),
-              Text(
-                _formatAmount(entry.amount),
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: entry.isDebit ? Colors.red.shade700 : Colors.green.shade700,
-                ),
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }

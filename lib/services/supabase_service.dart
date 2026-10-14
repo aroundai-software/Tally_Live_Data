@@ -1586,6 +1586,81 @@ class SupabaseService {
     }
   }
 
+  /// Find a sales invoice by voucher / invoice number for a company.
+  Future<SalesInvoice?> findSalesInvoiceByNumber({
+    required String companyName,
+    required String invoiceNumber,
+    String? partyName,
+  }) async {
+    final number = invoiceNumber.trim();
+    if (companyName.isEmpty || number.isEmpty) return null;
+    try {
+      var query = _client
+          .from('sales_invoices')
+          .select()
+          .eq('company_name', companyName)
+          .eq('invoice_number', number);
+      if (partyName != null && partyName.trim().isNotEmpty) {
+        query = query.eq('customer_name', partyName.trim());
+      }
+      final rows = await query.limit(1);
+      final list = List<Map<String, dynamic>>.from(rows as List);
+      if (list.isEmpty && partyName != null && partyName.trim().isNotEmpty) {
+        // Retry without party filter (daybook particulars may differ from invoice party).
+        final retry = await _client
+            .from('sales_invoices')
+            .select()
+            .eq('company_name', companyName)
+            .eq('invoice_number', number)
+            .limit(1);
+        final retryList = List<Map<String, dynamic>>.from(retry as List);
+        if (retryList.isEmpty) return null;
+        return SalesInvoice.fromJson(retryList.first);
+      }
+      if (list.isEmpty) return null;
+      return SalesInvoice.fromJson(list.first);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Find a purchase invoice by voucher / invoice number for a company.
+  Future<PurchaseInvoice?> findPurchaseInvoiceByNumber({
+    required String companyName,
+    required String invoiceNumber,
+    String? partyName,
+  }) async {
+    final number = invoiceNumber.trim();
+    if (companyName.isEmpty || number.isEmpty) return null;
+    try {
+      var query = _client
+          .from('purchase_invoices')
+          .select()
+          .eq('company_name', companyName)
+          .eq('invoice_number', number);
+      if (partyName != null && partyName.trim().isNotEmpty) {
+        query = query.eq('supplier_name', partyName.trim());
+      }
+      final rows = await query.limit(1);
+      final list = List<Map<String, dynamic>>.from(rows as List);
+      if (list.isEmpty && partyName != null && partyName.trim().isNotEmpty) {
+        final retry = await _client
+            .from('purchase_invoices')
+            .select()
+            .eq('company_name', companyName)
+            .eq('invoice_number', number)
+            .limit(1);
+        final retryList = List<Map<String, dynamic>>.from(retry as List);
+        if (retryList.isEmpty) return null;
+        return PurchaseInvoice.fromJson(retryList.first);
+      }
+      if (list.isEmpty) return null;
+      return PurchaseInvoice.fromJson(list.first);
+    } catch (e) {
+      return null;
+    }
+  }
+
   Future<Map<String, double>> getProductSalesTotals({required String companyName}) async {
     if (companyName.isEmpty || companyName == 'No Company Linked') return {};
     try {

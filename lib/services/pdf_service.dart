@@ -7,43 +7,198 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../models/daybook_entry.dart';
+import '../models/ledger.dart';
 import '../models/sales_invoice.dart';
 import '../models/purchase_invoice.dart';
 
 class PdfService {
   // ── Public entry points ──────────────────────────────────────────────────
 
-  static Future<void> shareSalesInvoice(SalesInvoice invoice, List<InvoiceItem> items) async {
-    final pdf = await _generateSalesPdf(invoice, items);
+  static Future<void> shareSalesInvoice(
+    SalesInvoice invoice,
+    List<InvoiceItem> items, {
+    Ledger? ledger,
+  }) async {
+    final pdf = await _generateSalesPdf(invoice, items, ledger: ledger);
     final safeName = invoice.invoiceNumber.replaceAll(RegExp(r'[/\\]'), '_');
     await _sharePdf(pdf, 'Invoice_$safeName.pdf');
   }
 
-  static Future<void> downloadSalesInvoice(SalesInvoice invoice, List<InvoiceItem> items) async {
-    final pdf = await _generateSalesPdf(invoice, items);
+  static Future<void> downloadSalesInvoice(
+    SalesInvoice invoice,
+    List<InvoiceItem> items, {
+    Ledger? ledger,
+  }) async {
+    final pdf = await _generateSalesPdf(invoice, items, ledger: ledger);
     final safeName = invoice.invoiceNumber.replaceAll(RegExp(r'[/\\]'), '_');
     await _downloadPdf(pdf, 'Invoice_$safeName.pdf');
   }
 
-  static Future<void> sharePurchaseInvoice(PurchaseInvoice invoice, List<PurchaseInvoiceItem> items) async {
-    final pdf = await _generatePurchasePdf(invoice, items);
+  static Future<void> sharePurchaseInvoice(
+    PurchaseInvoice invoice,
+    List<PurchaseInvoiceItem> items, {
+    Ledger? ledger,
+  }) async {
+    final pdf = await _generatePurchasePdf(invoice, items, ledger: ledger);
     final safeName = invoice.invoiceNumber.replaceAll(RegExp(r'[/\\]'), '_');
     await _sharePdf(pdf, 'Purchase_$safeName.pdf');
   }
 
-  static Future<void> downloadPurchaseInvoice(PurchaseInvoice invoice, List<PurchaseInvoiceItem> items) async {
-    final pdf = await _generatePurchasePdf(invoice, items);
+  static Future<void> downloadPurchaseInvoice(
+    PurchaseInvoice invoice,
+    List<PurchaseInvoiceItem> items, {
+    Ledger? ledger,
+  }) async {
+    final pdf = await _generatePurchasePdf(invoice, items, ledger: ledger);
     final safeName = invoice.invoiceNumber.replaceAll(RegExp(r'[/\\]'), '_');
     await _downloadPdf(pdf, 'Purchase_$safeName.pdf');
   }
 
+  /// Share a single daybook / ledger voucher as a one-page PDF.
+  static Future<void> shareDaybookVoucher({
+    required DaybookEntry entry,
+    required String partyName,
+    String? companyName,
+    Ledger? ledger,
+  }) async {
+    final pdf = await _generateVoucherPdf(
+      entry: entry,
+      partyName: partyName,
+      companyName: companyName,
+      ledger: ledger,
+    );
+    await _sharePdf(pdf, _voucherFilename(entry));
+  }
+
+  /// Download / save a single daybook / ledger voucher PDF.
+  static Future<void> downloadDaybookVoucher({
+    required DaybookEntry entry,
+    required String partyName,
+    String? companyName,
+    Ledger? ledger,
+  }) async {
+    final pdf = await _generateVoucherPdf(
+      entry: entry,
+      partyName: partyName,
+      companyName: companyName,
+      ledger: ledger,
+    );
+    await _downloadPdf(pdf, _voucherFilename(entry));
+  }
+
+  static String _voucherFilename(DaybookEntry entry) {
+    final ref = (entry.voucherNumber ?? entry.voucherType)
+        .replaceAll(RegExp(r'[/\\]'), '_');
+    return 'Voucher_$ref.pdf';
+  }
+
   // ── PDF generators ────────────────────────────────────────────────────────
 
-  static Future<pw.Document> _generateSalesPdf(SalesInvoice invoice, List<InvoiceItem> items) async {
+  static Future<pw.Document> _generateVoucherPdf({
+    required DaybookEntry entry,
+    required String partyName,
+    String? companyName,
+    Ledger? ledger,
+  }) async {
+    final regular = await PdfGoogleFonts.notoSansRegular();
+    final bold = await PdfGoogleFonts.notoSansBold();
+    final theme = pw.ThemeData.withFont(base: regular, bold: bold);
+    final fmt = NumberFormat.currency(symbol: '\u20B9', decimalDigits: 2);
+    final dateStr = entry.date != null
+        ? DateFormat('dd-MMM-yyyy').format(entry.date!)
+        : '—';
+    final side = entry.isDebit ? 'Debit' : 'Credit';
+    final amountStr = fmt.format(entry.amount.abs());
+
+    final pdf = pw.Document(theme: theme);
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(36),
+        build: (_) => [
+          pw.Text(
+            companyName?.trim().isNotEmpty == true ? companyName!.trim() : 'TallyLive',
+            style: pw.TextStyle(font: bold, fontSize: 16),
+          ),
+          pw.SizedBox(height: 4),
+          pw.Text('Voucher Details', style: pw.TextStyle(font: bold, fontSize: 12)),
+          pw.SizedBox(height: 16),
+          pw.Divider(color: PdfColors.grey400),
+          pw.SizedBox(height: 12),
+          _buildPartyDetails(
+            'Party / Ledger:',
+            partyName,
+            ledger?.fullAddress.isNotEmpty == true
+                ? ledger!.fullAddress
+                : null,
+            regular,
+            bold,
+            ledger: ledger,
+          ),
+          pw.SizedBox(height: 16),
+          _voucherRow('Date', dateStr, regular, bold),
+          _voucherRow('Voucher Type', entry.voucherType, regular, bold),
+          if (entry.voucherNumber != null && entry.voucherNumber!.trim().isNotEmpty)
+            _voucherRow('Voucher No.', entry.voucherNumber!.trim(), regular, bold),
+          _voucherRow(
+            'Particulars',
+            (entry.particulars ?? entry.ledgerName).trim(),
+            regular,
+            bold,
+          ),
+          if (entry.narration != null && entry.narration!.trim().isNotEmpty)
+            _voucherRow('Narration', entry.narration!.trim(), regular, bold),
+          pw.SizedBox(height: 8),
+          pw.Divider(color: PdfColors.grey400),
+          pw.SizedBox(height: 8),
+          _voucherRow(side, amountStr, regular, bold, emphasize: true),
+        ],
+      ),
+    );
+    return pdf;
+  }
+
+  static pw.Widget _voucherRow(
+    String label,
+    String value,
+    pw.Font regular,
+    pw.Font bold, {
+    bool emphasize = false,
+  }) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 5),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.SizedBox(
+            width: 110,
+            child: pw.Text(label, style: pw.TextStyle(font: regular, fontSize: 11, color: PdfColors.grey700)),
+          ),
+          pw.Expanded(
+            child: pw.Text(
+              value,
+              style: pw.TextStyle(
+                font: emphasize ? bold : regular,
+                fontSize: emphasize ? 13 : 11,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Future<pw.Document> _generateSalesPdf(
+    SalesInvoice invoice,
+    List<InvoiceItem> items, {
+    Ledger? ledger,
+  }) async {
     // Load Noto Sans for full Unicode support (₹ symbol, etc.)
     final regular = await PdfGoogleFonts.notoSansRegular();
     final bold    = await PdfGoogleFonts.notoSansBold();
     final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+    final address = _partyAddress(ledger, invoice.shippingAddress);
 
     final pdf = pw.Document(theme: theme);
     pdf.addPage(
@@ -54,8 +209,14 @@ class PdfService {
           _buildHeader(invoice.companyName ?? 'Company', 'TAX INVOICE',
               invoice.invoiceNumber, invoice.invoiceDate, bold),
           pw.SizedBox(height: 20),
-          _buildPartyDetails('Bill To:', invoice.customerName,
-              invoice.shippingAddress, regular, bold),
+          _buildPartyDetails(
+            'Bill To:',
+            invoice.customerName,
+            address,
+            regular,
+            bold,
+            ledger: ledger,
+          ),
           pw.SizedBox(height: 20),
           _buildItemsTable(
             items.map((e) => {
@@ -78,10 +239,14 @@ class PdfService {
   }
 
   static Future<pw.Document> _generatePurchasePdf(
-      PurchaseInvoice invoice, List<PurchaseInvoiceItem> items) async {
+    PurchaseInvoice invoice,
+    List<PurchaseInvoiceItem> items, {
+    Ledger? ledger,
+  }) async {
     final regular = await PdfGoogleFonts.notoSansRegular();
     final bold    = await PdfGoogleFonts.notoSansBold();
     final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+    final address = _partyAddress(ledger, invoice.shippingAddress);
 
     final pdf = pw.Document(theme: theme);
     pdf.addPage(
@@ -92,8 +257,14 @@ class PdfService {
           _buildHeader(invoice.companyName ?? 'Company', 'PURCHASE INVOICE',
               invoice.invoiceNumber, invoice.invoiceDate, bold),
           pw.SizedBox(height: 20),
-          _buildPartyDetails('Vendor:', invoice.supplierName,
-              invoice.shippingAddress, regular, bold),
+          _buildPartyDetails(
+            'Vendor:',
+            invoice.supplierName,
+            address,
+            regular,
+            bold,
+            ledger: ledger,
+          ),
           pw.SizedBox(height: 20),
           _buildItemsTable(
             items.map((e) => {
@@ -113,6 +284,13 @@ class PdfService {
       ),
     );
     return pdf;
+  }
+
+  static String? _partyAddress(Ledger? ledger, String? fallback) {
+    final fromLedger = ledger?.fullAddress.trim() ?? '';
+    if (fromLedger.isNotEmpty) return fromLedger;
+    final fromInvoice = fallback?.trim() ?? '';
+    return fromInvoice.isNotEmpty ? fromInvoice : null;
   }
 
   // ── PDF layout widgets ────────────────────────────────────────────────────
@@ -173,8 +351,34 @@ class PdfService {
     );
   }
 
-  static pw.Widget _buildPartyDetails(String label, String name,
-      String? address, pw.Font regular, pw.Font bold) {
+  static pw.Widget _buildPartyDetails(
+    String label,
+    String name,
+    String? address,
+    pw.Font regular,
+    pw.Font bold, {
+    Ledger? ledger,
+  }) {
+    final detailLines = <String>[];
+    if (ledger?.ledgerType != null && ledger!.ledgerType!.trim().isNotEmpty) {
+      detailLines.add('Group: ${ledger.ledgerType!.trim()}');
+    }
+    if (ledger?.gstNumber != null && ledger!.gstNumber!.trim().isNotEmpty) {
+      detailLines.add('GSTIN: ${ledger.gstNumber!.trim()}');
+    }
+    if (ledger?.panNumber != null && ledger!.panNumber!.trim().isNotEmpty) {
+      detailLines.add('PAN: ${ledger.panNumber!.trim()}');
+    }
+    if (ledger?.phone != null && ledger!.phone!.trim().isNotEmpty) {
+      detailLines.add('Mobile: ${ledger.phone!.trim()}');
+    }
+    if (ledger?.email != null && ledger!.email!.trim().isNotEmpty) {
+      detailLines.add('Email: ${ledger.email!.trim()}');
+    }
+    if (ledger?.contactPerson != null && ledger!.contactPerson!.trim().isNotEmpty) {
+      detailLines.add('Contact: ${ledger.contactPerson!.trim()}');
+    }
+
     return pw.Container(
       padding: const pw.EdgeInsets.all(12),
       decoration: pw.BoxDecoration(
@@ -193,6 +397,10 @@ class PdfService {
             pw.SizedBox(height: 4),
             pw.Text(address,
                 style: pw.TextStyle(font: regular, fontSize: 10)),
+          ],
+          for (final line in detailLines) ...[
+            pw.SizedBox(height: 2),
+            pw.Text(line, style: pw.TextStyle(font: regular, fontSize: 10)),
           ],
         ],
       ),
@@ -302,34 +510,21 @@ class PdfService {
     if (kIsWeb) {
       await Printing.sharePdf(bytes: bytes, filename: filename);
     } else {
-      final dir  = await getTemporaryDirectory();
+      final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/$filename');
       await file.writeAsBytes(bytes);
       await SharePlus.instance.share(
-        ShareParams(files: [XFile(file.path)], text: 'Please find the attached invoice.'),
+        ShareParams(files: [XFile(file.path)], text: 'Please find the attached PDF.'),
       );
     }
   }
 
-  /// Download: browser file download on web; saves to device on mobile via share sheet.
+  /// Save / print via the system PDF preview (distinct from share).
   static Future<void> _downloadPdf(pw.Document pdf, String filename) async {
     final bytes = await pdf.save();
-    if (kIsWeb) {
-      // Triggers an instant browser "Save As" download.
-      await Printing.sharePdf(bytes: bytes, filename: filename);
-    } else {
-      // Save to temp dir, then open native share sheet so the user can
-      // choose "Save to Downloads" or open in a PDF viewer directly.
-      final dir  = await getTemporaryDirectory();
-      final file = File('${dir.path}/$filename');
-      await file.writeAsBytes(bytes);
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path)],
-          subject: filename,
-          text: 'Tap "Save to Files" or "Downloads" to keep this invoice.',
-        ),
-      );
-    }
+    await Printing.layoutPdf(
+      onLayout: (_) async => bytes,
+      name: filename,
+    );
   }
 }
