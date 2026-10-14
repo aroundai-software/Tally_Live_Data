@@ -7,11 +7,11 @@ import '../providers/company_provider.dart';
 import '../utils/company_scope.dart';
 import '../services/supabase_service.dart';
 import '../services/user_preferences_service.dart';
-import '../services/pdf_service.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/purchase_invoice_detail_sheet.dart';
 
 enum InvoiceSortOption {
   dateNewest,
@@ -891,197 +891,14 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   }
 
   void _showInvoiceDetail(PurchaseInvoice invoice) {
-    final dateFormat = DateFormat('dd MMM yyyy');
-    showModalBottomSheet(
+    showPurchaseInvoiceDetailSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.90,
-          maxChildSize: 0.95,
-          minChildSize: 0.5,
-          builder: (context, scrollController) {
-            return Container(
-              margin: const EdgeInsets.only(bottom: 24, left: 16, right: 16),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                children: [
-                  Container(margin: const EdgeInsets.only(top: 12), width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
-                  Expanded(
-                    child: ListView(
-                      controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(color: AppTheme.purchaseColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-                              child: const Icon(Icons.receipt_long_rounded, color: AppTheme.purchaseColor, size: 24),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Invoice #${invoice.invoiceNumber}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36))),
-                                  if (invoice.invoiceDate != null)
-                                    Text(dateFormat.format(invoice.invoiceDate!), style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.share_rounded),
-                              color: AppTheme.purchaseColor,
-                              tooltip: 'Share',
-                              onPressed: () async {
-                                try {
-                                  final items = invoice.id != null ? await _service.getPurchaseInvoiceItems(invoice.id!) : <PurchaseInvoiceItem>[];
-                                  await PdfService.sharePurchaseInvoice(invoice, items);
-                                } catch (e) {
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-                                  }
-                                }
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close_rounded),
-                              color: Colors.grey.shade700,
-                              tooltip: 'Close',
-                              onPressed: () => Navigator.pop(context),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        _detailSection('Supplier Details', [
-                          _detailItem('Supplier', invoice.supplierName),
-                          if (invoice.shippingAddress != null && invoice.shippingAddress!.isNotEmpty)
-                            _detailItem('Ship To', invoice.shippingAddress!),
-                          if (invoice.supplierCategoryName != null && invoice.supplierCategoryName!.isNotEmpty)
-                            _detailItem('Category', invoice.supplierCategoryName!),
-                          if (invoice.type != null && invoice.type!.isNotEmpty)
-                            _detailItem('Type', invoice.type!),
-                        ]),
-                        if (invoice.id != null) ...[
-                          const SizedBox(height: 16),
-                          FutureBuilder<List<PurchaseInvoiceItem>>(
-                            future: _service.getPurchaseInvoiceItems(invoice.id!),
-                            builder: (context, snapshot) {
-                              if (snapshot.connectionState == ConnectionState.waiting) {
-                                return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(strokeWidth: 2)));
-                              }
-                              if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox.shrink();
-                              return _buildItemsTable(snapshot.data!);
-                            },
-                          ),
-                        ],
-                        const SizedBox(height: 16),
-                        _detailSection('Amount Details', [
-                          if (invoice.subtotalBeforeDiscount > 0)
-                            _detailItem('Subtotal', formatCurrency(invoice.subtotalBeforeDiscount)),
-                          if (invoice.discountAmount > 0)
-                            _detailItem('Discount (${invoice.discountPercentage.toStringAsFixed(1)}%)', formatCurrency(invoice.discountAmount)),
-                          _detailItem('Net Amount', formatCurrency(invoice.netAmount)),
-                          _detailItem('GST Amount', formatCurrency(invoice.gstAmount)),
-                          if (invoice.roundOff != null && invoice.roundOff! != 0)
-                            _detailItem('Round Off', formatCurrency(invoice.roundOff!)),
-                          _detailItem('Total Amount', formatCurrency(invoice.totalAmount)),
-                        ]),
-                        const SizedBox(height: 16),
-                        _detailSection('Status', [
-                          if (invoice.status != null) _detailItem('Status', invoice.status!),
-                          _detailItem('Tally Synced', invoice.syncedToTally ? 'Yes' : 'No'),
-                          if (invoice.remarks != null && invoice.remarks!.isNotEmpty)
-                            _detailItem('Remarks', invoice.remarks!),
-                        ]),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _detailSection(String title, List<Widget> children) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: const Color(0xFFF8F9FE), borderRadius: BorderRadius.circular(14)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36))),
-        const SizedBox(height: 10),
-        ...children,
-      ]),
-    );
-  }
-
-  Widget _detailItem(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(
-          flex: 2,
-          child: Text(label, style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          flex: 3,
-          child: Text(
-            value,
-            textAlign: TextAlign.right,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)),
-          ),
-        ),
-      ]),
-    );
-  }
-
-  Widget _buildItemsTable(List<PurchaseInvoiceItem> items) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: const Color(0xFFF8F9FE), borderRadius: BorderRadius.circular(14)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Items', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36))),
-        const SizedBox(height: 10),
-        ...items.map((item) => Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade200)),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(
-                  children: [
-                    Expanded(child: Text(item.productName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)))),
-                    Text(formatCurrency(item.totalAmount), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.purchaseColor)),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Wrap(spacing: 8, runSpacing: 4, children: [
-                  _miniChip('Qty: ${item.quantity}'),
-                  _miniChip('Rate: \u20B9${item.unitPrice.toStringAsFixed(2)}'),
-                  _miniChip('GST: ${item.gstRate.toStringAsFixed(0)}%'),
-                  if (item.freeQuantity > 0) _miniChip('Free: ${item.freeQuantity}'),
-                  if (item.discountAmount > 0) _miniChip('Disc: \u20B9${item.discountAmount.toStringAsFixed(2)}'),
-                ]),
-              ]),
-            )),
-      ]),
-    );
-  }
-
-  Widget _miniChip(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
-      child: Text(text, style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
+      invoice: invoice,
+      service: _service,
     );
   }
 }
+
 
 class _InvoiceCard extends StatelessWidget {
   final PurchaseInvoice invoice;

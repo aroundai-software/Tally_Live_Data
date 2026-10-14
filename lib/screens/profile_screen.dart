@@ -3,6 +3,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
+import '../utils/admin_access.dart';
 import '../widgets/shimmer_loading.dart';
 import 'login_screen.dart';
 import 'admin_panel_screen.dart';
@@ -97,7 +98,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (confirm == true) {
       await _service.signOut();
       if (!mounted) return;
-      CompanyProvider.of(context).clearCompany();
+      final state = CompanyProvider.of(context);
+      state.clearCompany();
+      state.clearUserCapabilities();
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,
@@ -488,8 +491,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildAdminSection() {
-    final bool isSuperAdmin = _role == 'super_admin' || _service.currentUser?.email == 'admin@tallylive.com';
-    if (!isSuperAdmin) return const SizedBox.shrink();
+    if (!isSuperAdminRole(_role)) return const SizedBox.shrink();
 
     return Column(
       children: [
@@ -536,7 +538,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final initials = _fullName.trim().isNotEmpty
         ? _fullName.trim().split(RegExp(r'\s+')).map((e) => e.characters.first).take(2).join().toUpperCase()
         : 'OW';
-    final selectedCompany = CompanyProvider.of(context).selectedCompany ?? _companyName;
+    final companyState = CompanyProvider.of(context);
+    final selectedCompany = companyState.isCombinedMode
+        ? 'Combined (${companyState.selectedCompanies.length} companies)'
+        : (companyState.selectedCompany ?? _companyName);
 
     return Container(
       width: double.infinity,

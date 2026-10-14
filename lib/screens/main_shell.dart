@@ -3,8 +3,13 @@ import 'package:flutter/material.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../utils/company_scope.dart';
+import '../utils/combined_company_selection.dart';
 import '../services/supabase_service.dart';
 import 'company_selection_screen.dart';
+import 'combined_company_picker_screen.dart';
+import 'combined_outstanding_report_screen.dart';
+import 'combined_purchases_report_screen.dart';
+import 'combined_sales_report_screen.dart';
 import 'dashboard_screen.dart';
 import 'login_screen.dart';
 import 'profile_screen.dart';
@@ -13,6 +18,15 @@ import 'ledger_screen.dart';
 import 'receivables_payables_screen.dart';
 import 'sales_invoice_screen.dart';
 import 'purchase_invoices_screen.dart';
+
+/// Feature keys that must never appear as tabs/QA in Combined mode.
+const _kCombinedHiddenFeatures = {
+  'balance_sheet',
+  'profit_loss',
+  'cash_flow',
+  'db_qa_balance_sheet',
+  'db_qa_profit_loss',
+};
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -27,11 +41,13 @@ class _MainShellState extends State<MainShell> {
   bool _stockScreenShowSales = false;
   int _receivablesPayablesTab = 0;
   String _receivablesPayablesFilter = 'all';
-  String? _lastCompany;
+  String? _lastScopeKey;
   Object? _featureError;
-  StreamSubscription<Map<String, bool>>? _featureSubscription;
-  StreamSubscription<Map<String, dynamic>>? _syncSubscription;
+  final List<StreamSubscription<Map<String, bool>>> _featureSubscriptions = [];
+  final List<StreamSubscription<Map<String, dynamic>>> _syncSubscriptions = [];
+  final Map<String, Map<String, bool>> _featuresByCompany = {};
   StreamSubscription<Map<String, dynamic>>? _userProfileSubscription;
+  bool _exitingForRevokedFlag = false;
 
   DateTime? _subscriptionExpiresAt;
   bool _subscriptionExpired = false;
@@ -51,20 +67,50 @@ class _MainShellState extends State<MainShell> {
     final user = SupabaseService().currentUser;
     if (user != null) {
       _userProfileSubscription = SupabaseService().streamUserProfile(user.id).listen((profile) {
-        if (mounted && profile.isNotEmpty) {
-          final isActive = profile['is_active'] == true;
-          if (!isActive) {
-            _forceLogout();
-          }
+        if (!mounted || profile.isEmpty) return;
+        final companyState = CompanyProvider.of(context);
+        final wasCombined = companyState.isCombinedMode;
+        companyState.setUserCombinedReportsEnabled(
+          profile['is_combined_reports_enabled'] == true,
+        );
+        final isActive = profile['is_active'] == true;
+        if (!isActive) {
+          _forceLogout();
+          return;
+        }
+        if (wasCombined &&
+            !companyState.userCombinedReportsEnabled &&
+            !_exitingForRevokedFlag) {
+          _exitCombinedRevoked();
         }
       });
     }
   }
 
+  Future<void> _exitCombinedRevoked() async {
+    _exitingForRevokedFlag = true;
+    if (!mounted) return;
+    CompanyProvider.of(context).clearCompany();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Combined mode was disabled for your account.'),
+      ),
+    );
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const CompanySelectionScreen()),
+      (route) => false,
+    );
+  }
+
   Future<void> _forceLogout() async {
+    if (mounted) {
+      final state = CompanyProvider.of(context);
+      state.clearCompany();
+      state.clearUserCapabilities();
+    }
     await SupabaseService().signOut();
     if (!mounted) return;
-    
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -91,26 +137,44 @@ class _MainShellState extends State<MainShell> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final companyState = CompanyProvider.of(context);
-    final currentCompany = companyState.selectedCompany;
-    if (currentCompany != _lastCompany) {
-      _lastCompany = currentCompany;
+    final scopeKey = companyState.scopeKey;
+    if (scopeKey != _lastScopeKey) {
+      _lastScopeKey = scopeKey;
       _currentIndex = 0;
       _stockScreenShowSales = false;
       _receivablesPayablesTab = 0;
       _receivablesPayablesFilter = 'all';
-      if (currentCompany != null) {
-        _activatedTabs.removeWhere((idx) => idx != 0);
-        _listenToCompanyFeatures(currentCompany, companyState);
-        _listenToSyncLogs(currentCompany, companyState);
-        _checkSubscriptionExpiry(currentCompany);
+      _activatedTabs
+        ..clear()
+        ..add(0);
+      _featuresByCompany.clear();
+
+      if (companyState.isCombinedMode &&
+          CombinedCompanySelection.isReady(companyState.selectedCompanies)) {
+        _listenToCombinedFeatures(companyState.selectedCompanies, companyState);
+        _listenToCombinedSyncLogs(companyState.selectedCompanies, companyState);
+        _clearSubscriptionState();
+      } else if (CompanyScope.isValid(companyState.selectedCompany)) {
+        final company = companyState.selectedCompany!;
+        _listenToCompanyFeatures(company, companyState);
+        _listenToSyncLogs(company, companyState);
+        _checkSubscriptionExpiry(company);
       } else {
-        _featureSubscription?.cancel();
-        _featureSubscription = null;
-        _syncSubscription?.cancel();
-        _syncSubscription = null;
+        _cancelFeatureAndSync();
         _clearSubscriptionState();
       }
     }
+  }
+
+  void _cancelFeatureAndSync() {
+    for (final s in _featureSubscriptions) {
+      s.cancel();
+    }
+    _featureSubscriptions.clear();
+    for (final s in _syncSubscriptions) {
+      s.cancel();
+    }
+    _syncSubscriptions.clear();
   }
 
   void _clearSubscriptionState() {
@@ -123,7 +187,9 @@ class _MainShellState extends State<MainShell> {
   Future<void> _checkSubscriptionExpiry(String companyName) async {
     final result =
         await SupabaseService().getCompanySubscriptionExpiry(companyName);
-    if (!mounted || CompanyProvider.of(context).selectedCompany != companyName) {
+    if (!mounted) return;
+    final state = CompanyProvider.of(context);
+    if (state.isCombinedMode || state.selectedCompany != companyName) {
       return;
     }
 
@@ -191,6 +257,8 @@ class _MainShellState extends State<MainShell> {
   }
 
   bool get _showSubscriptionBanner {
+    final state = CompanyProvider.maybeOf(context);
+    if (state != null && state.isCombinedMode) return false;
     if (_subscriptionExpiresAt == null || _subscriptionDaysLeft == null) {
       return false;
     }
@@ -200,36 +268,125 @@ class _MainShellState extends State<MainShell> {
 
   @override
   void dispose() {
-    _featureSubscription?.cancel();
-    _syncSubscription?.cancel();
+    _cancelFeatureAndSync();
     _userProfileSubscription?.cancel();
     super.dispose();
   }
 
-  void _listenToCompanyFeatures(String companyName, CompanyState companyState) {
+  void _applyUnionFeatures(CompanyState companyState) {
+    if (!companyState.isCombinedMode) return;
+    final maps = companyState.selectedCompanies
+        .map((c) => _featuresByCompany[c])
+        .whereType<Map<String, bool>>()
+        .toList();
+    if (maps.isEmpty) return;
+    final merged = <String, bool>{};
+    for (final map in maps) {
+      map.forEach((key, value) {
+        if (_kCombinedHiddenFeatures.contains(key)) {
+          merged[key] = false;
+          return;
+        }
+        merged[key] = (merged[key] ?? false) || value;
+      });
+    }
+    for (final key in _kCombinedHiddenFeatures) {
+      merged[key] = false;
+    }
     _featureError = null;
-    _featureSubscription?.cancel();
-    _featureSubscription = SupabaseService().streamCompanyFeatures(companyName).listen((features) {
-      if (mounted && companyState.selectedCompany == companyName) {
-        _featureError = null;
-        companyState.setFeatures(features);
-      }
-    }, onError: (Object error) {
-      if (mounted && companyState.selectedCompany == companyName) {
-        setState(() => _featureError = error);
-      }
+    companyState.setFeatures(merged);
+  }
+
+  void _listenToCombinedFeatures(
+    List<String> companies,
+    CompanyState companyState,
+  ) {
+    _featureError = null;
+    _cancelFeatureAndSync();
+    // Keep sync separate — re-setup sync after features.
+    for (final company in companies) {
+      final sub = SupabaseService().streamCompanyFeatures(company).listen(
+        (features) {
+          if (!mounted || !companyState.isCombinedMode) return;
+          if (!companyState.selectedCompanies.contains(company)) return;
+          _featuresByCompany[company] = features;
+          _applyUnionFeatures(companyState);
+        },
+        onError: (Object error) {
+          if (!mounted || !companyState.isCombinedMode) return;
+          setState(() => _featureError = error);
+        },
+      );
+      _featureSubscriptions.add(sub);
+    }
+    // Seed with one-shot fetch so UI is not stuck waiting for stream.
+    Future.wait(companies.map((c) async {
+      try {
+        final features = await SupabaseService().getCompanyFeatures(c);
+        if (!mounted || !companyState.isCombinedMode) return;
+        _featuresByCompany[c] = features;
+      } catch (_) {}
+    })).then((_) {
+      if (mounted) _applyUnionFeatures(companyState);
     });
   }
 
+  void _listenToCompanyFeatures(String companyName, CompanyState companyState) {
+    _featureError = null;
+    _cancelFeatureAndSync();
+    final sub = SupabaseService().streamCompanyFeatures(companyName).listen(
+      (features) {
+        if (mounted && companyState.selectedCompany == companyName) {
+          _featureError = null;
+          companyState.setFeatures(features);
+        }
+      },
+      onError: (Object error) {
+        if (mounted && companyState.selectedCompany == companyName) {
+          setState(() => _featureError = error);
+        }
+      },
+    );
+    _featureSubscriptions.add(sub);
+  }
+
+  void _listenToCombinedSyncLogs(
+    List<String> companies,
+    CompanyState companyState,
+  ) {
+    for (final s in _syncSubscriptions) {
+      s.cancel();
+    }
+    _syncSubscriptions.clear();
+    for (final company in companies) {
+      final sub = SupabaseService().streamSyncLogUpdates(company).listen(
+        (event) {
+          if (mounted &&
+              companyState.isCombinedMode &&
+              event.isNotEmpty) {
+            companyState.notifySyncCompleted();
+          }
+        },
+        onError: (_) {},
+      );
+      _syncSubscriptions.add(sub);
+    }
+  }
+
   void _listenToSyncLogs(String companyName, CompanyState companyState) {
-    _syncSubscription?.cancel();
-    _syncSubscription = SupabaseService().streamSyncLogUpdates(companyName).listen((event) {
-      if (mounted && event.isNotEmpty) {
-        companyState.notifySyncCompleted();
-      }
-    }, onError: (_) {
-      // Ignore errors
-    });
+    for (final s in _syncSubscriptions) {
+      s.cancel();
+    }
+    _syncSubscriptions.clear();
+    final sub = SupabaseService().streamSyncLogUpdates(companyName).listen(
+      (event) {
+        if (mounted && event.isNotEmpty) {
+          companyState.notifySyncCompleted();
+        }
+      },
+      onError: (_) {},
+    );
+    _syncSubscriptions.add(sub);
   }
 
   void _onNavigate(
@@ -254,10 +411,28 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  Future<void> _changeCombinedCompanies() async {
+    final state = CompanyProvider.of(context);
+    final result = await Navigator.of(context).push<List<String>>(
+      MaterialPageRoute(
+        builder: (_) => CombinedCompanyPickerScreen(
+          enterAppOnConfirm: false,
+          initialSelected: state.selectedCompanies,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (result != null && CombinedCompanySelection.isReady(result)) {
+      CompanyProvider.of(context).enterCombinedMode(result);
+    }
+  }
+
   Future<void> _logout() async {
     await SupabaseService().signOut();
     if (!mounted) return;
-    CompanyProvider.of(context).clearCompany();
+    final state = CompanyProvider.of(context);
+    state.clearCompany();
+    state.clearUserCapabilities();
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
@@ -266,7 +441,10 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final companyState = CompanyProvider.of(context);
+    final scopeKey = companyState.scopeKey;
     final companyName = companyState.selectedCompany ?? '';
+    final isCombined = companyState.isCombinedMode;
+
     if (_featureError != null || !companyState.featuresLoaded) {
       return Scaffold(
         backgroundColor: AppTheme.surfaceColor,
@@ -276,12 +454,30 @@ class _MainShellState extends State<MainShell> {
               : Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('Unable to verify company access.', style: TextStyle(color: Color(0xFF1A1F36), fontWeight: FontWeight.w600)),
+                    const Text(
+                      'Unable to verify company access.',
+                      style: TextStyle(
+                        color: Color(0xFF1A1F36),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     TextButton(
                       onPressed: () {
                         setState(() {
-                          _listenToCompanyFeatures(companyName, companyState);
+                          if (isCombined) {
+                            _listenToCombinedFeatures(
+                              companyState.selectedCompanies,
+                              companyState,
+                            );
+                            _listenToCombinedSyncLogs(
+                              companyState.selectedCompanies,
+                              companyState,
+                            );
+                          } else {
+                            _listenToCompanyFeatures(companyName, companyState);
+                            _listenToSyncLogs(companyName, companyState);
+                          }
                         });
                       },
                       child: const Text('Retry'),
@@ -291,16 +487,31 @@ class _MainShellState extends State<MainShell> {
         ),
       );
     }
-    if (!['dashboard','stock','ledgers','outstanding','sales','purchases','analytics','cash_flow'].any(companyState.isFeatureEnabled)) {
-      return Scaffold(appBar: AppBar(title: const Text('TallyLive')), body: Center(child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [const Text('Company access is unavailable. Contact your administrator.'),
-          TextButton(onPressed: _switchCompany, child: const Text('Switch company')),
-          TextButton(onPressed: _logout, child: const Text('Log out'))],
-      )));
+    if (![
+      'dashboard',
+      'stock',
+      'ledgers',
+      'outstanding',
+      'sales',
+      'purchases',
+      'analytics',
+      'cash_flow',
+    ].any(companyState.isFeatureEnabled)) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('TallyLive')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Company access is unavailable. Contact your administrator.'),
+              TextButton(onPressed: _switchCompany, child: const Text('Switch company')),
+              TextButton(onPressed: _logout, child: const Text('Log out')),
+            ],
+          ),
+        ),
+      );
     }
 
-    // Calculate outstanding tab label and icon dynamically
     final showRec = companyState.isFeatureEnabled('out_receivables');
     final showPay = companyState.isFeatureEnabled('out_payables');
     final outstandingLabel = (showRec && showPay)
@@ -310,51 +521,77 @@ class _MainShellState extends State<MainShell> {
         ? Icons.swap_horiz_rounded
         : (showRec ? Icons.trending_up_rounded : Icons.trending_down_rounded);
 
+    final companies = companyState.selectedCompanies;
+
     final screens = [
       DashboardScreen(
-        key: CompanyScope.screenKey('dash', companyName),
+        key: CompanyScope.screenKeyForScope('dash', scopeKey),
         onNavigate: _onNavigate,
       ),
       _activatedTabs.contains(1)
           ? StockScreen(
-              key: CompanyScope.screenKey('stock', companyName),
+              key: CompanyScope.screenKeyForScope('stock', scopeKey),
               onBack: () => _onNavigate(0),
               showSalesValue: _stockScreenShowSales,
             )
           : const SizedBox.shrink(),
       _activatedTabs.contains(2)
           ? LedgerScreen(
-              key: CompanyScope.screenKey('ledger', companyName),
+              key: CompanyScope.screenKeyForScope('ledger', scopeKey),
               onBack: () => _onNavigate(0),
             )
           : const SizedBox.shrink(),
       _activatedTabs.contains(3)
-          ? ReceivablesPayablesScreen(
-              key: CompanyScope.screenKey('outstanding', companyName),
-              onBack: () => _onNavigate(0),
-              initialTabIndex: _receivablesPayablesTab,
-              initialFilter: _receivablesPayablesFilter,
-              isActive: _currentIndex == 3,
-            )
+          ? (isCombined
+              ? CombinedOutstandingReportScreen(
+                  key: CompanyScope.screenKeyForScope('outstanding', scopeKey),
+                  companyNames: companies,
+                  embedded: true,
+                )
+              : ReceivablesPayablesScreen(
+                  key: CompanyScope.screenKeyForScope('outstanding', scopeKey),
+                  onBack: () => _onNavigate(0),
+                  initialTabIndex: _receivablesPayablesTab,
+                  initialFilter: _receivablesPayablesFilter,
+                  isActive: _currentIndex == 3,
+                ))
           : const SizedBox.shrink(),
       _activatedTabs.contains(4)
-          ? SalesInvoiceScreen(
-              key: CompanyScope.screenKey('sales', companyName),
-              onBack: () => _onNavigate(0),
-            )
+          ? (isCombined
+              ? CombinedSalesReportScreen(
+                  key: CompanyScope.screenKeyForScope('sales', scopeKey),
+                  companyNames: companies,
+                  embedded: true,
+                )
+              : SalesInvoiceScreen(
+                  key: CompanyScope.screenKeyForScope('sales', scopeKey),
+                  onBack: () => _onNavigate(0),
+                ))
           : const SizedBox.shrink(),
       _activatedTabs.contains(5)
-          ? PurchaseInvoiceScreen(
-              key: CompanyScope.screenKey('purchase', companyName),
-              onBack: () => _onNavigate(0),
-            )
+          ? (isCombined
+              ? CombinedPurchasesReportScreen(
+                  key: CompanyScope.screenKeyForScope('purchase', scopeKey),
+                  companyNames: companies,
+                  embedded: true,
+                )
+              : PurchaseInvoiceScreen(
+                  key: CompanyScope.screenKeyForScope('purchase', scopeKey),
+                  onBack: () => _onNavigate(0),
+                ))
           : const SizedBox.shrink(),
     ];
 
     return Scaffold(
       body: Column(
         children: [
-          _CompanyBanner(companyName: companyName, onSwitch: _switchCompany),
+          _CompanyBanner(
+            companyName: companyName,
+            isCombined: isCombined,
+            combinedCompanies: companies,
+            onSwitch: _switchCompany,
+            onChangeCombined: isCombined ? _changeCombinedCompanies : null,
+          ),
           if (_showSubscriptionBanner)
             _SubscriptionBanner(
               expired: _subscriptionExpired,
@@ -468,39 +705,40 @@ class _NavItem extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.symmetric(
-          horizontal: 6,
-          vertical: 6,
-        ),
-        decoration: BoxDecoration(
-          color: isSelected ? color.withValues(alpha: 0.1) : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 20,
-              color: isSelected ? color : Colors.grey.shade400,
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 6,
+            vertical: 6,
+          ),
+          decoration: BoxDecoration(
+            color: isSelected ? color.withValues(alpha: 0.1) : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 20,
                 color: isSelected ? color : Colors.grey.shade400,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: isSelected ? color : Colors.grey.shade400,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
       ),
-    ));
+    );
   }
 }
 
@@ -561,72 +799,161 @@ class _SubscriptionBanner extends StatelessWidget {
 
 class _CompanyBanner extends StatelessWidget {
   final String companyName;
+  final bool isCombined;
+  final List<String> combinedCompanies;
   final VoidCallback onSwitch;
+  final VoidCallback? onChangeCombined;
 
   const _CompanyBanner({
     required this.companyName,
+    required this.isCombined,
+    required this.combinedCompanies,
     required this.onSwitch,
+    this.onChangeCombined,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: const Color(0xFF0D47A1),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  companyName,
-                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              GestureDetector(
-                onTap: onSwitch,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
+    final title = isCombined
+        ? 'Combined (${combinedCompanies.length})'
+        : companyName;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          color: const Color(0xFF0D47A1),
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: isCombined
+                        ? Align(
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                title,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                        : Text(
+                            title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                   ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.swap_horiz_rounded, color: Colors.white70, size: 16),
-                      SizedBox(width: 4),
-                      Text('Switch', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
-                    ],
+                  if (onChangeCombined != null) ...[
+                    GestureDetector(
+                      onTap: onChangeCombined,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.edit_rounded, color: Colors.white70, size: 14),
+                            SizedBox(width: 4),
+                            Text(
+                              'Change',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  GestureDetector(
+                    onTap: onSwitch,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.swap_horiz_rounded, color: Colors.white70, size: 16),
+                          SizedBox(width: 4),
+                          Text(
+                            'Switch',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    shape: BoxShape.circle,
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.person_rounded, color: Colors.white, size: 18),
+                    ),
                   ),
-                  child: const Icon(Icons.person_rounded, color: Colors.white, size: 18),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
-      ),
+        if (isCombined && combinedCompanies.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+            child: Text(
+              combinedCompanies.join('  ·  '),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                height: 1.25,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
-
 
 class FadeIndexedStack extends StatefulWidget {
   final int index;
@@ -644,7 +971,8 @@ class FadeIndexedStack extends StatefulWidget {
   State<FadeIndexedStack> createState() => _FadeIndexedStackState();
 }
 
-class _FadeIndexedStackState extends State<FadeIndexedStack> with SingleTickerProviderStateMixin {
+class _FadeIndexedStackState extends State<FadeIndexedStack>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override

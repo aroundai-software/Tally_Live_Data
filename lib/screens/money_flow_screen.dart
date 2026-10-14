@@ -10,6 +10,7 @@ import 'ledger_statement_screen.dart';
 import '../providers/company_provider.dart';
 import '../utils/company_scope.dart';
 import '../config/app_theme.dart';
+import '../widgets/combined_mode_unavailable.dart';
 
 class MoneyFlowScreen extends StatefulWidget {
   const MoneyFlowScreen({super.key});
@@ -253,6 +254,9 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
   @override
   Widget build(BuildContext context) {
     final companyState = CompanyProvider.of(context);
+    if (companyState.isCombinedMode) {
+      return const CombinedModeUnavailable(featureName: 'Cash Flow');
+    }
     final isEnabled = companyState.isFeatureEnabled('cash_flow');
 
     if (!isEnabled) {

@@ -7,6 +7,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/error_state_widget.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/summary_card.dart';
+import '../widgets/combined_mode_unavailable.dart';
 import 'ledger_statement_screen.dart';
 
 /// Tally Group Summary style: one row per ledger, Closing Balance Debit | Credit.
@@ -138,6 +139,9 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (CompanyProvider.of(context).isCombinedMode) {
+      return const CombinedModeUnavailable(featureName: 'Financial report');
+    }
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
       appBar: AppBar(

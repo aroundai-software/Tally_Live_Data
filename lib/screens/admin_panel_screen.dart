@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../services/supabase_service.dart';
 import '../config/app_theme.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
+import '../utils/admin_access.dart';
 import '../widgets/shimmer_loading.dart';
 import 'login_screen.dart';
 
@@ -308,10 +309,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   StreamSubscription<Map<String, dynamic>>? _profileSubscription;
 
   bool _allowed(Map<String, dynamic>? profile) {
-    final user = SupabaseService().currentUser;
-    final phone = profile?['phone_number']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '';
-    return user != null && profile?['is_active'] == true &&
-      (profile?['role'] == 'super_admin' || user.email == 'admin@tallylive.com' || phone == '97000000');
+    return SupabaseService().currentUser != null && isActiveSuperAdmin(profile);
   }
 
   @override
@@ -1863,6 +1861,35 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
     }
   }
 
+  Future<void> _toggleUserCombinedReports(String userId, bool newValue) async {
+    final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
+    final previous =
+        idx >= 0 ? _users[idx]['is_combined_reports_enabled'] == true : !newValue;
+    if (idx >= 0) {
+      setState(() {
+        _users[idx] = Map<String, dynamic>.from(_users[idx])
+          ..['is_combined_reports_enabled'] = newValue;
+      });
+    }
+    try {
+      await _service.updateUserCombinedReports(userId, newValue);
+    } catch (e) {
+      if (!mounted) return;
+      if (idx >= 0) {
+        setState(() {
+          _users[idx] = Map<String, dynamic>.from(_users[idx])
+            ..['is_combined_reports_enabled'] = previous;
+        });
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update Combined Reports: $e'),
+          backgroundColor: AppTheme.errorColor,
+        ),
+      );
+    }
+  }
+
   Future<void> _refreshUserCompanies(String userId) async {
     // Merged list: user_companies + profile primary (additive link model).
     final companies = await _service.getUserCompanies(userId);
@@ -2403,6 +2430,8 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                 final user = displayedUsers[index];
                                 final userId = user['id']?.toString() ?? '';
                                 final isActive = user['is_active'] == true;
+                                final combinedReportsEnabled =
+                                    user['is_combined_reports_enabled'] == true;
                                 final role = user['role'] ?? 'user';
                                 final isExpanded = _expandedUserIds.contains(userId);
                                 final isLoadingCompanies =
@@ -2517,6 +2546,63 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 10,
+                                                  vertical: 6,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white,
+                                                  borderRadius: BorderRadius.circular(10),
+                                                  border: Border.all(
+                                                    color: AppTheme.dividerColor,
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  children: [
+                                                    const Icon(
+                                                      Icons.join_inner_rounded,
+                                                      size: 18,
+                                                      color: Color(0xFF1565C0),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    const Expanded(
+                                                      child: Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment.start,
+                                                        children: [
+                                                          Text(
+                                                            'Combined Reports',
+                                                            style: TextStyle(
+                                                              fontWeight: FontWeight.w700,
+                                                              fontSize: 13,
+                                                              color: AppTheme.textPrimary,
+                                                            ),
+                                                          ),
+                                                          SizedBox(height: 2),
+                                                          Text(
+                                                            'User can combine data from their linked companies',
+                                                            style: TextStyle(
+                                                              fontSize: 11,
+                                                              color: AppTheme.textSecondary,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                    Switch(
+                                                      value: combinedReportsEnabled,
+                                                      activeColor: AppTheme.primaryColor,
+                                                      onChanged: (val) =>
+                                                          _toggleUserCombinedReports(
+                                                        userId,
+                                                        val,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              const SizedBox(height: 12),
                                               Row(
                                                 children: [
                                                   const Icon(
@@ -2725,7 +2811,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
 
         if (!mounted) return;
         setState(() {
-          _adminPhone = profile?['phone_number']?.toString() ?? user.phone ?? '97000000';
+          _adminPhone = profile?['phone_number']?.toString() ?? user.phone ?? '';
           _appVersion = 'v${info.version}';
           _isLoading = false;
         });

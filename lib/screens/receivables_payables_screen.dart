@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../utils/error_handler.dart';
 import 'package:intl/intl.dart';
 import '../config/app_theme.dart';
@@ -11,6 +10,7 @@ import '../widgets/search_bar_widget.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/outstanding_detail_sheet.dart';
 
 class ReceivablesPayablesScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -42,16 +42,6 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   String? _error;
   final TextEditingController _searchController = TextEditingController();
 
-  final Set<String> _expandedItemKeys = {};
-
-  void _collapseAll() {
-    if (_expandedItemKeys.isNotEmpty) {
-      setState(() {
-        _expandedItemKeys.clear();
-      });
-    }
-  }
-
   late String _activeFilter;
   String _selectedGroup = 'All Items';
   String? _selectedLedger;
@@ -74,7 +64,6 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   void _onTabChanged() {
     if (!_tabController.indexIsChanging && _tabController.index != _lastTabIndex) {
       _lastTabIndex = _tabController.index;
-      _expandedItemKeys.clear();
       _selectedGroup = 'All Items';
       _selectedLedger = null;
       _recomputeTotals();
@@ -111,7 +100,6 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     if (tabNeedsChange) {
       _tabController.animateTo(targetTab);
       _lastTabIndex = targetTab;
-      _expandedItemKeys.clear();
       _selectedGroup = 'All Items';
       _selectedLedger = null;
       _recomputeTotals();
@@ -130,9 +118,6 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
       _onSearchChanged();
     }
 
-    if (oldWidget.isActive != widget.isActive) {
-      _collapseAll();
-    }
   }
 
   @override
@@ -199,7 +184,6 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
   }
 
   void _onSearchChanged() {
-    _collapseAll();
     final query = _searchController.text.toLowerCase();
     final dateFormat = DateFormat('dd MMM yyyy');
     final monthFormat = DateFormat('MMMM');
@@ -529,7 +513,6 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
               ? IconButton(
                   icon: const Icon(Icons.arrow_back),
                   onPressed: () {
-                    _collapseAll();
                     widget.onBack!();
                   },
                 )
@@ -602,7 +585,6 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () {
-                  _collapseAll();
                   widget.onBack!();
                 },
               )
@@ -1459,21 +1441,15 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
       itemBuilder: (context, index) {
         final item = items[index];
         final itemKey = '${type}_${item.id ?? item.invoiceNumber}_$index';
-        final isExpanded = _expandedItemKeys.contains(itemKey);
         return _OutstandingCard(
           key: ValueKey(itemKey),
           item: item,
           type: type,
-          isExpanded: isExpanded,
-          onToggle: () {
-            setState(() {
-              if (_expandedItemKeys.contains(itemKey)) {
-                _expandedItemKeys.remove(itemKey);
-              } else {
-                _expandedItemKeys.add(itemKey);
-              }
-            });
-          },
+          onTap: () => showOutstandingDetailSheet(
+            context: context,
+            record: item,
+            isReceivable: type == 'receivable',
+          ),
         );
       },
     );
@@ -1570,34 +1546,28 @@ class _SummaryTile extends StatelessWidget {
 }
 
 class _OutstandingCard extends StatelessWidget {
-  static final _dateFormat = DateFormat('dd MMM yyyy');
   final OutstandingRecord item;
   final String type;
-  final bool isExpanded;
-  final VoidCallback onToggle;
+  final VoidCallback onTap;
 
   const _OutstandingCard({
     super.key,
     required this.item,
     required this.type,
-    required this.isExpanded,
-    required this.onToggle,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final isReceivable = type == 'receivable';
     final color = isReceivable ? AppTheme.receivableColor : AppTheme.payableColor;
-    final displayAmount = item.closingBalance != 0 ? item.closingBalance.abs() : item.amount.abs();
+    final displayAmount =
+        item.closingBalance != 0 ? item.closingBalance.abs() : item.amount.abs();
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final isOverdue = item.isOverdue || (item.dueDate != null && item.dueDate!.isBefore(today));
-    
-    int overdueDays = item.overdueDays ?? 0;
-    if (overdueDays <= 0 && item.dueDate != null && item.dueDate!.isBefore(today)) {
-      overdueDays = today.difference(DateTime(item.dueDate!.year, item.dueDate!.month, item.dueDate!.day)).inDays;
-    }
+    final isOverdue =
+        item.isOverdue || (item.dueDate != null && item.dueDate!.isBefore(today));
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1621,49 +1591,61 @@ class _OutstandingCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: onToggle,
+          onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                // Collapsed header row: Party Name and Amount
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item.customerName,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF1A1F36),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.customerName,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A1F36),
+                        ),
+                      ),
+                      if (item.groupName != null &&
+                          item.groupName!.trim().isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F3F9),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            item.groupName!,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey.shade700,
                             ),
                           ),
-                          if (item.groupName != null && item.groupName!.trim().isNotEmpty) ...[
-                            const SizedBox(height: 3),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF1F3F9),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                item.groupName!,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
+                        ),
+                      ],
+                      if (item.invoiceNumber.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Inv: ${item.invoiceNumber}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
                     Text(
                       formatCurrency(displayAmount),
                       style: TextStyle(
@@ -1672,135 +1654,25 @@ class _OutstandingCard extends StatelessWidget {
                         color: isOverdue ? const Color(0xFFD32F2F) : color,
                       ),
                     ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
-                      size: 20,
-                      color: Colors.grey.shade400,
-                    ),
+                    if (isOverdue) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Overdue',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.red.shade700,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
-
-                // Expanded details
-                if (isExpanded) ...[
-                  const SizedBox(height: 10),
-                  const Divider(height: 1, thickness: 0.7, color: Color(0xFFF0F1F5)),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      if (item.invoiceNumber.isNotEmpty)
-                        Expanded(
-                          child: Text(
-                            'Inv: ${item.invoiceNumber}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      if (isOverdue)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.red.shade50,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '🚨 ${overdueDays > 0 ? '$overdueDays d overdue' : 'Overdue'}',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.red.shade700,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  if (item.date != null || item.dueDate != null || (item.billType != null && item.billType!.isNotEmpty)) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: isOverdue ? Colors.red.shade50.withValues(alpha: 0.5) : const Color(0xFFF8F9FE),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Wrap(
-                        spacing: 12,
-                        runSpacing: 6,
-                        alignment: WrapAlignment.spaceBetween,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          if (item.date != null)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.calendar_today_rounded, size: 13, color: Colors.grey.shade500),
-                                const SizedBox(width: 4),
-                                Text(_dateFormat.format(item.date!), style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
-                              ],
-                            ),
-                          if (item.dueDate != null)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.event_rounded, size: 13, color: isOverdue ? Colors.red.shade700 : Colors.grey.shade500),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'Due: ${_dateFormat.format(item.dueDate!)}',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: isOverdue ? FontWeight.bold : FontWeight.normal,
-                                    color: isOverdue ? Colors.red.shade800 : Colors.grey.shade700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          if (item.billType != null && item.billType!.isNotEmpty)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: color.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                item.billType!,
-                                style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          if (item.mobile != null && item.mobile!.trim().isNotEmpty)
-                            InkWell(
-                              onTap: () {
-                                Clipboard.setData(ClipboardData(text: item.mobile!.trim()));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Copied phone: ${item.mobile}'),
-                                    duration: const Duration(seconds: 2),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                              },
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.phone_rounded, size: 12, color: Colors.blue.shade600),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    item.mobile!,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.blue.shade700,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: Colors.grey.shade400,
+                ),
               ],
             ),
           ),

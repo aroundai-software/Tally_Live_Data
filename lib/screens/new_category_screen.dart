@@ -5,6 +5,8 @@ import '../config/app_theme.dart';
 import '../models/stock_item.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
+import '../utils/company_scope.dart';
+import '../widgets/combined_report_widgets.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/error_state_widget.dart';
 import '../widgets/shimmer_loading.dart';
@@ -69,15 +71,27 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
   Future<void> _loadData() async {
     setState(() { _isLoading = true; _error = null; });
     try {
-      final company = CompanyProvider.of(context).selectedCompany;
-      final items = await _service.getProducts(companyName: company);
-      Map<String, double> salesMap = {};
-      if (company != null) {
-        salesMap = await _service.getProductSalesTotals(companyName: company);
+      final state = CompanyProvider.of(context);
+      final List<StockItem> items;
+      if (state.isCombinedMode) {
+        if (!CompanyScope.hasActiveScope(state)) {
+          throw 'Select at least two companies for Combined mode.';
+        }
+        items = await _service.getCombinedProducts(
+          companyNames: state.selectedCompanies,
+        );
+      } else {
+        final company = state.selectedCompany;
+        if (!CompanyScope.isValid(company)) {
+          throw 'No company selected.';
+        }
+        items = await _service.getProducts(companyName: company);
       }
       if (mounted) {
         setState(() {
-          _categoryProducts = items.where((i) => widget.newCategories.contains(i.parent)).toList();
+          _categoryProducts = items
+              .where((i) => widget.newCategories.contains(i.parent))
+              .toList();
           _filteredProducts = _categoryProducts;
           _isLoading = false;
         });
@@ -134,13 +148,24 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(
-                  item.name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                    color: Color(0xFF1E293B),
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                        color: Color(0xFF1E293B),
+                      ),
+                    ),
+                    if (CompanyProvider.of(context).isCombinedMode &&
+                        item.companyName != null &&
+                        item.companyName!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      CombinedCompanyChip(companyName: item.companyName!),
+                    ],
+                  ],
                 ),
               ),
               if (isOutOfStock || isLowStock) ...[

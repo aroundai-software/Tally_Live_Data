@@ -10,6 +10,8 @@ import '../models/purchase_invoice.dart';
 import '../models/daybook_entry.dart';
 import '../models/ledger_bill_settlement.dart';
 import '../models/financial_report.dart';
+import '../utils/admin_access.dart';
+import '../utils/combined_company_selection.dart';
 import 'user_preferences_service.dart';
 
 class SupabaseService {
@@ -18,6 +20,18 @@ class SupabaseService {
   // ─── Auth & User Profiles ─────────────────────────────────────
   User? get currentUser => _client.auth.currentUser;
   Session? get currentSession => _client.auth.currentSession;
+
+  /// Client-side gate for admin APIs. Server RLS/triggers remain the real control.
+  Future<void> _ensureCallerIsSuperAdmin() async {
+    final user = currentUser;
+    if (user == null) {
+      throw 'Administrator sign-in required.';
+    }
+    final profile = await getUserProfile(user.id);
+    if (!isActiveSuperAdmin(profile)) {
+      throw 'Administrator access required.';
+    }
+  }
 
   Future<AuthResponse> signInWithPhone({required String phone, required String password}) async {
     final allDigits = phone.replaceAll(RegExp(r'[^0-9]'), '');
@@ -135,6 +149,7 @@ class SupabaseService {
     required String phone,
     required String password,
   }) async {
+    await _ensureCallerIsSuperAdmin();
     final allDigits = phone.replaceAll(RegExp(r'[^0-9]'), '');
     final tenDigits = allDigits.length >= 10 ? allDigits.substring(allDigits.length - 10) : allDigits;
     if (tenDigits.length < 10) throw 'Please enter a valid 10-digit mobile number.';
@@ -205,6 +220,7 @@ class SupabaseService {
     required String phone,
     required String password,
   }) async {
+    await _ensureCallerIsSuperAdmin();
     final allDigits = phone.replaceAll(RegExp(r'[^0-9]'), '');
     final tenDigits = allDigits.length >= 10 ? allDigits.substring(allDigits.length - 10) : allDigits;
     if (tenDigits.length < 10) throw 'Please enter a valid 10-digit mobile number.';
@@ -269,6 +285,7 @@ class SupabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getAllUsers() async {
+    await _ensureCallerIsSuperAdmin();
     final response = await _client.from('users').select();
     final users = List<Map<String, dynamic>>.from(response);
     users.sort((a, b) {
@@ -280,7 +297,16 @@ class SupabaseService {
   }
 
   Future<void> updateUserAccess(String userId, bool isActive) async {
+    await _ensureCallerIsSuperAdmin();
     await _client.from('users').update({'is_active': isActive}).eq('id', userId);
+  }
+
+  Future<void> updateUserCombinedReports(String userId, bool enabled) async {
+    await _ensureCallerIsSuperAdmin();
+    await _client
+        .from('users')
+        .update({'is_combined_reports_enabled': enabled})
+        .eq('id', userId);
   }
 
   Stream<Map<String, dynamic>> streamUserProfile(String userId) {
@@ -425,9 +451,17 @@ class SupabaseService {
     final primary = profile?['company_name']?.toString().trim() ?? '';
     if (primary.isNotEmpty &&
         primary.toLowerCase() != matchedCompanyName.toLowerCase()) {
-      await _addUserCompanyLink(userId: userId, companyName: primary);
+      await _addUserCompanyLink(
+        userId: userId,
+        companyName: primary,
+        mobileNumber: tenDigits,
+      );
     }
-    await _addUserCompanyLink(userId: userId, companyName: matchedCompanyName);
+    await _addUserCompanyLink(
+      userId: userId,
+      companyName: matchedCompanyName,
+      mobileNumber: tenDigits,
+    );
     if (primary.isEmpty) {
       try {
         await _client.from('users').update({
@@ -445,6 +479,7 @@ class SupabaseService {
     required String userId,
     required String companyName,
   }) async {
+    await _ensureCallerIsSuperAdmin();
     final cleanName = companyName.trim();
     if (userId.isEmpty) throw 'Invalid user.';
     if (cleanName.isEmpty) throw 'Please select a company.';
@@ -505,21 +540,40 @@ class SupabaseService {
   }
 
   /// Inserts one user↔company row. Does not remove other companies.
+  /// Prefer the secured RPC; [mobileNumber] is required for self-link phone proof.
   Future<void> _addUserCompanyLink({
     required String userId,
     required String companyName,
+    String? mobileNumber,
   }) async {
     final name = companyName.trim();
     if (userId.isEmpty || name.isEmpty) return;
 
-    try {
-      await _client.rpc('link_company_to_user', params: {
-        'p_user_id': userId,
-        'p_company_name': name,
-      });
-      return;
-    } catch (_) {}
+    final params = <String, dynamic>{
+      'p_user_id': userId,
+      'p_company_name': name,
+    };
+    final mobile = mobileNumber?.replaceAll(RegExp(r'[^0-9]'), '') ?? '';
+    if (mobile.length >= 10) {
+      params['p_mobile'] = mobile.substring(mobile.length - 10);
+    }
 
+    try {
+      await _client.rpc('link_company_to_user', params: params);
+      return;
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      // Do not fall back when the server rejected authorization / phone proof.
+      if (msg.contains('not allowed') ||
+          msg.contains('42501') ||
+          msg.contains('mobile number') ||
+          msg.contains('permission') ||
+          msg.contains('jwt')) {
+        rethrow;
+      }
+    }
+
+    // Legacy fallback only if the secured RPC is not deployed yet.
     try {
       await _client.from('user_companies').upsert(
         {
@@ -529,7 +583,6 @@ class SupabaseService {
         onConflict: 'user_id,company_name',
       );
     } catch (_) {
-      // Last resort insert (may error on duplicate — ignore duplicates).
       try {
         await _client.from('user_companies').insert({
           'user_id': userId,
@@ -549,6 +602,7 @@ class SupabaseService {
     required String userId,
     required String companyName,
   }) async {
+    await _ensureCallerIsSuperAdmin();
     final cleanName = companyName.trim();
     if (userId.isEmpty || cleanName.isEmpty) {
       throw 'Invalid user or company.';
@@ -750,6 +804,7 @@ class SupabaseService {
   }
 
   Future<void> updateCompanyFeatures(String companyName, Map<String, bool> features) async {
+    await _ensureCallerIsSuperAdmin();
     try {
       // First ensure the record exists (in case it is missing)
       await getCompanyFeatures(companyName);
@@ -801,6 +856,7 @@ class SupabaseService {
           },
           'balance_sheet': features['balance_sheet'] ?? true,
           'profit_loss': features['profit_loss'] ?? true,
+          'combined_reports': features['combined_reports'] ?? false,
           'quick_actions': {
             'stock':   features['db_qa_stock']   ?? true,
             'ledgers': features['db_qa_ledgers'] ?? true,
@@ -808,6 +864,7 @@ class SupabaseService {
             'reports': features['db_qa_reports'] ?? true,
             'balance_sheet': features['db_qa_balance_sheet'] ?? true,
             'profit_loss': features['db_qa_profit_loss'] ?? true,
+            'combined_reports': features['db_qa_combined_reports'] ?? false,
           },
           'net_position': {
             'stock':       features['db_np_stock']       ?? true,
@@ -824,6 +881,7 @@ class SupabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getAllCompaniesFeatures() async {
+    await _ensureCallerIsSuperAdmin();
     try {
       // 1. Fetch all active companies
       final companiesRes = await _client
@@ -908,6 +966,7 @@ class SupabaseService {
       'cash_flow': dashCfg['cash_flow'] as bool? ?? true,
       'balance_sheet': dashCfg['balance_sheet'] as bool? ?? true,
       'profit_loss': dashCfg['profit_loss'] as bool? ?? true,
+      'combined_reports': dashCfg['combined_reports'] as bool? ?? false,
       'cf_summary': dashCfg['cf_summary'] as bool? ?? true,
       'cf_overview': dashCfg['cf_overview'] as bool? ?? true,
       'cf_pie_chart': dashCfg['cf_pie_chart'] as bool? ?? true,
@@ -940,6 +999,7 @@ class SupabaseService {
       'db_qa_reports': qa['reports'] as bool? ?? true,
       'db_qa_balance_sheet': qa['balance_sheet'] as bool? ?? true,
       'db_qa_profit_loss': qa['profit_loss'] as bool? ?? true,
+      'db_qa_combined_reports': qa['combined_reports'] as bool? ?? false,
       // Dashboard JSONB — Net Position detail rows
       'db_np_stock':       netPos['stock']       as bool? ?? true,
       'db_np_receivables': netPos['receivables'] as bool? ?? true,
@@ -973,6 +1033,7 @@ class SupabaseService {
       'cash_flow': true,
       'balance_sheet': true,
       'profit_loss': true,
+      'combined_reports': false,
       'cf_summary': true,
       'cf_overview': true,
       'cf_pie_chart': true,
@@ -1004,6 +1065,7 @@ class SupabaseService {
       'db_qa_reports': true,
       'db_qa_balance_sheet': true,
       'db_qa_profit_loss': true,
+      'db_qa_combined_reports': false,
       // Dashboard JSONB — Net Position detail rows
       'db_np_stock': true,
       'db_np_receivables': true,
@@ -1034,6 +1096,193 @@ class SupabaseService {
     } catch (e) {
       throw Exception('Failed to fetch products: $e');
     }
+  }
+
+  /// Short-lived allow-list cache so Combined list loads skip an extra round-trip.
+  List<String>? _combinedLinkedCache;
+  String? _combinedLinkedUserId;
+  DateTime? _combinedLinkedCachedAt;
+
+  /// Intersect requested Combined companies with the user's linked allow-list.
+  Future<List<String>> _resolveCombinedCompanies(List<String> companyNames) async {
+    final requested = CombinedCompanySelection.normalizeList(companyNames);
+    if (!CombinedCompanySelection.isReady(requested)) return const [];
+    final userId = currentUser?.id;
+    if (userId == null) return const [];
+
+    final cacheFresh = _combinedLinkedUserId == userId &&
+        _combinedLinkedCache != null &&
+        _combinedLinkedCachedAt != null &&
+        DateTime.now().difference(_combinedLinkedCachedAt!) <
+            const Duration(seconds: 60);
+    List<String> linked;
+    if (cacheFresh) {
+      linked = _combinedLinkedCache!;
+    } else {
+      // Mapped-only is cheaper than getUserCompanies (no profile round-trip).
+      linked = await getUserCompaniesMappedOnly(userId);
+      if (linked.isEmpty) {
+        linked = await getUserCompanies(userId);
+      }
+      _combinedLinkedCache = linked;
+      _combinedLinkedUserId = userId;
+      _combinedLinkedCachedAt = DateTime.now();
+    }
+
+    return CombinedCompanySelection.validateSelection(
+      selected: requested,
+      allowed: linked,
+    );
+  }
+
+  /// Single multi-company stock fetch (`company_name IN (...)`).
+  /// Rows stay tagged with `company_name`; no name-based merge.
+  Future<List<StockItem>> getCombinedProducts({
+    required List<String> companyNames,
+    String? searchQuery,
+    void Function(List<StockItem> firstPage)? onFirstPage,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+    try {
+      final data = await _fetchAll(
+        'stock_items',
+        companyNames: companies,
+        searchQuery: searchQuery,
+        searchColumn: 'ItemName',
+        orderColumn: 'ItemName',
+        pageSize: 500,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) => onFirstPage(rows.map((e) => StockItem.fromJson(e)).toList()),
+      );
+      final all = data.map((e) => StockItem.fromJson(e)).toList();
+      all.sort((a, b) {
+        final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        if (byName != 0) return byName;
+        return (a.companyName ?? '').compareTo(b.companyName ?? '');
+      });
+      return all;
+    } catch (_) {
+      // Fallback: per-company fan-out
+      final pages = await Future.wait(
+        companies.map((c) async {
+          try {
+            return await getProducts(companyName: c, searchQuery: searchQuery);
+          } catch (_) {
+            return <StockItem>[];
+          }
+        }),
+      );
+      final all = pages.expand((e) => e).toList();
+      if (onFirstPage != null && all.isNotEmpty) {
+        onFirstPage(all.take(500).toList());
+      }
+      all.sort((a, b) {
+        final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        if (byName != 0) return byName;
+        return (a.companyName ?? '').compareTo(b.companyName ?? '');
+      });
+      return all;
+    }
+  }
+
+  /// Sales totals keyed as `company_name|product_name` for Combined mode.
+  Future<Map<String, double>> getCombinedProductSalesTotals({
+    required List<String> companyNames,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return {};
+
+    try {
+      final response = await _client.rpc(
+        'get_combined_product_sales_totals',
+        params: {'p_company_names': companies},
+      );
+      final out = <String, double>{};
+      if (response is List) {
+        for (final item in response) {
+          if (item is! Map) continue;
+          final company = (item['company_name'] ?? '').toString();
+          final name = (item['product_name'] ?? '').toString();
+          if (company.isEmpty || name.isEmpty) continue;
+          out['$company|$name'] = _toDouble(item['total_amount']);
+        }
+      }
+      return out;
+    } catch (_) {
+      // Fallback: fan-out single-company RPCs / client aggregation
+    }
+
+    final maps = await Future.wait(
+      companies.map((c) async {
+        try {
+          final m = await getProductSalesTotals(companyName: c);
+          return MapEntry(c, m);
+        } catch (_) {
+          return MapEntry(c, <String, double>{});
+        }
+      }),
+    );
+    final out = <String, double>{};
+    for (final entry in maps) {
+      entry.value.forEach((name, amount) {
+        out['${entry.key}|$name'] = amount;
+      });
+    }
+    return out;
+  }
+
+  Future<Map<String, dynamic>> getCombinedDashboardAggregates({
+    required List<String> companyNames,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) {
+      return _emptyDashboardAggregates();
+    }
+
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = DateTime(now.year, now.month, now.day + 1);
+
+    try {
+      final response = await _client.rpc(
+        'get_combined_dashboard_aggregates',
+        params: {
+          'p_company_names': companies,
+          'p_today_start': todayStart.toIso8601String(),
+          'p_today_end': todayEnd.toIso8601String(),
+        },
+      );
+      if (response is Map) {
+        return Map<String, dynamic>.from(response);
+      }
+      if (response is String) {
+        return Map<String, dynamic>.from(jsonDecode(response) as Map);
+      }
+      return Map<String, dynamic>.from(jsonDecode(jsonEncode(response)) as Map);
+    } catch (_) {
+      // Fallback: fan-out + sum
+    }
+
+    final pages = await Future.wait(
+      companies.map((c) async {
+        try {
+          return await getDashboardAggregates(companyName: c);
+        } catch (_) {
+          return _emptyDashboardAggregates();
+        }
+      }),
+    );
+    final sum = _emptyDashboardAggregates();
+    for (final agg in pages) {
+      for (final key in sum.keys) {
+        final a = (sum[key] as num?) ?? 0;
+        final b = (agg[key] as num?) ?? 0;
+        sum[key] = a + b;
+      }
+    }
+    return sum;
   }
 
   Future<double> getTotalStockValue({String? companyName}) async {
@@ -1117,6 +1366,104 @@ class SupabaseService {
         }
       }
       throw Exception('Failed to fetch customers: $e');
+    }
+  }
+
+  Ledger _ledgerTaggedCompany(Ledger ledger, String company) {
+    final existing = ledger.companyName?.trim();
+    if (existing != null && existing.isNotEmpty) return ledger;
+    return Ledger(
+      id: ledger.id,
+      name: ledger.name,
+      categoryName: ledger.categoryName,
+      address: ledger.address,
+      city: ledger.city,
+      state: ledger.state,
+      pincode: ledger.pincode,
+      country: ledger.country,
+      contactPerson: ledger.contactPerson,
+      phone: ledger.phone,
+      email: ledger.email,
+      gstNumber: ledger.gstNumber,
+      panNumber: ledger.panNumber,
+      mailingName: ledger.mailingName,
+      alias: ledger.alias,
+      creditPeriod: ledger.creditPeriod,
+      creditLimit: ledger.creditLimit,
+      openingBalance: ledger.openingBalance,
+      closingBalance: ledger.closingBalance,
+      discountPercentage: ledger.discountPercentage,
+      companyName: company,
+      isActive: ledger.isActive,
+      ledgerType: ledger.ledgerType,
+      guid: ledger.guid,
+      updatedAt: ledger.updatedAt,
+    );
+  }
+
+  /// Single multi-company customers fetch. Rows keep `company_name`.
+  Future<List<Ledger>> getCombinedCustomers({
+    required List<String> companyNames,
+    String? searchQuery,
+    void Function(List<Ledger> firstPage)? onFirstPage,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+
+    Future<List<Ledger>> load(String select) async {
+      final data = await _fetchAll(
+        'customers',
+        select: select,
+        companyNames: companies,
+        searchQuery: searchQuery,
+        searchColumn: 'customer_name',
+        orderColumn: 'customer_name',
+        pageSize: 250,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) => onFirstPage(rows.map((e) => Ledger.fromJson(e)).toList()),
+      );
+      return data.map((e) => Ledger.fromJson(e)).toList();
+    }
+
+    try {
+      List<Ledger> all;
+      try {
+        all = await load(_customerSelectWithCategory);
+      } catch (e) {
+        if (_isMissingColumn(e)) {
+          all = await load(_customerSelectBase);
+        } else {
+          rethrow;
+        }
+      }
+      all.sort((a, b) {
+        final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        if (byName != 0) return byName;
+        return (a.companyName ?? '').compareTo(b.companyName ?? '');
+      });
+      return all;
+    } catch (_) {
+      final pages = await Future.wait(
+        companies.map((c) async {
+          try {
+            final list = await getCustomers(companyName: c, searchQuery: searchQuery);
+            return list.map((l) => _ledgerTaggedCompany(l, c)).toList();
+          } catch (_) {
+            return <Ledger>[];
+          }
+        }),
+      );
+      final all = pages.expand((e) => e).toList();
+      if (onFirstPage != null && all.isNotEmpty) {
+        onFirstPage(all.take(250).toList());
+      }
+      all.sort((a, b) {
+        final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        if (byName != 0) return byName;
+        return (a.companyName ?? '').compareTo(b.companyName ?? '');
+      });
+      return all;
     }
   }
 
@@ -1495,6 +1842,118 @@ class SupabaseService {
     }
   }
 
+  List<SalesInvoice> _mapCombinedSalesWithOutstanding(
+    List<dynamic> data,
+    Set<String> outstandingIds,
+    Set<String> billPartyKeys,
+  ) {
+    final all = data.map((e) {
+      final Map<String, dynamic> mutableData = Map<String, dynamic>.from(e);
+      final company = (mutableData['company_name'] ?? '').toString();
+      final guid = mutableData['guid']?.toString();
+      final masterId = mutableData['master_id']?.toString();
+      final inv = _normBillKey(mutableData['invoice_number']);
+      final party = _normBillKey(mutableData['customer_name']);
+      var isOutstanding = false;
+      if (guid != null &&
+          guid.isNotEmpty &&
+          outstandingIds.contains('$company|$guid')) {
+        isOutstanding = true;
+      } else if (masterId != null &&
+          masterId.isNotEmpty &&
+          outstandingIds.contains('$company|$masterId')) {
+        isOutstanding = true;
+      } else if (inv.isNotEmpty &&
+          party.isNotEmpty &&
+          billPartyKeys.contains('$company|$inv|$party')) {
+        isOutstanding = true;
+      }
+      _applyOutstandingStatus(mutableData, isOutstanding: isOutstanding);
+      return SalesInvoice.fromJson(mutableData);
+    }).toList();
+    all.sort((a, b) {
+      final ad = a.invoiceDate;
+      final bd = b.invoiceDate;
+      if (ad == null && bd == null) return 0;
+      if (ad == null) return 1;
+      if (bd == null) return -1;
+      return bd.compareTo(ad);
+    });
+    return all;
+  }
+
+  /// Single multi-company sales fetch with company-scoped outstanding overlay.
+  /// First page paints immediately (status refined when outstanding arrives).
+  Future<List<SalesInvoice>> getCombinedSalesInvoices({
+    required List<String> companyNames,
+    String? searchQuery,
+    void Function(List<SalesInvoice> firstPage)? onFirstPage,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+    try {
+      final outstandingFuture = _fetchAll(
+        'outstanding_receivables',
+        select: 'guid, master_id, invoicenumber, customer_name, company_name',
+        companyNames: companies,
+      );
+      final data = await _fetchAll(
+        'sales_invoices',
+        companyNames: companies,
+        searchQuery: searchQuery,
+        orderColumn: 'invoice_date',
+        ascending: false,
+        pageSize: 500,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) {
+                onFirstPage(rows.map((e) {
+                  final row = Map<String, dynamic>.from(e);
+                  if ((row['status'] ?? '').toString().trim().toLowerCase() ==
+                      'pending') {
+                    row['status'] = null;
+                  }
+                  return SalesInvoice.fromJson(row);
+                }).toList());
+              },
+      );
+      final outstanding = await outstandingFuture;
+      final outstandingIds = <String>{};
+      final billPartyKeys = <String>{};
+      for (final row in outstanding) {
+        final company = (row['company_name'] ?? '').toString();
+        final g = row['guid']?.toString();
+        final m = row['master_id']?.toString();
+        if (g != null && g.isNotEmpty) outstandingIds.add('$company|$g');
+        if (m != null && m.isNotEmpty) outstandingIds.add('$company|$m');
+        final inv = _normBillKey(row['invoicenumber']);
+        final party = _normBillKey(row['customer_name']);
+        if (inv.isNotEmpty && party.isNotEmpty) {
+          billPartyKeys.add('$company|$inv|$party');
+        }
+      }
+      return _mapCombinedSalesWithOutstanding(data, outstandingIds, billPartyKeys);
+    } catch (_) {
+      final pages = await Future.wait(
+        companies.map(
+          (c) => getSalesInvoices(companyName: c, searchQuery: searchQuery),
+        ),
+      );
+      final all = pages.expand((e) => e).toList();
+      if (onFirstPage != null && all.isNotEmpty) {
+        onFirstPage(all.take(500).toList());
+      }
+      all.sort((a, b) {
+        final ad = a.invoiceDate;
+        final bd = b.invoiceDate;
+        if (ad == null && bd == null) return 0;
+        if (ad == null) return 1;
+        if (bd == null) return -1;
+        return bd.compareTo(ad);
+      });
+      return all;
+    }
+  }
 
   Future<List<dynamic>> _todayRows(String table, String columns, String company) {
     final now = DateTime.now();
@@ -1851,6 +2310,194 @@ class SupabaseService {
     }
   }
 
+  Future<List<PurchaseInvoice>> getCombinedPurchaseInvoices({
+    required List<String> companyNames,
+    String? searchQuery,
+    void Function(List<PurchaseInvoice> firstPage)? onFirstPage,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+    try {
+      final outstandingFuture = _fetchAll(
+        'outstanding_payables',
+        select: 'guid, master_id, invoicenumber, customer_name, company_name',
+        companyNames: companies,
+      );
+      final data = await _fetchAll(
+        'purchase_invoices',
+        companyNames: companies,
+        searchQuery: searchQuery,
+        orderColumn: 'invoice_date',
+        ascending: false,
+        pageSize: 500,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) {
+                onFirstPage(rows.map((e) {
+                  final row = Map<String, dynamic>.from(e);
+                  if ((row['status'] ?? '').toString().trim().toLowerCase() ==
+                      'pending') {
+                    row['status'] = null;
+                  }
+                  return PurchaseInvoice.fromJson(row);
+                }).toList());
+              },
+      );
+      final outstanding = await outstandingFuture;
+      final outstandingIds = <String>{};
+      final billPartyKeys = <String>{};
+      for (final row in outstanding) {
+        final company = (row['company_name'] ?? '').toString();
+        final g = row['guid']?.toString();
+        final m = row['master_id']?.toString();
+        if (g != null && g.isNotEmpty) outstandingIds.add('$company|$g');
+        if (m != null && m.isNotEmpty) outstandingIds.add('$company|$m');
+        final inv = _normBillKey(row['invoicenumber']);
+        final party = _normBillKey(row['customer_name']);
+        if (inv.isNotEmpty && party.isNotEmpty) {
+          billPartyKeys.add('$company|$inv|$party');
+        }
+      }
+
+      final all = data.map((e) {
+        final Map<String, dynamic> mutableData = Map<String, dynamic>.from(e);
+        final company = (mutableData['company_name'] ?? '').toString();
+        final guid = mutableData['guid']?.toString();
+        final masterId = mutableData['master_id']?.toString();
+        final inv = _normBillKey(mutableData['invoice_number']);
+        final party = _normBillKey(
+          mutableData['supplier_name'] ?? mutableData['customer_name'],
+        );
+        var isOutstanding = false;
+        if (guid != null &&
+            guid.isNotEmpty &&
+            outstandingIds.contains('$company|$guid')) {
+          isOutstanding = true;
+        } else if (masterId != null &&
+            masterId.isNotEmpty &&
+            outstandingIds.contains('$company|$masterId')) {
+          isOutstanding = true;
+        } else if (inv.isNotEmpty &&
+            party.isNotEmpty &&
+            billPartyKeys.contains('$company|$inv|$party')) {
+          isOutstanding = true;
+        }
+        _applyOutstandingStatus(mutableData, isOutstanding: isOutstanding);
+        return PurchaseInvoice.fromJson(mutableData);
+      }).toList();
+      all.sort((a, b) {
+        final ad = a.invoiceDate;
+        final bd = b.invoiceDate;
+        if (ad == null && bd == null) return 0;
+        if (ad == null) return 1;
+        if (bd == null) return -1;
+        return bd.compareTo(ad);
+      });
+      return all;
+    } catch (_) {
+      final pages = await Future.wait(
+        companies.map(
+          (c) => getPurchaseInvoices(companyName: c, searchQuery: searchQuery),
+        ),
+      );
+      final all = pages.expand((e) => e).toList();
+      if (onFirstPage != null && all.isNotEmpty) {
+        onFirstPage(all.take(500).toList());
+      }
+      all.sort((a, b) {
+        final ad = a.invoiceDate;
+        final bd = b.invoiceDate;
+        if (ad == null && bd == null) return 0;
+        if (ad == null) return 1;
+        if (bd == null) return -1;
+        return bd.compareTo(ad);
+      });
+      return all;
+    }
+  }
+
+  Future<List<OutstandingRecord>> getCombinedOutstandingReceivables({
+    required List<String> companyNames,
+    String? searchQuery,
+    void Function(List<OutstandingRecord> firstPage)? onFirstPage,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+    try {
+      final data = await _fetchAll(
+        'outstanding_receivables',
+        companyNames: companies,
+        searchQuery: searchQuery,
+        searchColumn: 'customer_name',
+        orderColumn: 'customer_name',
+        pageSize: 250,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) =>
+                onFirstPage(rows.map((e) => OutstandingRecord.fromJson(e)).toList()),
+      );
+      final all = data.map((e) => OutstandingRecord.fromJson(e)).toList();
+      all.sort((a, b) {
+        final byName = a.customerName.toLowerCase().compareTo(b.customerName.toLowerCase());
+        if (byName != 0) return byName;
+        return (a.companyName ?? '').compareTo(b.companyName ?? '');
+      });
+      return all;
+    } catch (_) {
+      final pages = await Future.wait(
+        companies.map(
+          (c) => getOutstandingReceivables(companyName: c, searchQuery: searchQuery),
+        ),
+      );
+      final all = pages.expand((e) => e).toList();
+      if (onFirstPage != null && all.isNotEmpty) {
+        onFirstPage(all.take(250).toList());
+      }
+      return all;
+    }
+  }
+
+  Future<List<OutstandingRecord>> getCombinedOutstandingPayables({
+    required List<String> companyNames,
+    String? searchQuery,
+    void Function(List<OutstandingRecord> firstPage)? onFirstPage,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+    try {
+      final data = await _fetchAll(
+        'outstanding_payables',
+        companyNames: companies,
+        searchQuery: searchQuery,
+        searchColumn: 'customer_name',
+        orderColumn: 'customer_name',
+        pageSize: 250,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (rows) =>
+                onFirstPage(rows.map((e) => OutstandingRecord.fromJson(e)).toList()),
+      );
+      final all = data.map((e) => OutstandingRecord.fromJson(e)).toList();
+      all.sort((a, b) {
+        final byName = a.customerName.toLowerCase().compareTo(b.customerName.toLowerCase());
+        if (byName != 0) return byName;
+        return (a.companyName ?? '').compareTo(b.companyName ?? '');
+      });
+      return all;
+    } catch (_) {
+      final pages = await Future.wait(
+        companies.map(
+          (c) => getOutstandingPayables(companyName: c, searchQuery: searchQuery),
+        ),
+      );
+      final all = pages.expand((e) => e).toList();
+      if (onFirstPage != null && all.isNotEmpty) {
+        onFirstPage(all.take(250).toList());
+      }
+      return all;
+    }
+  }
+
   Future<double> getTotalPurchases({String? companyName}) async {
     try {
       final data = await _fetchAll(
@@ -1905,6 +2552,66 @@ class SupabaseService {
       return response.map((e) => DaybookEntry.fromJson(e)).toList();
     } catch (e) {
       rethrow;
+    }
+  }
+
+  Future<List<DaybookEntry>> getCombinedDaybookEntries({
+    required List<String> companyNames,
+    DateTime? date,
+    String? searchQuery,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+    try {
+      dynamic query = _client
+          .from('tally_daybook')
+          .select()
+          .inFilter('company_name', companies)
+          .not('guid', 'ilike', '%#sub#%');
+
+      if (date != null) {
+        final startOfDay =
+            DateTime(date.year, date.month, date.day).toUtc().toIso8601String();
+        final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59, 999)
+            .toUtc()
+            .toIso8601String();
+        query = query.gte('date', startOfDay).lte('date', endOfDay);
+      }
+
+      if (searchQuery != null && searchQuery.isNotEmpty) {
+        query = query.or(
+          'voucher_number.ilike.%$searchQuery%,ledger_name.ilike.%$searchQuery%,voucher_type.ilike.%$searchQuery%,particulars.ilike.%$searchQuery%,narration.ilike.%$searchQuery%',
+        );
+      }
+
+      final response = await _readPages(
+        () => query.order('date', ascending: false).order('id', ascending: true),
+      );
+      final all = response.map((e) => DaybookEntry.fromJson(e)).toList();
+      all.sort((a, b) {
+        if (a.date == null && b.date == null) return 0;
+        if (a.date == null) return 1;
+        if (b.date == null) return -1;
+        final byDate = b.date!.compareTo(a.date!);
+        if (byDate != 0) return byDate;
+        return (a.companyName ?? '').compareTo(b.companyName ?? '');
+      });
+      return all;
+    } catch (_) {
+      final pages = await Future.wait(
+        companies.map((c) async {
+          try {
+            return await getDaybookEntries(
+              companyName: c,
+              date: date,
+              searchQuery: searchQuery,
+            );
+          } catch (_) {
+            return <DaybookEntry>[];
+          }
+        }),
+      );
+      return pages.expand((e) => e).toList();
     }
   }
 
@@ -1965,11 +2672,12 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getFastMovingItems({String? companyName, int days = 30}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _readPages(() => _client.rpc('get_fast_moving_items', params: {
+      // Single round-trip — these RPCs already order/limit in SQL.
+      final response = await _client.rpc('get_fast_moving_items', params: {
         'p_company_name': companyName,
         'p_days': days,
-      }).order('total_sold', ascending: false).order('product_name', ascending: true));
-      return List<Map<String, dynamic>>.from(response);
+      });
+      return List<Map<String, dynamic>>.from(response as List);
     } catch (e) {
       print('Error in getFastMovingItems: $e');
       rethrow;
@@ -1979,11 +2687,11 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getSlowMovingItems({String? companyName, int days = 30}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _readPages(() => _client.rpc('get_slow_moving_items', params: {
+      final response = await _client.rpc('get_slow_moving_items', params: {
         'p_company_name': companyName,
         'p_days': days,
-      }).order('total_sold', ascending: true).order('product_name', ascending: true));
-      return List<Map<String, dynamic>>.from(response);
+      });
+      return List<Map<String, dynamic>>.from(response as List);
     } catch (e) {
       rethrow;
     }
@@ -1992,10 +2700,10 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getHighValueItems({String? companyName}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _readPages(() => _client.rpc('get_high_value_items', params: {
+      final response = await _client.rpc('get_high_value_items', params: {
         'p_company_name': companyName,
-      }).order('stock_value', ascending: false).order('product_name', ascending: true));
-      return List<Map<String, dynamic>>.from(response);
+      });
+      return List<Map<String, dynamic>>.from(response as List);
     } catch (e) {
       rethrow;
     }
@@ -2056,15 +2764,294 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getDailyProfit({String? companyName, int days = 7}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _readPages(() => _client.rpc('get_daily_profit', params: {
+      final response = await _client.rpc('get_daily_profit', params: {
         'p_company_name': companyName,
         'p_days': days,
-      }).order('sale_date', ascending: false));
-      return List<Map<String, dynamic>>.from(response);
+      });
+      final list = List<Map<String, dynamic>>.from(response as List);
+      list.sort((a, b) =>
+          b['sale_date'].toString().compareTo(a['sale_date'].toString()));
+      return list;
     } catch (e, st) {
       print('Error in getDailyProfit: $e\n$st');
       rethrow;
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _fanOutAnalyticsRows(
+    List<String> companies,
+    Future<List<Map<String, dynamic>>> Function(String company) fetch, {
+    bool tagCompany = true,
+  }) async {
+    final pages = await Future.wait(
+      companies.map((c) async {
+        try {
+          final rows = await fetch(c);
+          if (!tagCompany) return rows;
+          return rows
+              .map((r) => Map<String, dynamic>.from(r)..['company_name'] = c)
+              .toList();
+        } catch (_) {
+          return <Map<String, dynamic>>[];
+        }
+      }),
+    );
+    return pages.expand((e) => e).toList();
+  }
+
+  List<Map<String, dynamic>> _mergeAnalyticsByKey(
+    List<Map<String, dynamic>> rows, {
+    required String keyField,
+    required List<String> sumFields,
+    required int Function(Map<String, dynamic>, Map<String, dynamic>) compare,
+  }) {
+    final merged = <String, Map<String, dynamic>>{};
+    for (final row in rows) {
+      final key = (row[keyField] ?? '').toString();
+      if (key.isEmpty) continue;
+      final existing = merged[key];
+      if (existing == null) {
+        merged[key] = Map<String, dynamic>.from(row)..remove('company_name');
+        continue;
+      }
+      for (final field in sumFields) {
+        existing[field] = _toDouble(existing[field]) + _toDouble(row[field]);
+      }
+    }
+    final list = merged.values.toList();
+    list.sort(compare);
+    return list;
+  }
+
+  Future<List<Map<String, dynamic>>> _rpcMapRows(
+    String fn,
+    Map<String, dynamic> params, {
+    bool paged = false,
+  }) async {
+    if (paged) {
+      final pages = await _readPages(() => _client.rpc(fn, params: params));
+      return pages.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    final response = await _client.rpc(fn, params: params);
+    return List<Map<String, dynamic>>.from(response as List);
+  }
+
+  Future<List<Map<String, dynamic>>> getCombinedDailyProfit({
+    required List<String> companyNames,
+    int days = 7,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+
+    try {
+      return await _rpcMapRows('get_combined_daily_profit', {
+        'p_company_names': companies,
+        'p_days': days,
+      });
+    } catch (_) {
+      // Fallback: fan-out single-company RPCs
+    }
+
+    final rows = await _fanOutAnalyticsRows(
+      companies,
+      (c) => getDailyProfit(companyName: c, days: days),
+      tagCompany: false,
+    );
+    return _mergeAnalyticsByKey(
+      rows,
+      keyField: 'sale_date',
+      sumFields: const ['total_revenue', 'estimated_profit'],
+      compare: (a, b) =>
+          b['sale_date'].toString().compareTo(a['sale_date'].toString()),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getCombinedFastMovingItems({
+    required List<String> companyNames,
+    int days = 30,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+
+    try {
+      return await _rpcMapRows('get_combined_fast_moving_items', {
+        'p_company_names': companies,
+        'p_days': days,
+      });
+    } catch (_) {
+      // Fallback: fan-out single-company RPCs
+    }
+
+    final rows = await _fanOutAnalyticsRows(
+      companies,
+      (c) => getFastMovingItems(companyName: c, days: days),
+      tagCompany: false,
+    );
+    return _mergeAnalyticsByKey(
+      rows,
+      keyField: 'product_name',
+      sumFields: const ['total_sold'],
+      compare: (a, b) {
+        final bySold =
+            _toDouble(b['total_sold']).compareTo(_toDouble(a['total_sold']));
+        if (bySold != 0) return bySold;
+        return '${a['product_name']}'.compareTo('${b['product_name']}');
+      },
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getCombinedSlowMovingItems({
+    required List<String> companyNames,
+    int days = 30,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+
+    try {
+      return await _rpcMapRows('get_combined_slow_moving_items', {
+        'p_company_names': companies,
+        'p_days': days,
+      });
+    } catch (_) {
+      // Fallback: fan-out single-company RPCs
+    }
+
+    final rows = await _fanOutAnalyticsRows(
+      companies,
+      (c) => getSlowMovingItems(companyName: c, days: days),
+      tagCompany: false,
+    );
+    final merged = _mergeAnalyticsByKey(
+      rows,
+      keyField: 'product_name',
+      sumFields: const ['total_sold'],
+      compare: (a, b) {
+        final bySold =
+            _toDouble(a['total_sold']).compareTo(_toDouble(b['total_sold']));
+        if (bySold != 0) return bySold;
+        return '${a['product_name']}'.compareTo('${b['product_name']}');
+      },
+    );
+    return merged.where((r) => _toDouble(r['total_sold']) < 5).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getCombinedHighValueItems({
+    required List<String> companyNames,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+
+    try {
+      return await _rpcMapRows(
+        'get_combined_high_value_items',
+        {'p_company_names': companies},
+        paged: true,
+      );
+    } catch (_) {
+      // Fallback: fan-out single-company RPCs
+    }
+
+    final rows = await _fanOutAnalyticsRows(
+      companies,
+      (c) => getHighValueItems(companyName: c),
+    );
+    rows.sort((a, b) {
+      final byVal =
+          _toDouble(b['stock_value']).compareTo(_toDouble(a['stock_value']));
+      if (byVal != 0) return byVal;
+      return '${a['product_name']}'.compareTo('${b['product_name']}');
+    });
+    return rows;
+  }
+
+  Future<List<Map<String, dynamic>>> getCombinedUnusedLedgers({
+    required List<String> companyNames,
+    int days = 180,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+
+    try {
+      return await _rpcMapRows(
+        'get_combined_unused_ledgers',
+        {'p_company_names': companies, 'p_days': days},
+        paged: true,
+      );
+    } catch (_) {
+      // Fallback: fan-out single-company RPCs
+    }
+
+    final rows = await _fanOutAnalyticsRows(
+      companies,
+      (c) => getUnusedLedgers(companyName: c, days: days),
+    );
+    rows.sort((a, b) {
+      final byName =
+          '${a['customer_name']}'.compareTo('${b['customer_name']}');
+      if (byName != 0) return byName;
+      return '${a['company_name']}'.compareTo('${b['company_name']}');
+    });
+    return rows;
+  }
+
+  Future<List<Map<String, dynamic>>> getCombinedUnusedItems({
+    required List<String> companyNames,
+    int days = 180,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return [];
+
+    try {
+      return await _rpcMapRows(
+        'get_combined_unused_items',
+        {'p_company_names': companies, 'p_days': days},
+        paged: true,
+      );
+    } catch (_) {
+      // Fallback: fan-out single-company RPCs
+    }
+
+    final rows = await _fanOutAnalyticsRows(
+      companies,
+      (c) => getUnusedItems(companyName: c, days: days),
+    );
+    rows.sort((a, b) {
+      final byVal =
+          _toDouble(b['stock_value']).compareTo(_toDouble(a['stock_value']));
+      if (byVal != 0) return byVal;
+      return '${a['product_name']}'.compareTo('${b['product_name']}');
+    });
+    return rows;
+  }
+
+  Future<int> getCombinedUnusedLedgersCount({
+    required List<String> companyNames,
+    int days = 180,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return 0;
+    final counts = await Future.wait(
+      companies.map(
+        (c) => getUnusedLedgersCount(companyName: c, days: days)
+            .catchError((_) => 0),
+      ),
+    );
+    return counts.fold<int>(0, (a, b) => a + b);
+  }
+
+  Future<int> getCombinedUnusedItemsCount({
+    required List<String> companyNames,
+    int days = 180,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return 0;
+    final counts = await Future.wait(
+      companies.map(
+        (c) =>
+            getUnusedItemsCount(companyName: c, days: days).catchError((_) => 0),
+      ),
+    );
+    return counts.fold<int>(0, (a, b) => a + b);
   }
 
   // ─── Helpers ───────────────────────────────────────────────────
@@ -2072,6 +3059,7 @@ class SupabaseService {
   Future<List<dynamic>> _fetchAll(String table, {
     String select = '*',
     String? companyName,
+    List<String>? companyNames,
     String? searchQuery,
     String? searchColumn,
     String? orderColumn,
@@ -2079,9 +3067,23 @@ class SupabaseService {
     int pageSize = 1000,
     void Function(List<dynamic> firstPage)? onFirstPage,
   }) async {
-    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
+    final multi = CombinedCompanySelection.normalizeList(companyNames ?? const []);
+    final useMulti = multi.length >= 2;
+    if (!useMulti) {
+      if (companyName == null ||
+          companyName.isEmpty ||
+          companyName == 'No Company Linked') {
+        return [];
+      }
+    }
+
     return _readPages(() {
-      dynamic query = _client.from(table).select(select).eq('company_name', companyName);
+      dynamic query = _client.from(table).select(select);
+      if (useMulti) {
+        query = query.inFilter('company_name', multi);
+      } else {
+        query = query.eq('company_name', companyName!);
+      }
       if (searchQuery != null && searchQuery.isNotEmpty) {
         if (table == 'sales_invoices') {
           query = query.or('customer_name.ilike.%$searchQuery%,invoice_number.ilike.%$searchQuery%');
@@ -2098,7 +3100,9 @@ class SupabaseService {
         }
       }
 
-      return orderColumn == null ? query.order('id', ascending: true) : query.order(orderColumn, ascending: ascending).order('id', ascending: true);
+      return orderColumn == null
+          ? query.order('id', ascending: true)
+          : query.order(orderColumn, ascending: ascending).order('id', ascending: true);
     }, onFirstPage: onFirstPage, pageSize: pageSize);
   }
 
@@ -2121,17 +3125,44 @@ class SupabaseService {
     }
   }
 
-  Future<int> _fetchCount(String table, {String? companyName}) async {
-    if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return 0;
+  Future<int> _fetchCount(
+    String table, {
+    String? companyName,
+    List<String>? companyNames,
+  }) async {
+    final multi = CombinedCompanySelection.normalizeList(companyNames ?? const []);
+    final useMulti = multi.length >= 2;
+    if (!useMulti) {
+      if (companyName == null ||
+          companyName.isEmpty ||
+          companyName == 'No Company Linked') {
+        return 0;
+      }
+    }
     try {
-      final response = await _client
-          .from(table)
-          .select('id')
-          .eq('company_name', companyName)
-          .count(CountOption.exact);
-      return response.count;
+      dynamic query = _client.from(table).select('id');
+      if (useMulti) {
+        query = query.inFilter('company_name', multi);
+      } else {
+        query = query.eq('company_name', companyName!);
+      }
+      final response = await query.count(CountOption.exact);
+      return response.count as int;
     } catch (e) {
       rethrow;
+    }
+  }
+
+  Future<int> getCombinedCustomerCount({required List<String> companyNames}) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) return 0;
+    try {
+      return await _fetchCount('customers', companyNames: companies);
+    } catch (_) {
+      final counts = await Future.wait(
+        companies.map((c) => getCustomerCount(companyName: c).catchError((_) => 0)),
+      );
+      return counts.fold<int>(0, (a, b) => a + b);
     }
   }
 
@@ -2264,6 +3295,7 @@ class SupabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getAllSyncMachines() async {
+    await _ensureCallerIsSuperAdmin();
     try {
       await pauseExpiredSyncMachines();
       final response = await _client
@@ -2279,6 +3311,7 @@ class SupabaseService {
 
   /// Companies currently linked to a sync machine via [machine_companies].
   Future<List<String>> getCompaniesForMachine(String machineName) async {
+    await _ensureCallerIsSuperAdmin();
     try {
       final response = await _client
           .from('machine_companies')
@@ -2380,6 +3413,7 @@ class SupabaseService {
     bool? syncShouldRun,
     DateTime? expiresAt,
   }) async {
+    await _ensureCallerIsSuperAdmin();
     try {
       final updateData = <String, dynamic>{
         'updated_at': DateTime.now().toUtc().toIso8601String(),

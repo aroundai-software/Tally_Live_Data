@@ -150,12 +150,7 @@ class Ledger {
     bool contains(String? value) =>
         value != null && value.toLowerCase().contains(query);
 
-    return contains(name) ||
-        contains(categoryName) ||
-        contains(alias) ||
-        contains(mailingName) ||
-        contains(city) ||
-        fullAddress.toLowerCase().contains(query);
+    return contains(name) || contains(alias) || contains(mailingName);
   }
 
   static double _toDouble(dynamic val) {

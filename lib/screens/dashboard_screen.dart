@@ -8,6 +8,7 @@ import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
 import '../utils/company_scope.dart';
+import '../utils/combined_company_selection.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/error_state_widget.dart';
@@ -82,38 +83,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final companyState = CompanyProvider.of(context);
     final syncTrigger = companyState.syncTrigger;
     final revision = companyState.companyRevision;
-    final c = _company;
     if (!_initialized) {
       _initialized = true;
       _lastSyncTrigger = syncTrigger;
       _lastCompanyRevision = revision;
-      _bootstrapDashboard(c);
+      _bootstrapDashboard();
     } else if (_lastCompanyRevision != revision) {
       _lastCompanyRevision = revision;
       _lastSyncTrigger = syncTrigger;
       _resetDashboardMetrics();
-      _bootstrapDashboard(c);
+      _bootstrapDashboard();
     } else if (_lastSyncTrigger != syncTrigger) {
       _lastSyncTrigger = syncTrigger;
       _loadDashboardData(silent: true);
     }
   }
 
+  String _dashboardCacheKey(CompanyState state) {
+    if (state.isCombinedMode &&
+        CombinedCompanySelection.isReady(state.selectedCompanies)) {
+      return 'cache_dashboard_combined_${CombinedCompanySelection.selectionKey(state.selectedCompanies)}';
+    }
+    return 'cache_dashboard_${state.selectedCompany ?? ''}';
+  }
+
   /// Load disk cache first (awaited), then always refresh from Supabase.
   /// Previously cache was fired without await and could overwrite live totals.
-  Future<void> _bootstrapDashboard(String? company) async {
-    if (!CompanyScope.isValid(company)) {
+  Future<void> _bootstrapDashboard() async {
+    final companyState = CompanyProvider.of(context);
+    if (!CompanyScope.hasActiveScope(companyState)) {
       if (mounted) {
         setState(() {
           _resetDashboardMetrics();
           _isLoading = false;
-          _error = 'No company selected';
+          _error = companyState.isCombinedMode
+              ? 'No companies selected'
+              : 'No company selected';
         });
       }
       return;
     }
     final generation = ++_loadGeneration;
-    await _loadCachedDashboard(company!, generation: generation);
+    await _loadCachedDashboard(companyState, generation: generation);
     if (!mounted || generation != _loadGeneration) return;
     await _loadDashboardData(silent: _hasCachedData);
   }
@@ -144,17 +155,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _lastSyncedTime = null;
   }
 
-  Future<void> _loadCachedDashboard(String company, {int? generation}) async {
+  Future<void> _loadCachedDashboard(CompanyState companyState, {int? generation}) async {
     final gen = generation ?? _loadGeneration;
+    final scopeKey = companyState.scopeKey;
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('cache_dashboard_$company');
+      final raw = prefs.getString(_dashboardCacheKey(companyState));
       if (raw != null && raw.isNotEmpty) {
         final map = jsonDecode(raw) as Map<String, dynamic>;
         // Never apply cache after a newer live load has started/finished
         if (!mounted ||
             gen != _loadGeneration ||
-            !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+            !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
           return;
         }
         setState(() {
@@ -186,7 +198,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (_) {}
   }
 
-  Future<void> _saveDashboardCache(String company) async {
+  Future<void> _saveDashboardCache(CompanyState companyState) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final map = {
@@ -210,21 +222,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'bank': _totalBank,
         'lastSynced': _lastSyncedTime?.toIso8601String(),
       };
-      await prefs.setString('cache_dashboard_$company', jsonEncode(map));
+      await prefs.setString(_dashboardCacheKey(companyState), jsonEncode(map));
     } catch (_) {}
   }
 
-  String? get _company => CompanyProvider.of(context).selectedCompany;
+  Future<DateTime?> _combinedLastSyncTime(List<String> companyNames) async {
+    final times = await Future.wait(
+      companyNames.map((c) => _service.getLastSyncTime(companyName: c)),
+    );
+    DateTime? latest;
+    for (final t in times) {
+      if (t == null) continue;
+      if (latest == null || t.isAfter(latest)) latest = t;
+    }
+    return latest;
+  }
 
   Future<void> _loadDashboardData({bool silent = false}) async {
     final generation = ++_loadGeneration;
-    final c = _company;
-    if (!CompanyScope.isValid(c)) {
+    final companyState = CompanyProvider.of(context);
+    final scopeKey = companyState.scopeKey;
+    final isCombined = companyState.isCombinedMode;
+    final company = companyState.selectedCompany;
+    if (!CompanyScope.hasActiveScope(companyState)) {
       if (mounted) {
         setState(() {
           _resetDashboardMetrics();
           _isLoading = false;
-          _error = 'No company selected';
+          _error = isCombined ? 'No companies selected' : 'No company selected';
         });
       }
       return;
@@ -236,14 +261,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
     }
     try {
-      final results = await Future.wait<dynamic>([
-        _service.getDashboardAggregates(companyName: c!),
-        _service.getLastSyncTime(companyName: c),
-      ]);
+      final List<dynamic> results;
+      if (isCombined) {
+        final companies = companyState.selectedCompanies;
+        results = await Future.wait<dynamic>([
+          _service.getCombinedDashboardAggregates(companyNames: companies),
+          _combinedLastSyncTime(companies),
+        ]);
+      } else {
+        results = await Future.wait<dynamic>([
+          _service.getDashboardAggregates(companyName: company!),
+          _service.getLastSyncTime(companyName: company),
+        ]);
+      }
 
       if (!mounted ||
           generation != _loadGeneration ||
-          !CompanyScope.stillActive(c, CompanyProvider.of(context).selectedCompany)) {
+          !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         return;
       }
       final agg = Map<String, dynamic>.from(results[0] as Map);
@@ -278,14 +312,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _error = null;
         });
 
-      _saveDashboardCache(c);
+      _saveDashboardCache(companyState);
 
       // Cash/bank ledger details (for drill-down) — don't block Overview on this.
-      unawaited(_loadCashBankLedgers(c, generation));
+      if (isCombined) {
+        unawaited(_loadCombinedCashBankLedgers(
+          companyState.selectedCompanies,
+          generation,
+          scopeKey,
+          companyState,
+        ));
+      } else {
+        unawaited(_loadCashBankLedgers(company!, generation, scopeKey, companyState));
+      }
     } catch (e) {
       if (mounted &&
           generation == _loadGeneration &&
-          CompanyScope.stillActive(c, CompanyProvider.of(context).selectedCompany)) {
+          CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         setState(() {
           _error = e;
           _isLoading = false;
@@ -294,12 +337,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _loadCashBankLedgers(String company, int generation) async {
+  Future<void> _loadCashBankLedgers(
+    String company,
+    int generation,
+    String scopeKey,
+    CompanyState companyState,
+  ) async {
     try {
       final ledgers = await _service.getCashBankLedgers(companyName: company);
       if (!mounted ||
           generation != _loadGeneration ||
-          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+          !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         return;
       }
       double cTot = 0, bTot = 0;
@@ -322,7 +370,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _totalCash = cTot;
         _totalBank = bTot;
       });
-      _saveDashboardCache(company);
+      _saveDashboardCache(companyState);
+    } catch (_) {
+      // Keep RPC/cached cash-bank totals if detail fetch fails.
+    }
+  }
+
+  Future<void> _loadCombinedCashBankLedgers(
+    List<String> companies,
+    int generation,
+    String scopeKey,
+    CompanyState companyState,
+  ) async {
+    try {
+      final pages = await Future.wait(
+        companies.map((c) async {
+          try {
+            return await _service.getCashBankLedgers(companyName: c);
+          } catch (_) {
+            return <Ledger>[];
+          }
+        }),
+      );
+      final ledgers = pages.expand((e) => e).toList();
+      if (!mounted ||
+          generation != _loadGeneration ||
+          !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
+        return;
+      }
+      double cTot = 0, bTot = 0;
+      for (var l in ledgers) {
+        final type = l.ledgerType?.toLowerCase().trim() ?? '';
+        final name = l.name.toLowerCase().trim();
+        if (type.contains('charge') || type.contains('expense') ||
+            name.contains('charges') || name.contains('vetting') ||
+            name == 'opening balance' || name == 'closing balance') {
+          continue;
+        }
+        if (type.contains('cash') || name.startsWith('cash') || name.startsWith('petty cash')) {
+          cTot += l.closingBalance;
+        } else if (type.contains('bank')) {
+          bTot += l.closingBalance;
+        }
+      }
+      setState(() {
+        _cashBankLedgers = ledgers;
+        _totalCash = cTot;
+        _totalBank = bTot;
+      });
+      _saveDashboardCache(companyState);
     } catch (_) {
       // Keep RPC/cached cash-bank totals if detail fetch fails.
     }
@@ -409,14 +505,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final showDaybook = companyState.isFeatureEnabled('db_daybook');
     final showQuickActions = companyState.isFeatureEnabled('db_quick_actions');
 
+    final hideFinancialQa = companyState.isCombinedMode;
     final showQuickActionsBlock = showQuickActions && (
       (companyState.isFeatureEnabled('stock') && companyState.isFeatureEnabled('db_qa_stock')) ||
       (companyState.isFeatureEnabled('ledgers') && companyState.isFeatureEnabled('db_qa_ledgers')) ||
       (companyState.isFeatureEnabled('sales') && companyState.isFeatureEnabled('db_qa_sales')) ||
       (companyState.isFeatureEnabled('analytics') && companyState.isFeatureEnabled('db_qa_reports')) ||
-      companyState.isFeatureEnabled('cash_flow') ||
-      (companyState.isFeatureEnabled('balance_sheet') && companyState.isFeatureEnabled('db_qa_balance_sheet')) ||
-      (companyState.isFeatureEnabled('profit_loss') && companyState.isFeatureEnabled('db_qa_profit_loss'))
+      (!hideFinancialQa && companyState.isFeatureEnabled('cash_flow')) ||
+      (!hideFinancialQa && companyState.isFeatureEnabled('balance_sheet') && companyState.isFeatureEnabled('db_qa_balance_sheet')) ||
+      (!hideFinancialQa && companyState.isFeatureEnabled('profit_loss') && companyState.isFeatureEnabled('db_qa_profit_loss'))
     );
 
     return Padding(
@@ -685,11 +782,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         {'icon': Icons.people_alt_rounded, 'label': 'Ledgers', 'color': AppTheme.primaryColor, 'feature': 'ledgers', 'index': 2},
       if (companyState.isFeatureEnabled('sales') && companyState.isFeatureEnabled('db_qa_sales'))
         {'icon': Icons.receipt_long_rounded, 'label': 'Sales', 'color': AppTheme.salesColor, 'feature': 'sales', 'index': 4},
-      if (companyState.isFeatureEnabled('balance_sheet') && companyState.isFeatureEnabled('db_qa_balance_sheet'))
+      if (!companyState.isCombinedMode && companyState.isFeatureEnabled('balance_sheet') && companyState.isFeatureEnabled('db_qa_balance_sheet'))
         {'icon': Icons.account_balance_outlined, 'label': 'Balance Sheet', 'color': const Color(0xFF0F766E), 'feature': 'balance_sheet', 'index': 96},
-      if (companyState.isFeatureEnabled('profit_loss') && companyState.isFeatureEnabled('db_qa_profit_loss'))
+      if (!companyState.isCombinedMode && companyState.isFeatureEnabled('profit_loss') && companyState.isFeatureEnabled('db_qa_profit_loss'))
         {'icon': Icons.trending_up_rounded, 'label': 'P&L', 'color': const Color(0xFFB45309), 'feature': 'profit_loss', 'index': 97},
-      if (companyState.isFeatureEnabled('cash_flow'))
+      if (!companyState.isCombinedMode && companyState.isFeatureEnabled('cash_flow'))
         {'icon': Icons.account_balance_wallet_rounded, 'label': 'Cash Flow', 'color': Colors.green.shade600, 'feature': 'cash_flow', 'index': 98},
       if (companyState.isFeatureEnabled('analytics') && companyState.isFeatureEnabled('db_qa_reports'))
         {'icon': Icons.analytics_rounded, 'label': 'Reports', 'color': Colors.purple.shade500, 'feature': 'analytics', 'index': 99},
@@ -715,7 +812,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               width: itemWidth,
               child: GestureDetector(
                 onTap: () {
-                  _checkFeatureAndRun(featureKey, () {
+                  void open() {
                     if (index == 99) {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const ReportsScreen()),
@@ -735,7 +832,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     } else {
                       widget.onNavigate(index);
                     }
-                  });
+                  }
+
+                  _checkFeatureAndRun(featureKey, open);
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),

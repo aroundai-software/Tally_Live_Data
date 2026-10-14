@@ -6,9 +6,11 @@ import 'package:printing/printing.dart';
 
 import '../models/ledger.dart';
 import '../models/daybook_entry.dart';
+import '../services/pdf_service.dart';
 import '../services/supabase_service.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
+import '../utils/company_scope.dart';
 import '../widgets/ledger_performance_tab.dart';
 import '../widgets/ledger_voucher_detail_sheet.dart';
 
@@ -43,6 +45,13 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   String? _loadedCompany;
   int _loadGeneration = 0;
   bool get _canReadTransactions => CompanyProvider.of(context).isFeatureEnabled('ls_transactions');
+
+  /// Prefer ledger.companyName — selectedCompany is null in Combined mode.
+  String? get _statementCompany => CompanyScope.companyForRecord(
+        CompanyProvider.of(context),
+        widget.ledger.companyName,
+      );
+
   bool _isListView = false;
   bool _isListViewInitialized = false;
   bool _datesInitialized = false;
@@ -74,7 +83,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
       _isListViewInitialized = true;
     }
     final permission = _canReadTransactions;
-    final company = CompanyProvider.of(context).selectedCompany;
+    final company = _statementCompany;
     if (!_isInit || permission != _lastTransactionPermission || company != _loadedCompany) {
       _lastTransactionPermission = permission;
       _loadedCompany = company;
@@ -122,10 +131,20 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
     });
 
     try {
-      final companyName = CompanyProvider.of(context).selectedCompany;
-      
+      final companyName = _statementCompany?.trim() ?? '';
+      if (companyName.isEmpty) {
+        if (mounted && generation == _loadGeneration) {
+          setState(() {
+            _error = 'Company is required for this ledger statement.';
+            _transactions = [];
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
       final allTransactions = await _service.getLedgerVouchers(
-        companyName: companyName ?? '',
+        companyName: companyName,
         ledgerName: widget.ledger.name,
         endDate: null,
       );
@@ -278,17 +297,10 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
     return NumberFormat.currency(locale: 'en_IN', symbol: '\u20B9').format(amount.abs());
   }
 
-  String _formatAmountPdf(double amount) {
-    if (amount.abs() < 0.001) return '';
-    final formatter = NumberFormat('#,##,##0.00', 'en_IN');
-    return formatter.format(amount.abs());
-  }
-
   Future<pw.Document> _generatePdfDocument() async {
     if (!_canReadTransactions || _isLoading || _error != null) {
       throw StateError('A permitted, successfully loaded statement is required for export.');
     }
-    final pdf = pw.Document();
 
     final sortedTransactions = List<DaybookEntry>.from(_transactions)
       ..sort((a, b) {
@@ -298,164 +310,37 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
 
     String dateRangeText = '';
     if (_startDate != null && _endDate != null) {
-      dateRangeText = '${DateFormat('d-MMM-yy').format(_startDate!)} to ${DateFormat('d-MMM-yy').format(_endDate!)}';
+      dateRangeText =
+          '${DateFormat('d-MMM-yy').format(_startDate!)} to ${DateFormat('d-MMM-yy').format(_endDate!)}';
     } else {
-      // Find range from actual transactions shown
-      final validDates = sortedTransactions.where((e) => e.date != null).map((e) => e.date!).toList();
+      final validDates = sortedTransactions
+          .where((e) => e.date != null)
+          .map((e) => e.date!)
+          .toList();
       if (validDates.isNotEmpty) {
-        dateRangeText = '${DateFormat('d-MMM-yy').format(validDates.first)} to ${DateFormat('d-MMM-yy').format(validDates.last)}';
+        dateRangeText =
+            '${DateFormat('d-MMM-yy').format(validDates.first)} to ${DateFormat('d-MMM-yy').format(validDates.last)}';
       } else {
         dateRangeText = 'All Time';
       }
     }
 
-    final companyName = CompanyProvider.of(context).selectedCompany ?? 'Company Name';
-    final address = companyName.contains('Kuncharakkattil') 
-        ? 'Arumanoor P.O., Kottayam-686 564\nPh:0481-2541125, 2931125\n+91-9539065346'
-        : '';
+    final companyState = CompanyProvider.of(context);
+    final companyName = CompanyScope.companyForRecord(
+          companyState,
+          widget.ledger.companyName,
+        ) ??
+        (companyState.isCombinedMode ? 'Combined Companies' : 'Company Name');
 
-    final tableData = <List<String>>[];
-
-    for (var entry in sortedTransactions) {
-      String dateStr = entry.date != null ? DateFormat('dd-MMM-yy').format(entry.date!) : '';
-      String prefix = entry.isDebit ? 'To ' : 'By ';
-      String particulars = prefix + (entry.particulars ?? entry.ledgerName);
-      String vchType = entry.voucherType;
-      String vchNo = entry.voucherNumber ?? '';
-      String debitStr = entry.isDebit ? _formatAmountPdf(entry.amount) : '';
-      String creditStr = !entry.isDebit ? _formatAmountPdf(entry.amount) : '';
-      
-      tableData.add([dateStr, particulars, vchType, vchNo, debitStr, creditStr]);
-    }
-
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
-        header: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
-            children: [
-              pw.Text(companyName, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-              if (address.isNotEmpty) pw.Text(address, style: const pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
-              pw.SizedBox(height: 10),
-              pw.Text(widget.ledger.name, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
-              pw.Text('Ledger Account', style: const pw.TextStyle(fontSize: 10)),
-              pw.SizedBox(height: 10),
-              pw.Text(dateRangeText, style: const pw.TextStyle(fontSize: 10)),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.end,
-                children: [
-                  pw.Text('Page ${context.pageNumber}', style: const pw.TextStyle(fontSize: 8)),
-                ],
-              ),
-              pw.SizedBox(height: 5),
-            ],
-          );
-        },
-        build: (pw.Context context) {
-          return [
-            pw.TableHelper.fromTextArray(
-              headers: ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
-              data: tableData,
-              border: const pw.TableBorder(
-                top: pw.BorderSide(width: 1),
-                bottom: pw.BorderSide(width: 1),
-                horizontalInside: pw.BorderSide.none,
-                verticalInside: pw.BorderSide.none,
-                left: pw.BorderSide.none,
-                right: pw.BorderSide.none,
-              ),
-              headerStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
-              headerDecoration: const pw.BoxDecoration(
-                border: pw.Border(bottom: pw.BorderSide(width: 1)),
-              ),
-              cellStyle: const pw.TextStyle(fontSize: 9),
-              cellAlignments: {
-                0: pw.Alignment.centerLeft,
-                1: pw.Alignment.centerLeft,
-                2: pw.Alignment.centerLeft,
-                3: pw.Alignment.centerLeft,
-                4: pw.Alignment.centerRight,
-                5: pw.Alignment.centerRight,
-              },
-              columnWidths: {
-                0: const pw.FlexColumnWidth(2),
-                1: const pw.FlexColumnWidth(5),
-                2: const pw.FlexColumnWidth(3),
-                3: const pw.FlexColumnWidth(2),
-                4: const pw.FlexColumnWidth(2),
-                5: const pw.FlexColumnWidth(2),
-              },
-            ),
-            pw.Container(
-              decoration: const pw.BoxDecoration(
-                border: pw.Border(top: pw.BorderSide(width: 0.5)),
-              ),
-              padding: const pw.EdgeInsets.only(top: 4),
-              child: pw.Column(
-                children: [
-                  _pdfBalanceRow(
-                    label: 'Opening Balance',
-                    debit: _openingBalance > 0.001 ? _formatAmountPdf(_openingBalance) : '',
-                    credit: _openingBalance < -0.001 ? _formatAmountPdf(_openingBalance) : '',
-                  ),
-                  _pdfBalanceRow(
-                    label: 'Current Total',
-                    debit: _formatAmountPdf(_totalDebits),
-                    credit: _formatAmountPdf(_totalCredits),
-                    bold: true,
-                  ),
-                  pw.Container(
-                    decoration: const pw.BoxDecoration(
-                      border: pw.Border(bottom: pw.BorderSide(width: 1)),
-                    ),
-                    child: _pdfBalanceRow(
-                      label: 'Closing Balance',
-                      debit: _closingBalance > 0.001 ? _formatAmountPdf(_closingBalance) : '',
-                      credit: _closingBalance < -0.001 ? _formatAmountPdf(_closingBalance) : '',
-                      bold: true,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ];
-        },
-      ),
-    );
-
-    return pdf;
-  }
-
-  pw.Widget _pdfBalanceRow({
-    required String label,
-    required String debit,
-    required String credit,
-    bool bold = false,
-  }) {
-    final style = pw.TextStyle(
-      fontSize: 9,
-      fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
-    );
-    return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(vertical: 3),
-      child: pw.Row(
-        children: [
-          pw.Expanded(flex: 2, child: pw.SizedBox()),
-          pw.Expanded(flex: 5, child: pw.Text(label, style: style)),
-          pw.Expanded(flex: 3, child: pw.SizedBox()),
-          pw.Expanded(flex: 2, child: pw.SizedBox()),
-          pw.Expanded(
-            flex: 2,
-            child: pw.Text(debit, textAlign: pw.TextAlign.right, style: style),
-          ),
-          pw.Expanded(
-            flex: 2,
-            child: pw.Text(credit, textAlign: pw.TextAlign.right, style: style),
-          ),
-        ],
-      ),
+    return PdfService.generateLedgerStatementPdf(
+      companyName: companyName,
+      ledger: widget.ledger,
+      transactions: sortedTransactions,
+      dateRangeText: dateRangeText,
+      openingBalance: _openingBalance,
+      totalDebits: _totalDebits,
+      totalCredits: _totalCredits,
+      closingBalance: _closingBalance,
     );
   }
 
@@ -686,7 +571,10 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
 
     if (showPerformance) {
       tabs.add(const Tab(text: 'Performance'));
-      tabViews.add(LedgerPerformanceTab(ledgerName: widget.ledger.name));
+      tabViews.add(LedgerPerformanceTab(
+        ledgerName: widget.ledger.name,
+        companyName: _statementCompany ?? '',
+      ));
     }
 
     // Neither tab is enabled — show lock screen
@@ -930,7 +818,11 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   }
 
   void _openVoucherDetail(DaybookEntry entry) {
-    final company = CompanyProvider.of(context).selectedCompany;
+    final company = CompanyScope.companyForRecord(
+          CompanyProvider.of(context),
+          entry.companyName ?? widget.ledger.companyName,
+        ) ??
+        '';
     showLedgerVoucherDetailSheet(
       context: context,
       entry: entry,

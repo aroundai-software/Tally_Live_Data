@@ -4,6 +4,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
+import '../utils/admin_access.dart';
+import '../utils/company_session_bootstrap.dart';
 import 'company_selection_screen.dart';
 import 'main_shell.dart';
 import 'admin_panel_screen.dart';
@@ -83,12 +85,8 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
         }
 
-        // Admin Redirection check
-        final role = profile != null ? profile['role']?.toString() : null;
-        final email = user.email;
-        final phone = profile != null ? profile['phone_number']?.toString() : user.phone;
-        final cleanPhone = phone?.replaceAll(RegExp(r'[^0-9]'), '') ?? '';
-        final isSuperAdmin = role == 'super_admin' || email == 'admin@tallylive.com' || cleanPhone == '97000000';
+        // Admin only when DB role is super_admin (no email/phone backdoors).
+        final isSuperAdmin = isActiveSuperAdmin(profile);
 
         if (!mounted) return;
 
@@ -99,17 +97,22 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
         }
 
-        final companyName = profile != null ? profile['company_name']?.toString() : null;
-        if (companyName != null && companyName.isNotEmpty) {
-          CompanyProvider.of(context).selectCompany(companyName);
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const MainShell()),
-          );
-        } else {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const CompanySelectionScreen()),
-          );
-        }
+        final entered = profile == null
+            ? false
+            : await bootstrapCompanySession(
+                state: CompanyProvider.of(context),
+                profile: profile,
+                userId: user.id,
+                service: _service,
+              );
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => entered
+                ? const MainShell()
+                : const CompanySelectionScreen(),
+          ),
+        );
       } else {
         _showError('Authentication failed. Please check your credentials.');
       }
@@ -293,72 +296,81 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
             padding: const EdgeInsets.all(48),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.18),
-                            blurRadius: 14,
-                            offset: const Offset(0, 4),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.18),
+                                    blurRadius: 14,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Image.asset(
+                                'assets/icon/app_logo.png',
+                                width: 72,
+                                height: 72,
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Text(
+                              'TallyLive',
+                              style: AppTheme.brandTitle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 36),
+                        const Text(
+                          'Real-Time Business Analytics\n& Live Tally Portal',
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            height: 1.3,
                           ),
-                        ],
-                      ),
-                      child: Image.asset(
-                        'assets/icon/app_logo.png',
-                        width: 72,
-                        height: 72,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Text(
-                      'TallyLive',
-                      style: AppTheme.brandTitle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 36),
-                const Text(
-                  'Real-Time Business Analytics\n& Live Tally Portal',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Access instant sales insights, stock valuation, cashflow, and outstanding balances across all your business branches.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white.withValues(alpha: 0.85),
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 40),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Access instant sales insights, stock valuation, cashflow, and outstanding balances across all your business branches.',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white.withValues(alpha: 0.85),
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 40),
 
-                // Feature Highlights
-                _buildFeatureBullet(Icons.bolt_rounded, 'Live Tally Synchronization'),
-                const SizedBox(height: 16),
-                _buildFeatureBullet(Icons.bar_chart_rounded, 'Instant Sales & Profit Reports'),
-                const SizedBox(height: 16),
-                _buildFeatureBullet(Icons.verified_user_rounded, 'Secure Multi-Tenant Owner Portal'),
-              ],
+                        // Feature Highlights
+                        _buildFeatureBullet(Icons.bolt_rounded, 'Live Tally Synchronization'),
+                        const SizedBox(height: 16),
+                        _buildFeatureBullet(Icons.bar_chart_rounded, 'Instant Sales & Profit Reports'),
+                        const SizedBox(height: 16),
+                        _buildFeatureBullet(Icons.verified_user_rounded, 'Secure Multi-Tenant Owner Portal'),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ),

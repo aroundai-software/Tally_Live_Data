@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
+import '../utils/admin_access.dart';
+import '../utils/company_session_bootstrap.dart';
 import 'company_selection_screen.dart';
 import 'login_screen.dart';
 import 'main_shell.dart';
@@ -77,35 +79,25 @@ class _SplashScreenState extends State<SplashScreen> {
         await _service.signOut();
         return const LoginScreen();
       }
-      // Admin Redirection check
-      final role = profile['role']?.toString();
-      final email = user.email;
-      final phone = profile['phone_number']?.toString() ?? user.phone;
-      final cleanPhone = phone?.replaceAll(RegExp(r'[^0-9]'), '') ?? '';
-      final isSuperAdmin = role == 'super_admin' || email == 'admin@tallylive.com' || cleanPhone == '97000000';
-
-      if (isSuperAdmin) {
+      // Admin only when DB role is super_admin (no email/phone backdoors).
+      if (isActiveSuperAdmin(profile)) {
         return const AdminPanelScreen(isRootAdmin: true);
       }
 
-      final companyName = profile['company_name']?.toString();
-      if (companyName != null && companyName.isNotEmpty) {
-        if (mounted) {
-          CompanyProvider.of(context).selectCompany(companyName);
-        }
-        return const MainShell();
-      } else {
-        return const CompanySelectionScreen();
+      if (mounted) {
+        final entered = await bootstrapCompanySession(
+          state: CompanyProvider.of(context),
+          profile: profile,
+          userId: user.id,
+          service: _service,
+        );
+        if (entered) return const MainShell();
       }
+      return const CompanySelectionScreen();
     } catch (_) {
       // Do not sign out on startup errors — session may still be valid.
+      // Never grant admin from email/phone heuristics on error paths.
       if (_service.currentSession != null) {
-        final user = _service.currentSession!.user;
-        final email = user.email;
-        final phone = user.phone?.replaceAll(RegExp(r'[^0-9]'), '') ?? '';
-        if (email == 'admin@tallylive.com' || phone == '97000000' || phone.endsWith('97000000')) {
-          return const AdminPanelScreen(isRootAdmin: true);
-        }
         return const CompanySelectionScreen();
       }
       return const LoginScreen();

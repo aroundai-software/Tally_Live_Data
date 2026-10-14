@@ -11,8 +11,14 @@ enum _CollectionMethod { actual, tallyFormula }
 
 class LedgerPerformanceTab extends StatefulWidget {
   final String ledgerName;
+  /// Owning company for this ledger (must not rely on selectedCompany in Combined).
+  final String companyName;
 
-  const LedgerPerformanceTab({super.key, required this.ledgerName});
+  const LedgerPerformanceTab({
+    super.key,
+    required this.ledgerName,
+    required this.companyName,
+  });
 
   @override
   State<LedgerPerformanceTab> createState() => _LedgerPerformanceTabState();
@@ -70,9 +76,19 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
   Future<void> _loadData() async {
     setState(() { _isLoading = true; _error = null; });
     try {
-      final companyState = CompanyProvider.of(context);
-      final data = await _service.getBillSettlementsForLedger(
-          companyState.selectedCompany!, widget.ledgerName);
+      final company = widget.companyName.trim();
+      if (company.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _error = 'Company is required for ledger performance.';
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
+      final data =
+          await _service.getBillSettlementsForLedger(company, widget.ledgerName);
 
       final now = DateTime.now();
       Map<String, List<int>> monthlyMap = {};
@@ -122,7 +138,7 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
       }
 
       // Load ratio formula in the background (non-blocking)
-      _loadRatioFormula(companyState.selectedCompany!);
+      _loadRatioFormula(company);
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _isLoading = false; });
     }

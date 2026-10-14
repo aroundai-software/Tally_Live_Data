@@ -46,6 +46,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   String? _error;
   int _loadGeneration = 0;
   String? _permissionKey;
+  List<String> _visibleTabLabels = const [];
 
   List<Map<String, dynamic>> _profitData = [];
   List<Map<String, dynamic>> _fastItems = [];
@@ -58,6 +59,11 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   int _totalUnusedLedgersCount = 0;
   int _totalUnusedItemsCount = 0;
   bool _useLineChart = false;
+
+  bool _velocityLoaded = false;
+  bool _dormantLoaded = false;
+  bool _velocityLoading = false;
+  bool _dormantLoading = false;
 
   // User-adjustable "no activity in X days" cutoffs — independent per section,
   // since a quiet customer and slow-moving equipment stock aren't the same
@@ -72,12 +78,32 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(_onTabChanged);
+  }
+
+  void _onTabChanged() {
+    if (!mounted || _tabController.indexIsChanging) return;
+    _ensureTabDataLoaded(_tabController.index);
+  }
+
+  void _ensureTabDataLoaded(int index) {
+    if (index < 0 || index >= _visibleTabLabels.length) return;
+    switch (_visibleTabLabels[index]) {
+      case 'Velocity':
+        _loadVelocityIfNeeded();
+        break;
+      case 'Dormant':
+        _loadDormantIfNeeded();
+        break;
+    }
   }
 
   void _rebuildTabController(int tabCount) {
     if (_tabController.length != tabCount) {
+      _tabController.removeListener(_onTabChanged);
       _tabController.dispose();
       _tabController = TabController(length: tabCount, vsync: this);
+      _tabController.addListener(_onTabChanged);
     }
   }
 
@@ -89,7 +115,8 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   void didChangeDependencies() {
     super.didChangeDependencies();
     final state = CompanyProvider.of(context);
-    final permissionKey = '${state.selectedCompany}:${state.isFeatureEnabled('stock_cost')}:${state.isFeatureEnabled('rep_sales')}:${state.isFeatureEnabled('rep_purchases')}:${state.isFeatureEnabled('rep_ledgers')}';
+    final permissionKey =
+        '${state.scopeKey}:${state.isFeatureEnabled('stock_cost')}:${state.isFeatureEnabled('rep_sales')}:${state.isFeatureEnabled('rep_purchases')}:${state.isFeatureEnabled('rep_ledgers')}';
     final permissionsChanged = _permissionKey != permissionKey;
     _permissionKey = permissionKey;
     final syncTrigger = state.syncTrigger;
@@ -109,90 +136,289 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
   }
 
+  bool _scopeStillActive(int generation, String scopeKey) {
+    return mounted &&
+        generation == _loadGeneration &&
+        CompanyScope.stillActiveScope(
+            scopeKey, CompanyProvider.of(context).scopeKey);
+  }
+
+  bool _hasValidScope(CompanyState state) {
+    if (state.isCombinedMode) return CompanyScope.hasActiveScope(state);
+    return CompanyScope.isValid(state.selectedCompany);
+  }
+
+  /// Entry / pull-to-refresh: Overview only. Velocity & Dormant load on tab open.
   Future<void> _loadData({bool silent = false}) async {
     final generation = ++_loadGeneration;
     final state = CompanyProvider.of(context);
-    final company = state.selectedCompany;
-    if (!CompanyScope.isValid(company)) {
+    final scopeKey = state.scopeKey;
+    if (!_hasValidScope(state)) {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _error = 'No company selected';
+          _error = state.isCombinedMode
+              ? 'No companies selected'
+              : 'No company selected';
         });
       }
       return;
     }
-    setState(() { _error = null; _isLoading = true; });
+    setState(() {
+      _error = null;
+      if (!silent) _isLoading = true;
+      _velocityLoaded = false;
+      _dormantLoaded = false;
+      _velocityLoading = false;
+      _dormantLoading = false;
+      _fastItems = [];
+      _slowItems = [];
+      _highValueItems = [];
+      _unusedLedgers = [];
+      _unusedItems = [];
+      _totalUnusedLedgersCount = 0;
+      _totalUnusedItemsCount = 0;
+    });
     try {
       final costs = state.isFeatureEnabled('stock_cost');
       final sales = state.isFeatureEnabled('rep_sales') && costs;
-      final velocity = state.isFeatureEnabled('rep_purchases');
-      final dormant = state.isFeatureEnabled('rep_ledgers');
-      final results = await Future.wait([
-        sales ? _service.getDailyProfit(companyName: company, days: _overviewDays) : Future.value(<Map<String, dynamic>>[]),
-        velocity ? _service.getFastMovingItems(companyName: company, days: _velocityCutoffDays) : Future.value(<Map<String, dynamic>>[]),
-        velocity ? _service.getSlowMovingItems(companyName: company, days: _velocityCutoffDays) : Future.value(<Map<String, dynamic>>[]),
-        dormant ? _service.getUnusedLedgers(companyName: company, days: _ledgerCutoffDays) : Future.value(<Map<String, dynamic>>[]),
-        dormant ? _service.getUnusedItems(companyName: company, days: _itemCutoffDays) : Future.value(<Map<String, dynamic>>[]),
-        dormant ? _service.getUnusedLedgersCount(companyName: company, days: _ledgerCutoffDays) : Future.value(0),
-        dormant ? _service.getUnusedItemsCount(companyName: company, days: _itemCutoffDays) : Future.value(0),
-        velocity && costs ? _service.getHighValueItems(companyName: company) : Future.value(<Map<String, dynamic>>[]),
-      ]);
+      final isCombined = state.isCombinedMode;
+      final company = state.selectedCompany;
+      final companies = state.selectedCompanies;
 
-      if (mounted &&
-          generation == _loadGeneration &&
-          CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
-        setState(() {
-          _profitData = (results[0] as List).cast<Map<String, dynamic>>();
-          _fastItems = (results[1] as List).cast<Map<String, dynamic>>();
-          _slowItems = (results[2] as List).cast<Map<String, dynamic>>();
-          _unusedLedgers = (results[3] as List).cast<Map<String, dynamic>>();
-          _unusedItems = (results[4] as List).map((row) => Map<String, dynamic>.from(row)).toList();
-          if (!costs) {
-            for (final item in _unusedItems) { item.remove('stock_value'); }
-            _unusedItems.sort((a, b) => '${a['product_name']}'.compareTo('${b['product_name']}'));
-          }
-          _totalUnusedLedgersCount = results[5] as int;
-          _totalUnusedItemsCount = results[6] as int;
-          _highValueItems = (results[7] as List).cast<Map<String, dynamic>>();
-          _useLineChart = _overviewDays > 30;
+      final profit = sales
+          ? (isCombined
+              ? await _service.getCombinedDailyProfit(
+                  companyNames: companies, days: _overviewDays)
+              : await _service.getDailyProfit(
+                  companyName: company, days: _overviewDays))
+          : <Map<String, dynamic>>[];
+      if (!_scopeStillActive(generation, scopeKey)) return;
+      setState(() {
+        _profitData = profit;
+        _useLineChart = _overviewDays > 30;
+        _isLoading = false;
+      });
 
-          _isLoading = false;
-        });
-      }
+      // If user already switched tabs during overview load, fetch that tab.
+      _ensureTabDataLoaded(_tabController.index);
     } catch (e, st) {
       print('Error loading data: $e');
       print(st);
-      if (mounted &&
-          generation == _loadGeneration &&
-          CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
-        setState(() { _isLoading = false; _error = AppErrorHandler.getFriendlyError(e); });
+      if (_scopeStillActive(generation, scopeKey)) {
+        setState(() {
+          _isLoading = false;
+          _error = AppErrorHandler.getFriendlyError(e);
+        });
+      }
+    }
+  }
+
+  Future<void> _loadVelocityIfNeeded({bool force = false}) async {
+    if (_velocityLoading) return;
+    if (_velocityLoaded && !force) return;
+    final state = CompanyProvider.of(context);
+    if (!state.isFeatureEnabled('rep_purchases')) return;
+    if (!_hasValidScope(state)) return;
+
+    final generation = _loadGeneration;
+    final scopeKey = state.scopeKey;
+    final isCombined = state.isCombinedMode;
+    final company = state.selectedCompany;
+    final companies = state.selectedCompanies;
+    final costs = state.isFeatureEnabled('stock_cost');
+
+    setState(() => _velocityLoading = true);
+    try {
+      final results = await Future.wait([
+        isCombined
+            ? _service.getCombinedFastMovingItems(
+                companyNames: companies, days: _velocityCutoffDays)
+            : _service.getFastMovingItems(
+                companyName: company, days: _velocityCutoffDays),
+        isCombined
+            ? _service.getCombinedSlowMovingItems(
+                companyNames: companies, days: _velocityCutoffDays)
+            : _service.getSlowMovingItems(
+                companyName: company, days: _velocityCutoffDays),
+        costs
+            ? (isCombined
+                ? _service.getCombinedHighValueItems(companyNames: companies)
+                : _service.getHighValueItems(companyName: company))
+            : Future.value(<Map<String, dynamic>>[]),
+      ]);
+      if (!_scopeStillActive(generation, scopeKey)) return;
+      setState(() {
+        _fastItems = results[0];
+        _slowItems = results[1];
+        _highValueItems = results[2];
+        _velocityLoaded = true;
+        _velocityLoading = false;
+      });
+    } catch (e) {
+      if (_scopeStillActive(generation, scopeKey)) {
+        setState(() {
+          _velocityLoading = false;
+          _error = AppErrorHandler.getFriendlyError(e);
+        });
+      }
+    }
+  }
+
+  Future<void> _loadDormantIfNeeded({bool force = false}) async {
+    if (_dormantLoading) return;
+    if (_dormantLoaded && !force) return;
+    final state = CompanyProvider.of(context);
+    if (!state.isFeatureEnabled('rep_ledgers')) return;
+    if (!_hasValidScope(state)) return;
+
+    final generation = _loadGeneration;
+    final scopeKey = state.scopeKey;
+    final isCombined = state.isCombinedMode;
+    final company = state.selectedCompany;
+    final companies = state.selectedCompanies;
+    final costs = state.isFeatureEnabled('stock_cost');
+
+    setState(() => _dormantLoading = true);
+    try {
+      final results = await Future.wait([
+        isCombined
+            ? _service.getCombinedUnusedLedgers(
+                companyNames: companies, days: _ledgerCutoffDays)
+            : _service.getUnusedLedgers(
+                companyName: company, days: _ledgerCutoffDays),
+        isCombined
+            ? _service.getCombinedUnusedItems(
+                companyNames: companies, days: _itemCutoffDays)
+            : _service.getUnusedItems(
+                companyName: company, days: _itemCutoffDays),
+      ]);
+      if (!_scopeStillActive(generation, scopeKey)) return;
+
+      final unusedLedgers = results[0];
+      final unusedItems =
+          results[1].map((row) => Map<String, dynamic>.from(row)).toList();
+      if (!costs) {
+        for (final item in unusedItems) {
+          item.remove('stock_value');
+        }
+        unusedItems.sort(
+            (a, b) => '${a['product_name']}'.compareTo('${b['product_name']}'));
+      }
+
+      setState(() {
+        _unusedLedgers = unusedLedgers;
+        _unusedItems = unusedItems;
+        _totalUnusedLedgersCount = unusedLedgers.length;
+        _totalUnusedItemsCount = unusedItems.length;
+        _dormantLoaded = true;
+        _dormantLoading = false;
+      });
+    } catch (e) {
+      if (_scopeStillActive(generation, scopeKey)) {
+        setState(() {
+          _dormantLoading = false;
+          _error = AppErrorHandler.getFriendlyError(e);
+        });
       }
     }
   }
 
   Future<void> _reloadOverviewData(int days) async {
+    final generation = _loadGeneration;
+    final state = CompanyProvider.of(context);
+    final scopeKey = state.scopeKey;
+    final isCombined = state.isCombinedMode;
+    final company = state.selectedCompany;
     _overviewDays = days;
-    await _loadData();
+    if (!_hasValidScope(state)) return;
+    try {
+      final costs = state.isFeatureEnabled('stock_cost');
+      final sales = state.isFeatureEnabled('rep_sales') && costs;
+      if (!sales) return;
+      final profit = isCombined
+          ? await _service.getCombinedDailyProfit(
+              companyNames: state.selectedCompanies, days: _overviewDays)
+          : await _service.getDailyProfit(
+              companyName: company, days: _overviewDays);
+      if (!_scopeStillActive(generation, scopeKey)) return;
+      setState(() {
+        _profitData = profit;
+        _useLineChart = _overviewDays > 30;
+      });
+    } catch (e) {
+      if (_scopeStillActive(generation, scopeKey)) {
+        setState(() => _error = AppErrorHandler.getFriendlyError(e));
+      }
+    }
   }
 
   Future<void> _reloadLedgers(int cutoffDays) async {
     _ledgerCutoffDays = cutoffDays;
-    await _loadData();
+    _dormantLoaded = false;
+    await _loadDormantIfNeeded(force: true);
   }
 
   Future<void> _reloadItems(int cutoffDays) async {
     _itemCutoffDays = cutoffDays;
-    await _loadData();
+    _dormantLoaded = false;
+    await _loadDormantIfNeeded(force: true);
   }
 
   Future<void> _reloadVelocity(int cutoffDays) async {
     _velocityCutoffDays = cutoffDays;
-    await _loadData();
+    _velocityLoaded = false;
+    await _loadVelocityIfNeeded(force: true);
+  }
+
+  Future<void> _refreshCurrentTab() async {
+    final index = _tabController.index;
+    if (index < 0 || index >= _visibleTabLabels.length) {
+      await _loadData();
+      return;
+    }
+    switch (_visibleTabLabels[index]) {
+      case 'Overview':
+        await _loadData();
+        break;
+      case 'Velocity':
+        await _loadVelocityIfNeeded(force: true);
+        break;
+      case 'Dormant':
+        await _loadDormantIfNeeded(force: true);
+        break;
+      default:
+        await _loadData();
+    }
+  }
+
+  Widget _analyticsTitle(bool showCombined, List<String> companies) {
+    if (!showCombined) {
+      return const Text('Analytics', style: TextStyle(fontWeight: FontWeight.bold));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('Analytics', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(
+          companies.join('  ·  '),
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+            height: 1.25,
+            color: Colors.grey.shade600,
+          ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -224,7 +450,13 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
     if (showPurchases) visibleTabLabels.add('Velocity');
     if (showLedgers) visibleTabLabels.add('Dormant');
 
+    _visibleTabLabels = visibleTabLabels;
     _rebuildTabController(visibleTabLabels.isEmpty ? 1 : visibleTabLabels.length);
+
+    final isCombined = companyState.isCombinedMode;
+    final combinedCompanies = companyState.selectedCompanies;
+    final showCombinedCompanies =
+        isCombined && combinedCompanies.isNotEmpty;
 
     if (visibleTabLabels.isEmpty) {
       return Scaffold(
@@ -234,7 +466,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
             icon: const Icon(Icons.arrow_back),
             onPressed: widget.onBack ?? () => Navigator.of(context).pop(),
           ),
-          title: const Text('Analytics', style: TextStyle(fontWeight: FontWeight.bold)),
+          title: _analyticsTitle(showCombinedCompanies, combinedCompanies),
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.white,
         ),
@@ -261,11 +493,15 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
           icon: const Icon(Icons.arrow_back),
           onPressed: widget.onBack ?? () => Navigator.of(context).pop(),
         ),
-        title: const Text('Analytics', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: _analyticsTitle(showCombinedCompanies, combinedCompanies),
+        toolbarHeight: showCombinedCompanies ? 64 : kToolbarHeight,
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         actions: [
-          IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _loadData),
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _refreshCurrentTab,
+          ),
         ],
         bottom: TabBar(
           controller: _tabController,
@@ -345,7 +581,9 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
                             children: [
                               ChoiceChip(
                                 label: const Text('Fast Moving'),
@@ -361,7 +599,6 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                 side: const BorderSide(color: _Palette.line),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                               ),
-                              const SizedBox(width: 8),
                               ChoiceChip(
                                 label: const Text('Slow Moving'),
                                 selected: _velocityFilter == 'slow',
@@ -376,7 +613,6 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                 side: const BorderSide(color: _Palette.line),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                               ),
-                              const SizedBox(width: 8),
                               if (showCosts) ChoiceChip(
                                 label: const Text('High Value'),
                                 selected: _velocityFilter == 'value',
@@ -401,8 +637,10 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                       ),
                     ),
                     Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: _loadData,
+                      child: _velocityLoading && !_velocityLoaded
+                          ? const Center(child: CircularProgressIndicator())
+                          : RefreshIndicator(
+                        onRefresh: () => _loadVelocityIfNeeded(force: true),
                         color: _Palette.blue,
                         child: LayoutBuilder(
                           builder: (context, constraints) {
@@ -585,7 +823,9 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                       ),
                       const SizedBox(height: 16),
                       Expanded(
-                        child: AnimatedSwitcher(
+                        child: _dormantLoading && !_dormantLoaded
+                            ? const Center(child: CircularProgressIndicator())
+                            : AnimatedSwitcher(
                           duration: const Duration(milliseconds: 300),
                           child: _dormantFilter == 'ledgers'
                               ? _sectionCard(
@@ -635,12 +875,24 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   // KPI row
   // ---------------------------------------------------------------------
   Widget _buildKpiRow(bool isWide) {
+    final dormantValue = _dormantLoaded
+        ? null
+        : (_dormantLoading ? '…' : '—');
     final cards = [
       _KpiCard(label: 'Revenue ($_overviewDays d)', value: formatCompactCurrency(_totalRevenue)),
       _KpiCard(label: 'Profit ($_overviewDays d)', value: formatCompactCurrency(_totalProfit)),
-      _KpiCard(label: 'Dead stock value', value: formatCompactCurrency(_deadStockValue)),
-      _KpiCard(label: 'Unused ledgers', value: '$_totalUnusedLedgersCount'),
-      _KpiCard(label: 'Unused items', value: '$_totalUnusedItemsCount'),
+      _KpiCard(
+        label: 'Dead stock value',
+        value: dormantValue ?? formatCompactCurrency(_deadStockValue),
+      ),
+      _KpiCard(
+        label: 'Unused ledgers',
+        value: dormantValue ?? '$_totalUnusedLedgersCount',
+      ),
+      _KpiCard(
+        label: 'Unused items',
+        value: dormantValue ?? '$_totalUnusedItemsCount',
+      ),
     ];
     final columns = isWide ? 5 : 2;
     return GridView.count(
@@ -1200,21 +1452,32 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
         const Divider(height: 18, color: _Palette.line),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _loadData,
+            onRefresh: () => _loadDormantIfNeeded(force: true),
             color: _Palette.blue,
             child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
               itemCount: _unusedLedgers.length,
               itemBuilder: (context, index) {
               final item = _unusedLedgers[index];
+              final company = (item['company_name'] ?? '').toString();
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(
                   children: [
                     Expanded(
                       flex: 2,
-                      child: Text(item['customer_name'] ?? '-',
-                          style: const TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink900, fontSize: 13)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(item['customer_name'] ?? '-',
+                              style: const TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink900, fontSize: 13)),
+                          if (company.isNotEmpty)
+                            Text(company,
+                                style: const TextStyle(fontWeight: FontWeight.w500, color: _Palette.ink500, fontSize: 10),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                        ],
+                      ),
                     ),
                     Expanded(
                       flex: 1,
@@ -1253,7 +1516,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
         const Divider(height: 18, color: _Palette.line),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _loadData,
+            onRefresh: () => _loadDormantIfNeeded(force: true),
             color: _Palette.blue,
             child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -1261,14 +1524,25 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
               itemBuilder: (context, index) {
               final item = _unusedItems[index];
               final val = double.tryParse(item['stock_value']?.toString() ?? '0') ?? 0;
+              final company = (item['company_name'] ?? '').toString();
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(
                   children: [
                     Expanded(
                       flex: 3,
-                      child: Text(item['product_name'] ?? '-',
-                          style: const TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink900, fontSize: 13)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(item['product_name'] ?? '-',
+                              style: const TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink900, fontSize: 13)),
+                          if (company.isNotEmpty)
+                            Text(company,
+                                style: const TextStyle(fontWeight: FontWeight.w500, color: _Palette.ink500, fontSize: 10),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                        ],
+                      ),
                     ),
                     Expanded(
                       flex: 1,

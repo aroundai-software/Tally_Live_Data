@@ -7,6 +7,9 @@ import '../config/app_theme.dart';
 import '../services/supabase_service.dart';
 import '../services/user_preferences_service.dart';
 import '../providers/company_provider.dart';
+import '../utils/combined_company_selection.dart';
+import '../utils/company_scope.dart';
+import 'combined_company_picker_screen.dart';
 import 'main_shell.dart';
 import 'login_screen.dart';
 
@@ -36,20 +39,50 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
     setState(() { _isLoading = true; _error = null; });
     try {
       final user = _service.currentUser;
+      if (user != null) {
+        final profile = await _service.getUserProfile(user.id);
+        if (mounted && profile != null) {
+          CompanyProvider.of(context).setUserCombinedReportsEnabled(
+            profile['is_combined_reports_enabled'] == true,
+          );
+        }
+      }
       final companies = user != null ? await _service.getUserCompanies(user.id) : await _service.getCompanies();
-      if (mounted) {
-        setState(() { _companies = companies; _isLoading = false; });
-        // Auto-skip if not switching and exactly one company
-        if (!widget.isSwitching && companies.length == 1) {
-          _selectCompany(companies.first);
+      if (!mounted) return;
+      setState(() { _companies = companies; _isLoading = false; });
+
+      if (widget.isSwitching) return;
+
+      final companyState = CompanyProvider.of(context);
+      // Prefer restoring a valid Combined set when the user flag is on.
+      if (companyState.userCombinedReportsEnabled &&
+          companies.length >= CombinedCompanySelection.minCompanies) {
+        final saved = await UserPreferencesService.loadLastCombinedCompanies();
+        final restored = CombinedCompanySelection.validateSelection(
+          selected: saved,
+          allowed: companies,
+        );
+        if (CombinedCompanySelection.isReady(restored) && mounted) {
+          _enterCombined(restored);
           return;
         }
-        // Auto-restore last selected company if not switching
-        if (!widget.isSwitching && companies.length > 1) {
-          final lastCompany = await UserPreferencesService.loadLastCompany();
-          if (lastCompany != null && companies.contains(lastCompany) && mounted) {
-            _selectCompany(lastCompany);
-          }
+        if (saved.isNotEmpty) {
+          await UserPreferencesService.clearLastCombinedCompanies();
+        }
+      } else {
+        await UserPreferencesService.clearLastCombinedCompanies();
+      }
+
+      // Auto-skip if exactly one company
+      if (companies.length == 1) {
+        _selectCompany(companies.first);
+        return;
+      }
+      // Auto-restore last single company
+      if (companies.length > 1) {
+        final lastCompany = await UserPreferencesService.loadLastCompany();
+        if (lastCompany != null && companies.contains(lastCompany) && mounted) {
+          _selectCompany(lastCompany);
         }
       }
     } catch (e) {
@@ -75,10 +108,34 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
   }
 
   void _selectCompany(String company) {
-    UserPreferencesService.saveLastCompany(company);
     CompanyProvider.of(context).selectCompany(company);
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const MainShell()),
+    );
+  }
+
+  void _enterCombined(List<String> companies) {
+    final ok = CompanyProvider.of(context).enterCombinedMode(companies);
+    if (!ok || !mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const MainShell()),
+    );
+  }
+
+  void _openCombinedPicker() {
+    final linkedCount = _companies
+        .map((c) => c.trim())
+        .where((c) => c.isNotEmpty)
+        .toSet()
+        .length;
+    if (!CompanyProvider.of(context).userCombinedReportsEnabled ||
+        linkedCount < CombinedCompanySelection.minCompanies) {
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const CombinedCompanyPickerScreen(enterAppOnConfirm: true),
+      ),
     );
   }
 
@@ -212,8 +269,20 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final selectedCompany = CompanyProvider.of(context).selectedCompany;
-    final showBackButton = widget.isSwitching || (selectedCompany != null && selectedCompany.isNotEmpty) || _companies.isNotEmpty;
+    final companyState = CompanyProvider.of(context);
+    final selectedCompany = companyState.selectedCompany;
+    final hasScope = companyState.isCombinedMode
+        ? CombinedCompanySelection.isReady(companyState.selectedCompanies)
+        : (selectedCompany != null && selectedCompany.isNotEmpty);
+    final showBackButton = widget.isSwitching || hasScope || _companies.isNotEmpty;
+    // Combined entry only when the account flag is on AND ≥2 companies are linked.
+    final linkedCount = _companies
+        .map((c) => c.trim())
+        .where((c) => c.isNotEmpty)
+        .toSet()
+        .length;
+    final showCombined = companyState.userCombinedReportsEnabled &&
+        linkedCount >= CombinedCompanySelection.minCompanies;
 
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
@@ -226,7 +295,7 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
                 tooltip: 'Back to Dashboard',
                 onPressed: () {
                   final provider = CompanyProvider.of(context);
-                  if ((provider.selectedCompany == null || provider.selectedCompany!.isEmpty) && _companies.isNotEmpty) {
+                  if (!CompanyScope.hasActiveScope(provider) && _companies.isNotEmpty) {
                     provider.selectCompany(_companies.first);
                   }
                   if (Navigator.of(context).canPop()) {
@@ -240,13 +309,25 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
               )
             : null,
         actions: [
+          if (showCombined)
+            TextButton.icon(
+              onPressed: _openCombinedPicker,
+              icon: const Icon(Icons.join_inner_rounded, size: 18),
+              label: const Text(
+                'Combined',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              style: TextButton.styleFrom(foregroundColor: AppTheme.primaryColor),
+            ),
           IconButton(
             icon: const Icon(Icons.logout_rounded, color: Color(0xFF1A1F36)),
             tooltip: 'Log Out',
             onPressed: () async {
               await _service.signOut();
               if (!mounted) return;
-              CompanyProvider.of(context).clearCompany();
+              final state = CompanyProvider.of(context);
+              state.clearCompany();
+              state.clearUserCapabilities();
               Navigator.of(context).pushReplacement(
                 MaterialPageRoute(builder: (_) => const LoginScreen()),
               );
@@ -302,11 +383,34 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Choose a Tally company to view its data',
+              showCombined
+                  ? 'Choose one company, or open Combined for multiple'
+                  : 'Choose a Tally company to view its data',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
             ),
             const SizedBox(height: 16),
             Expanded(child: _buildBody()),
+            if (showCombined)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _openCombinedPicker,
+                    icon: const Icon(Icons.join_inner_rounded),
+                    label: const Text(
+                      'Combined mode',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
               child: SizedBox(

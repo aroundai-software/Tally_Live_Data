@@ -10,6 +10,7 @@ import '../services/supabase_service.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/combined_report_widgets.dart';
 
 class DaybookScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -155,8 +156,11 @@ class _DaybookScreenState extends State<DaybookScreen> {
 
   Future<void> _loadData() async {
     final generation = ++_loadGeneration;
-    final company = CompanyProvider.of(context).selectedCompany;
-    if (!CompanyScope.isValid(company)) {
+    final companyState = CompanyProvider.of(context);
+    final scopeKey = companyState.scopeKey;
+    final isCombined = companyState.isCombinedMode;
+    final company = companyState.selectedCompany;
+    if (!isCombined && !CompanyScope.isValid(company)) {
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -167,17 +171,34 @@ class _DaybookScreenState extends State<DaybookScreen> {
       }
       return;
     }
+    if (isCombined && !CompanyScope.hasActiveScope(companyState)) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = 'No companies selected';
+          _allEntries = [];
+          _entries = [];
+        });
+      }
+      return;
+    }
     setState(() { _isLoading = true; _error = null; });
     try {
       final query = _searchController.text.toLowerCase();
-      final items = await _service.getDaybookEntries(
-        companyName: company,
-        date: _selectedDate,
-        searchQuery: query.isNotEmpty ? query : null,
-      );
+      final items = isCombined
+          ? await _service.getCombinedDaybookEntries(
+              companyNames: companyState.selectedCompanies,
+              date: _selectedDate,
+              searchQuery: query.isNotEmpty ? query : null,
+            )
+          : await _service.getDaybookEntries(
+              companyName: company,
+              date: _selectedDate,
+              searchQuery: query.isNotEmpty ? query : null,
+            );
       if (!mounted ||
           generation != _loadGeneration ||
-          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+          !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         return;
       }
       _allEntries = _sortItems(items);
@@ -187,7 +208,7 @@ class _DaybookScreenState extends State<DaybookScreen> {
     } catch (e) {
       if (mounted &&
           generation == _loadGeneration &&
-          CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+          CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         setState(() {
           _error = AppErrorHandler.getFriendlyError(e);
           _isLoading = false;
@@ -200,17 +221,27 @@ class _DaybookScreenState extends State<DaybookScreen> {
     if (!mounted) return;
     final generation = ++_loadGeneration;
     try {
-      final company = CompanyProvider.of(context).selectedCompany;
-      if (!CompanyScope.isValid(company)) return;
+      final companyState = CompanyProvider.of(context);
+      final scopeKey = companyState.scopeKey;
+      final isCombined = companyState.isCombinedMode;
+      final company = companyState.selectedCompany;
+      if (!isCombined && !CompanyScope.isValid(company)) return;
+      if (isCombined && !CompanyScope.hasActiveScope(companyState)) return;
       final query = _searchController.text.toLowerCase();
-      final items = await _service.getDaybookEntries(
-        companyName: company,
-        date: _selectedDate,
-        searchQuery: query.isNotEmpty ? query : null,
-      );
+      final items = isCombined
+          ? await _service.getCombinedDaybookEntries(
+              companyNames: companyState.selectedCompanies,
+              date: _selectedDate,
+              searchQuery: query.isNotEmpty ? query : null,
+            )
+          : await _service.getDaybookEntries(
+              companyName: company,
+              date: _selectedDate,
+              searchQuery: query.isNotEmpty ? query : null,
+            );
       if (!mounted ||
           generation != _loadGeneration ||
-          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+          !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         return;
       }
       _pendingAllEntries = _sortItems(items);
@@ -461,6 +492,10 @@ class _DaybookCard extends StatelessWidget {
                             Text('#${entry.voucherNumber}', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
                         ],
                       ),
+                      if (entry.companyName != null && entry.companyName!.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        CombinedCompanyChip(companyName: entry.companyName!),
+                      ],
                       if (entry.particulars != null && entry.particulars!.isNotEmpty && entry.particulars != entry.ledgerName) ...[
                         const SizedBox(height: 4),
                         Text(

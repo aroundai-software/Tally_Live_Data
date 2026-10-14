@@ -9,6 +9,7 @@ import '../widgets/error_state_widget.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/tally_report_table.dart';
+import '../widgets/combined_mode_unavailable.dart';
 import 'financial_group_detail_screen.dart';
 import 'ledger_statement_screen.dart';
 import '../models/ledger.dart';
@@ -195,6 +196,9 @@ class _ProfitLossScreenState extends State<ProfitLossScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (CompanyProvider.of(context).isCombinedMode) {
+      return const CombinedModeUnavailable(featureName: 'Profit & Loss');
+    }
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
       appBar: AppBar(

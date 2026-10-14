@@ -12,6 +12,7 @@ import '../utils/error_handler.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/combined_report_widgets.dart';
 
 class LedgerScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -26,6 +27,10 @@ class _LedgerScreenState extends State<LedgerScreen> {
   List<Ledger> _customers = [];
   List<Ledger> _filteredCustomers = [];
   List<Ledger>? _pendingCustomers;
+  /// Precomputed lowercase search blobs aligned with [_customers] (alpha-sorted).
+  List<String> _searchHaystacks = const [];
+  /// Bit flags aligned with [_customers]: 1 = debtor, 2 = creditor.
+  List<int> _typeFlags = const [];
   bool _isLoading = true;
   String? _error;
   /// Full company ledger count from DB (not tied to progressive list pages).
@@ -105,42 +110,112 @@ class _LedgerScreenState extends State<LedgerScreen> {
 
   void _applyPendingData() {
     if (_pendingCustomers == null) return;
-    _customers = _pendingCustomers!;
+    _setCustomers(_pendingCustomers!);
     _pendingCustomers = null;
     _applySearchFilter();
   }
 
   void _onSearchChanged() {
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 250), _applySearchFilter);
+    _searchDebounce = Timer(const Duration(milliseconds: 180), _applySearchFilter);
+  }
+
+  String _buildSearchHaystack(Ledger c) {
+    // Name-focused: address/city/category matches were surfacing unrelated ledgers.
+    final parts = <String>[
+      c.name,
+      if (c.alias != null && c.alias!.trim().isNotEmpty) c.alias!,
+      if (c.mailingName != null && c.mailingName!.trim().isNotEmpty) c.mailingName!,
+    ];
+    return parts.join('\n').toLowerCase();
+  }
+
+  /// Index customers once (sorted A→Z) so search avoids repeated toLowerCase / type scans.
+  void _setCustomers(List<Ledger> items) {
+    if (items.isEmpty) {
+      _customers = const [];
+      _searchHaystacks = const [];
+      _typeFlags = const [];
+      return;
+    }
+    final sorted = List<Ledger>.of(items)
+      ..sort((a, b) => _compareLedgerNames(a.name, b.name));
+    final haystacks = List<String>.filled(sorted.length, '', growable: false);
+    final flags = List<int>.filled(sorted.length, 0, growable: false);
+    for (var i = 0; i < sorted.length; i++) {
+      final c = sorted[i];
+      haystacks[i] = _buildSearchHaystack(c);
+      var flag = 0;
+      if (c.isDebtor) flag |= 1;
+      if (c.isCreditor) flag |= 2;
+      flags[i] = flag;
+    }
+    _customers = sorted;
+    _searchHaystacks = haystacks;
+    _typeFlags = flags;
+  }
+
+  void _clearCustomers() {
+    _customers = const [];
+    _filteredCustomers = const [];
+    _searchHaystacks = const [];
+    _typeFlags = const [];
+    _pendingCustomers = null;
+    _serverTotalCount = null;
   }
 
   void _applySearchFilter() {
     if (!mounted) return;
     final query = _searchController.text.trim().toLowerCase();
+    final typeMask = _typeFilter == 'Debtors'
+        ? 1
+        : _typeFilter == 'Creditors'
+            ? 2
+            : 0;
+    final sortOption = _sortOption;
+    final source = _customers;
+    final haystacks = _searchHaystacks;
+    final flags = _typeFlags;
 
-    setState(() {
-      _filteredCustomers = _customers.where((customer) {
-        final matchesSearch = customer.matchesSearchQuery(query);
+    // Fast path: no search/type filter + alphabetical → reuse indexed list.
+    if (query.isEmpty && typeMask == 0 && sortOption == 'Alphabetical') {
+      setState(() => _filteredCustomers = source);
+      return;
+    }
 
-        bool matchesType = true;
-        if (_typeFilter == 'Debtors') {
-          matchesType = customer.isDebtor;
-        } else if (_typeFilter == 'Creditors') {
-          matchesType = customer.isCreditor;
+    final matched = <Ledger>[];
+    final n = source.length;
+    final hasIndex = haystacks.length == n && flags.length == n;
+    for (var i = 0; i < n; i++) {
+      if (typeMask != 0) {
+        if (hasIndex) {
+          if ((flags[i] & typeMask) == 0) continue;
+        } else {
+          final c = source[i];
+          if (typeMask == 1 && !c.isDebtor) continue;
+          if (typeMask == 2 && !c.isCreditor) continue;
         }
-
-        return matchesSearch && matchesType;
-      }).toList();
-
-      if (_sortOption == 'Recently Active') {
-        _filteredCustomers.sort((a, b) => (b.updatedAt ?? DateTime(2000)).compareTo(a.updatedAt ?? DateTime(2000)));
-      } else if (_sortOption == 'Highest Balance') {
-        _filteredCustomers.sort((a, b) => b.closingBalance.abs().compareTo(a.closingBalance.abs()));
-      } else {
-        _filteredCustomers.sort((a, b) => _compareLedgerNames(a.name, b.name));
       }
-    });
+      if (query.isNotEmpty) {
+        if (hasIndex) {
+          if (!haystacks[i].contains(query)) continue;
+        } else if (!source[i].matchesSearchQuery(query)) {
+          continue;
+        }
+      }
+      matched.add(source[i]);
+    }
+
+    if (sortOption == 'Recently Active') {
+      matched.sort((a, b) => (b.updatedAt ?? DateTime(2000))
+          .compareTo(a.updatedAt ?? DateTime(2000)));
+    } else if (sortOption == 'Highest Balance') {
+      matched.sort(
+          (a, b) => b.closingBalance.abs().compareTo(a.closingBalance.abs()));
+    }
+    // Alphabetical: source is already A→Z, so matched keeps that order.
+
+    setState(() => _filteredCustomers = matched);
   }
 
   int? _lastSyncTrigger;
@@ -163,10 +238,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
       _lastSyncTrigger = syncTrigger;
       _loadGeneration++;
       _searchController.clear();
-      _customers = [];
-      _filteredCustomers = [];
-      _pendingCustomers = null;
-      _serverTotalCount = null;
+      _clearCustomers();
       _loadPreferencesAndData();
     } else if (_lastSyncTrigger != syncTrigger) {
       _lastSyncTrigger = syncTrigger;
@@ -184,15 +256,26 @@ class _LedgerScreenState extends State<LedgerScreen> {
 
   Future<void> _loadData() async {
     final generation = ++_loadGeneration;
-    final company = CompanyProvider.of(context).selectedCompany;
-    if (!CompanyScope.isValid(company)) {
+    final companyState = CompanyProvider.of(context);
+    final scopeKey = companyState.scopeKey;
+    final isCombined = companyState.isCombinedMode;
+    final company = companyState.selectedCompany;
+    if (!isCombined && !CompanyScope.isValid(company)) {
       if (mounted) {
+        _clearCustomers();
         setState(() {
           _isLoading = false;
           _error = 'No company selected';
-          _customers = [];
-          _filteredCustomers = [];
-          _serverTotalCount = null;
+        });
+      }
+      return;
+    }
+    if (isCombined && !CompanyScope.hasActiveScope(companyState)) {
+      if (mounted) {
+        _clearCustomers();
+        setState(() {
+          _isLoading = false;
+          _error = 'No companies selected';
         });
       }
       return;
@@ -200,52 +283,91 @@ class _LedgerScreenState extends State<LedgerScreen> {
     setState(() { _isLoading = true; _error = null; });
     _awaitingFullCustomerList = true;
     try {
-      // Count is a cheap head request — paint the real total with the first list page.
-      final countFuture = _service.getCustomerCount(companyName: company);
-      final items = await _service.getCustomers(
-        companyName: company,
-        onFirstPage: (first) {
-          countFuture.then((count) {
-            if (!mounted ||
-                generation != _loadGeneration ||
-                !_awaitingFullCustomerList ||
-                !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
-              return;
-            }
-            setState(() {
-              _serverTotalCount = count;
-              _customers = first;
-              _filteredCustomers = first;
-              _isLoading = false;
+      late final List<Ledger> items;
+      late final int count;
+      if (isCombined) {
+        final companies = companyState.selectedCompanies;
+        final countFuture = _service.getCombinedCustomerCount(companyNames: companies);
+        items = await _service.getCombinedCustomers(
+          companyNames: companies,
+          onFirstPage: (first) {
+            countFuture.then((c) {
+              if (!mounted ||
+                  generation != _loadGeneration ||
+                  !_awaitingFullCustomerList ||
+                  !CompanyScope.stillActiveScope(
+                    scopeKey,
+                    CompanyProvider.of(context).scopeKey,
+                  )) {
+                return;
+              }
+              _setCustomers(first);
+              setState(() {
+                _serverTotalCount = c;
+                _isLoading = false;
+              });
+              _applySearchFilter();
+            }).catchError((_) {
+              if (!mounted ||
+                  generation != _loadGeneration ||
+                  !_awaitingFullCustomerList ||
+                  !CompanyScope.stillActiveScope(
+                    scopeKey,
+                    CompanyProvider.of(context).scopeKey,
+                  )) {
+                return;
+              }
+              _setCustomers(first);
+              setState(() => _isLoading = false);
+              _applySearchFilter();
             });
-            _applySearchFilter();
-          }).catchError((_) {
-            if (!mounted ||
-                generation != _loadGeneration ||
-                !_awaitingFullCustomerList ||
-                !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
-              return;
-            }
-            setState(() {
-              _customers = first;
-              _filteredCustomers = first;
-              _isLoading = false;
+          },
+        );
+        count = await countFuture.catchError((_) => items.length);
+        _awaitingFullCustomerList = false;
+      } else {
+        // Count is a cheap head request — paint the real total with the first list page.
+        final countFuture = _service.getCustomerCount(companyName: company);
+        items = await _service.getCustomers(
+          companyName: company,
+          onFirstPage: (first) {
+            countFuture.then((c) {
+              if (!mounted ||
+                  generation != _loadGeneration ||
+                  !_awaitingFullCustomerList ||
+                  !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
+                return;
+              }
+              _setCustomers(first);
+              setState(() {
+                _serverTotalCount = c;
+                _isLoading = false;
+              });
+              _applySearchFilter();
+            }).catchError((_) {
+              if (!mounted ||
+                  generation != _loadGeneration ||
+                  !_awaitingFullCustomerList ||
+                  !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
+                return;
+              }
+              _setCustomers(first);
+              setState(() => _isLoading = false);
+              _applySearchFilter();
             });
-            _applySearchFilter();
-          });
-        },
-      );
-      final count = await countFuture.catchError((_) => _serverTotalCount ?? items.length);
+          },
+        );
+        count = await countFuture.catchError((_) => _serverTotalCount ?? items.length);
+      }
       if (!mounted ||
           generation != _loadGeneration ||
-          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+          !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         return;
       }
+      _setCustomers(items);
       setState(() {
         _awaitingFullCustomerList = false;
         _serverTotalCount = count;
-        _customers = items;
-        _filteredCustomers = items;
         _pendingCustomers = null;
         _isLoading = false;
       });
@@ -254,7 +376,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
       _awaitingFullCustomerList = false;
       if (mounted &&
           generation == _loadGeneration &&
-          CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+          CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         setState(() { _error = AppErrorHandler.getFriendlyError(e); _isLoading = false; });
       }
     }
@@ -264,17 +386,33 @@ class _LedgerScreenState extends State<LedgerScreen> {
     if (!mounted) return;
     final generation = ++_loadGeneration;
     try {
-      final company = CompanyProvider.of(context).selectedCompany;
-      if (!CompanyScope.isValid(company)) return;
-      final results = await Future.wait([
-        _service.getCustomers(companyName: company),
-        _service.getCustomerCount(companyName: company),
-      ]);
-      final items = results[0] as List<Ledger>;
-      final count = results[1] as int;
+      final companyState = CompanyProvider.of(context);
+      final scopeKey = companyState.scopeKey;
+      final isCombined = companyState.isCombinedMode;
+      final company = companyState.selectedCompany;
+      if (!isCombined && !CompanyScope.isValid(company)) return;
+      if (isCombined && !CompanyScope.hasActiveScope(companyState)) return;
+      late final List<Ledger> items;
+      late final int count;
+      if (isCombined) {
+        final companies = companyState.selectedCompanies;
+        final results = await Future.wait([
+          _service.getCombinedCustomers(companyNames: companies),
+          _service.getCombinedCustomerCount(companyNames: companies),
+        ]);
+        items = results[0] as List<Ledger>;
+        count = results[1] as int;
+      } else {
+        final results = await Future.wait([
+          _service.getCustomers(companyName: company),
+          _service.getCustomerCount(companyName: company),
+        ]);
+        items = results[0] as List<Ledger>;
+        count = results[1] as int;
+      }
       if (!mounted ||
           generation != _loadGeneration ||
-          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+          !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         return;
       }
       _pendingCustomers = items;
@@ -339,7 +477,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
           SearchBarWidget(
             hintText: 'Search customers...',
             controller: _searchController,
-            onChanged: (_) {}, // Handled by listener
+            onChanged: (_) => _onSearchChanged(),
           ),
           _buildTypeFilter(),
           Expanded(
@@ -498,6 +636,12 @@ class _CustomerCard extends StatelessWidget {
                       customer.name,
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)),
                     ),
+                    if (CompanyProvider.of(context).isCombinedMode &&
+                        customer.companyName != null &&
+                        customer.companyName!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      CombinedCompanyChip(companyName: customer.companyName!),
+                    ],
                   ],
                 ),
               ),

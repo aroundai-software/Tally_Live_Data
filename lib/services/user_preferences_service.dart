@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class UserPreferencesService {
   // ─── Preference Keys ────────────────────────────────────────────────────────
   static const _kLastCompany         = 'pref_last_company';
+  static const _kLastCombinedCompanies = 'pref_last_combined_companies';
 
   static const _kSalesSort           = 'pref_sales_sort';
   static const _kSalesDateFilter     = 'pref_sales_date_filter';
@@ -39,6 +40,23 @@ class UserPreferencesService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kLastCompany);
   }
+
+  // ─── Combined Reports company selection ───────────────────────────────────
+  static Future<void> saveLastCombinedCompanies(List<String> companies) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kLastCombinedCompanies, companies);
+  }
+
+  static Future<List<String>> loadLastCombinedCompanies() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_kLastCombinedCompanies) ?? const [];
+  }
+
+  static Future<void> clearLastCombinedCompanies() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kLastCombinedCompanies);
+  }
+
 
   // ─── Login alias (phone → email domain that worked last time) ───────────────
   static Future<void> saveLastLoginEmailDomain(String domain) async {

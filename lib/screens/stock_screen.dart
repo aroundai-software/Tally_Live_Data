@@ -11,6 +11,7 @@ import '../widgets/summary_card.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/error_state_widget.dart';
+import '../widgets/combined_report_widgets.dart';
 import 'item_parents_screen.dart';
 
 class StockScreen extends StatefulWidget {
@@ -174,10 +175,21 @@ class _StockScreenState extends State<StockScreen> {
     _loadData();
   }
 
+  String _salesKey(StockItem item) {
+    final company = item.companyName;
+    if (company != null && company.isNotEmpty) {
+      return '$company|${item.name}';
+    }
+    return item.name;
+  }
+
   Future<void> _loadData() async {
     final generation = ++_loadGeneration;
-    final company = CompanyProvider.of(context).selectedCompany;
-    if (!CompanyScope.isValid(company)) {
+    final companyState = CompanyProvider.of(context);
+    final scopeKey = companyState.scopeKey;
+    final isCombined = companyState.isCombinedMode;
+    final company = companyState.selectedCompany;
+    if (!isCombined && !CompanyScope.isValid(company)) {
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -188,26 +200,66 @@ class _StockScreenState extends State<StockScreen> {
       }
       return;
     }
+    if (isCombined && !CompanyScope.hasActiveScope(companyState)) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = 'No companies selected';
+          _products = [];
+          _filteredProducts = [];
+        });
+      }
+      return;
+    }
     setState(() { _isLoading = true; _error = null; });
     try {
-      final salesFuture = _service.getProductSalesTotals(companyName: company!);
-      final items = await _service.getProducts(
-        companyName: company,
-        onFirstPage: (first) {
-          if (!mounted ||
-              generation != _loadGeneration ||
-              !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
-            return;
-          }
-          setState(() {
-            _products = first;
-            _filteredProducts = first;
-            _isLoading = false;
-          });
-          _onSearchChanged();
-        },
-      );
-      final salesMap = await salesFuture;
+      late final List<StockItem> items;
+      late final Map<String, double> salesMap;
+      if (isCombined) {
+        final companies = companyState.selectedCompanies;
+        // Defer sales totals; paint products as soon as the first page arrives.
+        final salesFuture =
+            _service.getCombinedProductSalesTotals(companyNames: companies);
+        items = await _service.getCombinedProducts(
+          companyNames: companies,
+          onFirstPage: (first) {
+            if (!mounted ||
+                generation != _loadGeneration ||
+                !CompanyScope.stillActiveScope(
+                  scopeKey,
+                  CompanyProvider.of(context).scopeKey,
+                )) {
+              return;
+            }
+            setState(() {
+              _products = first;
+              _filteredProducts = first;
+              _isLoading = false;
+            });
+            _onSearchChanged();
+          },
+        );
+        salesMap = await salesFuture;
+      } else {
+        final salesFuture = _service.getProductSalesTotals(companyName: company!);
+        items = await _service.getProducts(
+          companyName: company,
+          onFirstPage: (first) {
+            if (!mounted ||
+                generation != _loadGeneration ||
+                !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
+              return;
+            }
+            setState(() {
+              _products = first;
+              _filteredProducts = first;
+              _isLoading = false;
+            });
+            _onSearchChanged();
+          },
+        );
+        salesMap = await salesFuture;
+      }
 
       // Count products per parent
       Map<String, int> currentParentCounts = {};
@@ -272,7 +324,7 @@ class _StockScreenState extends State<StockScreen> {
 
       if (!mounted ||
           generation != _loadGeneration ||
-          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+          !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         return;
       }
       setState(() {
@@ -289,7 +341,7 @@ class _StockScreenState extends State<StockScreen> {
     } catch (e) {
       if (mounted &&
           generation == _loadGeneration &&
-          CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+          CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         setState(() {
           _error = AppErrorHandler.getFriendlyError(e);
           _isLoading = false;
@@ -302,11 +354,24 @@ class _StockScreenState extends State<StockScreen> {
     if (!mounted) return;
     final generation = ++_loadGeneration;
     try {
-      final company = CompanyProvider.of(context).selectedCompany;
-      if (!CompanyScope.isValid(company)) return;
-      final salesFuture = _service.getProductSalesTotals(companyName: company!);
-      final items = await _service.getProducts(companyName: company);
-      final salesMap = await salesFuture;
+      final companyState = CompanyProvider.of(context);
+      final scopeKey = companyState.scopeKey;
+      final isCombined = companyState.isCombinedMode;
+      final company = companyState.selectedCompany;
+      if (!isCombined && !CompanyScope.isValid(company)) return;
+      if (isCombined && !CompanyScope.hasActiveScope(companyState)) return;
+      late final List<StockItem> items;
+      late final Map<String, double> salesMap;
+      if (isCombined) {
+        final companies = companyState.selectedCompanies;
+        final salesFuture = _service.getCombinedProductSalesTotals(companyNames: companies);
+        items = await _service.getCombinedProducts(companyNames: companies);
+        salesMap = await salesFuture;
+      } else {
+        final salesFuture = _service.getProductSalesTotals(companyName: company!);
+        items = await _service.getProducts(companyName: company);
+        salesMap = await salesFuture;
+      }
       
       Map<String, int> currentParentCounts = {};
       for (var item in items) {
@@ -364,7 +429,7 @@ class _StockScreenState extends State<StockScreen> {
 
       if (!mounted ||
           generation != _loadGeneration ||
-          !CompanyScope.stillActive(company, CompanyProvider.of(context).selectedCompany)) {
+          !CompanyScope.stillActiveScope(scopeKey, CompanyProvider.of(context).scopeKey)) {
         return;
       }
       _pendingProducts = items;
@@ -392,7 +457,10 @@ class _StockScreenState extends State<StockScreen> {
   double get _totalValue {
     try {
       if (_showSalesValue) {
-        return _filteredProducts.fold(0.0, (sum, item) => sum + (_productSales[item.name] ?? 0.0));
+        return _filteredProducts.fold(
+          0.0,
+          (sum, item) => sum + (_productSales[_salesKey(item)] ?? _productSales[item.name] ?? 0.0),
+        );
       }
       return _filteredProducts.fold(0.0, (sum, item) => sum + item.stockValue);
     } catch (_) {
@@ -756,6 +824,8 @@ class _StockScreenState extends State<StockScreen> {
       );
     }
 
+    final showCompanyChip = CompanyProvider.of(context).isCombinedMode;
+
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       sliver: SliverList(
@@ -764,9 +834,12 @@ class _StockScreenState extends State<StockScreen> {
             final item = _filteredProducts[index];
             return _ProductCard(
               item: item,
-              salesValue: _productSales[item.name] ?? 0.0,
+              salesValue: _productSales[_salesKey(item)] ?? _productSales[item.name] ?? 0.0,
               showSalesValue: _showSalesValue,
               showCostPrice: showCostPrice,
+              showCompanyChip: showCompanyChip &&
+                  item.companyName != null &&
+                  item.companyName!.isNotEmpty,
             );
           },
           childCount: _filteredProducts.length,
@@ -872,11 +945,13 @@ class _ProductCard extends StatelessWidget {
   final double salesValue;
   final bool showSalesValue;
   final bool showCostPrice;
+  final bool showCompanyChip;
   const _ProductCard({
     required this.item,
     this.salesValue = 0.0,
     this.showSalesValue = false,
     this.showCostPrice = true,
+    this.showCompanyChip = false,
   });
 
   @override
@@ -917,14 +992,26 @@ class _ProductCard extends StatelessWidget {
         : '—';
 
     // Build concise metadata string (Parent, Category, HSN, GST)
-    final metaParts = <String>[];
-    if (item.parent != null && item.parent!.trim().isNotEmpty) {
-      metaParts.add(item.parent!.trim());
+    bool isPlaceholderMeta(String? value) {
+      final v = value?.trim().toLowerCase() ?? '';
+      if (v.isEmpty || v == '-') return true;
+      return v == 'not applicable' ||
+          v == 'n/a' ||
+          v == 'na' ||
+          v == 'none' ||
+          v == 'null';
     }
-    if (item.category != null &&
-        item.category!.trim().isNotEmpty &&
-        item.category!.trim() != item.parent?.trim()) {
-      metaParts.add(item.category!.trim());
+
+    final metaParts = <String>[];
+    final parent = item.parent?.trim();
+    if (parent != null && !isPlaceholderMeta(parent)) {
+      metaParts.add(parent);
+    }
+    final category = item.category?.trim();
+    if (category != null &&
+        !isPlaceholderMeta(category) &&
+        category != parent) {
+      metaParts.add(category);
     }
     if (item.hsn != null && item.hsn!.trim().isNotEmpty) {
       metaParts.add('HSN: ${item.hsn!.trim()}');
@@ -990,6 +1077,11 @@ class _ProductCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    if (showCompanyChip && item.companyName != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: CombinedCompanyChip(companyName: item.companyName!),
+                      ),
                     if (metaText.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 1),
