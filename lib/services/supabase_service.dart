@@ -761,12 +761,13 @@ class SupabaseService {
     if (currentUser == null) {
       throw 'Not signed in.';
     }
+    final deviceLabel = await resolveDeviceLabel();
     final raw = await _client.rpc(
       'claim_device_session',
       params: {
         'p_client_session_id': sessionId,
         'p_force': force,
-        'p_device_label': currentDeviceLabel(),
+        'p_device_label': deviceLabel,
         'p_device_platform': currentDevicePlatform(),
       },
     );
@@ -856,6 +857,28 @@ class SupabaseService {
     } catch (e) {
       _notifyIfSessionReplaced(e);
       rethrow;
+    }
+  }
+
+  /// Up to 5 previous device sessions for the signed-in user (newest first).
+  Future<List<Map<String, dynamic>>> getDeviceLoginHistory({
+    String? userId,
+    int limit = 5,
+  }) async {
+    final uid = userId ?? currentUser?.id;
+    if (uid == null) return [];
+    try {
+      final response = await _client
+          .from('user_device_login_history')
+          .select(
+            'device_label, device_platform, claimed_at, ended_at',
+          )
+          .eq('user_id', uid)
+          .order('ended_at', ascending: false)
+          .limit(limit.clamp(1, 5));
+      return List<Map<String, dynamic>>.from(response as List);
+    } catch (_) {
+      return [];
     }
   }
 

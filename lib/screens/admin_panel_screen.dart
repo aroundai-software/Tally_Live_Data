@@ -10,6 +10,8 @@ import '../utils/admin_access.dart';
 import '../utils/active_session_guard.dart';
 import '../widgets/shimmer_loading.dart';
 import 'login_screen.dart';
+import 'profile_screen.dart';
+import 'security_settings_screen.dart';
 
 /// Shared AppBar refresh control for admin screens.
 Widget _adminRefreshButton({
@@ -282,8 +284,8 @@ class _AdminSidebar extends StatelessWidget {
               onTap: () => onSelect(2),
             ),
             _AdminSidebarItem(
-              icon: Icons.person_rounded,
-              label: 'Profile',
+              icon: Icons.settings_rounded,
+              label: 'Settings',
               isSelected: currentIndex == 3,
               onTap: () => onSelect(3),
             ),
@@ -436,8 +438,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
                     onTap: () => setState(() => _currentIndex = 2),
                   ),
                   _AdminNavItem(
-                    icon: Icons.person_rounded,
-                    label: 'Profile',
+                    icon: Icons.settings_rounded,
+                    label: 'Settings',
                     isSelected: _currentIndex == 3,
                     onTap: () => setState(() => _currentIndex = 3),
                   ),
@@ -2784,7 +2786,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
 }
 
 
-// ─── Tab 3: Profile & Logout ──────────────────────────────────
+// ─── Tab 3: Settings hub (same pattern as owner Settings) ─────
 class AdminProfileTab extends StatefulWidget {
   const AdminProfileTab({super.key});
 
@@ -2795,6 +2797,7 @@ class AdminProfileTab extends StatefulWidget {
 class _AdminProfileTabState extends State<AdminProfileTab> {
   final SupabaseService _service = SupabaseService();
   String _adminPhone = '';
+  String _adminName = 'System Administrator';
   String _appVersion = 'v3.0.0';
   bool _isLoading = true;
 
@@ -2810,12 +2813,12 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
       final user = _service.currentUser;
       if (user != null) {
         final profile = await _service.getUserProfile(user.id);
-        
         final info = await PackageInfo.fromPlatform();
-
         if (!mounted) return;
         setState(() {
           _adminPhone = profile?['phone_number']?.toString() ?? user.phone ?? '';
+          final name = profile?['full_name']?.toString().trim() ?? '';
+          _adminName = name.isNotEmpty ? name : 'System Administrator';
           _appVersion = 'v${info.version}';
           _isLoading = false;
         });
@@ -2872,8 +2875,8 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _AdminPageHeader(
-                    title: 'Profile',
-                    subtitle: 'Account settings and admin tools',
+                    title: 'Settings',
+                    subtitle: 'Manage account, security, and admin tools',
                     actions: [
                       _adminRefreshButton(
                         onPressed: _isLoading ? null : _loadProfile,
@@ -2917,9 +2920,9 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          const Text(
-                                            'System Administrator',
-                                            style: TextStyle(
+                                          Text(
+                                            _adminName,
+                                            style: const TextStyle(
                                               fontSize: 16,
                                               fontWeight: FontWeight.w700,
                                               color: AppTheme.textPrimary,
@@ -2927,7 +2930,9 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
-                                            'Phone: $_adminPhone',
+                                            _adminPhone.isEmpty
+                                                ? 'System Administrator'
+                                                : 'Phone: $_adminPhone',
                                             style: const TextStyle(
                                               fontSize: 13,
                                               color: AppTheme.textSecondary,
@@ -2939,7 +2944,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                                   ],
                                 ),
                               ),
-                              const SizedBox(height: 28),
+                              const SizedBox(height: 24),
                               const Text(
                                 'ACCOUNT',
                                 style: TextStyle(
@@ -2951,11 +2956,39 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                               ),
                               const SizedBox(height: 10),
                               _buildActionItem(
-                                icon: Icons.password_rounded,
+                                icon: Icons.person_outline_rounded,
+                                title: 'Account Info',
+                                subtitle: 'Name, phone, and assigned companies',
+                                color: AppTheme.primaryColor,
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const ProfileScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 10),
+                              _buildActionItem(
+                                icon: Icons.lock_outline_rounded,
                                 title: 'Change Password',
                                 subtitle: 'Update your administrator password',
                                 color: AppTheme.primaryColor,
                                 onTap: _showChangePasswordDialog,
+                              ),
+                              const SizedBox(height: 10),
+                              _buildActionItem(
+                                icon: Icons.devices_rounded,
+                                title: 'Devices & Login',
+                                subtitle: 'Current device and recent login history',
+                                color: AppTheme.primaryColor,
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const SecuritySettingsScreen(),
+                                    ),
+                                  );
+                                },
                               ),
                               const SizedBox(height: 24),
                               const Text(
@@ -2986,68 +3019,43 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                                 ),
                               ),
                               const SizedBox(height: 10),
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: AppTheme.dividerColor),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.info_outline_rounded,
-                                      color: AppTheme.textSecondary.withValues(alpha: 0.8),
-                                      size: 22,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            'App Version',
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w600,
-                                              color: AppTheme.textPrimary,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            '$_appVersion (Latest)',
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: AppTheme.textSecondary,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              const Text(
-                                'LOGOUT',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.textSecondary,
-                                  letterSpacing: 0.8,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
                               _buildActionItem(
-                                icon: Icons.logout_rounded,
-                                title: 'Logout Account',
-                                subtitle: null,
-                                color: AppTheme.errorColor,
-                                onTap: _handleLogout,
+                                icon: Icons.info_outline_rounded,
+                                title: 'App Version',
+                                subtitle: '$_appVersion (Latest)',
+                                color: AppTheme.textSecondary,
+                              ),
+                              const SizedBox(height: 28),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 48,
+                                child: OutlinedButton.icon(
+                                  onPressed: _handleLogout,
+                                  icon: const Icon(
+                                    Icons.logout_rounded,
+                                    color: AppTheme.errorColor,
+                                    size: 20,
+                                  ),
+                                  label: const Text(
+                                    'Sign Out',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppTheme.errorColor,
+                                    ),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(
+                                      color: AppTheme.errorColor,
+                                      width: 1.5,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    backgroundColor:
+                                        Colors.red.withValues(alpha: 0.04),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
@@ -3066,7 +3074,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
     required String title,
     String? subtitle,
     required Color color,
-    required VoidCallback onTap,
+    VoidCallback? onTap,
   }) {
     return Material(
       color: Colors.white,
@@ -3118,13 +3126,14 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 20,
-                color: color == AppTheme.errorColor
-                    ? color
-                    : AppTheme.textSecondary,
-              ),
+              if (onTap != null)
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: color == AppTheme.errorColor
+                      ? color
+                      : AppTheme.textSecondary,
+                ),
             ],
           ),
         ),

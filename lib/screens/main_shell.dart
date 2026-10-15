@@ -13,7 +13,7 @@ import 'combined_purchases_report_screen.dart';
 import 'combined_sales_report_screen.dart';
 import 'dashboard_screen.dart';
 import 'login_screen.dart';
-import 'profile_screen.dart';
+import 'settings_screen.dart';
 import 'stock_screen.dart';
 import 'ledger_screen.dart';
 import 'receivables_payables_screen.dart';
@@ -940,7 +940,7 @@ class _CompanyBanner extends StatelessWidget {
                   GestureDetector(
                     onTap: () {
                       Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                        MaterialPageRoute(builder: (_) => const SettingsScreen()),
                       );
                     },
                     child: Container(
@@ -949,7 +949,11 @@ class _CompanyBanner extends StatelessWidget {
                         color: Colors.white.withValues(alpha: 0.2),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.person_rounded, color: Colors.white, size: 18),
+                      child: const Icon(
+                        Icons.settings_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
                     ),
                   ),
                 ],
