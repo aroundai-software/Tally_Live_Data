@@ -79,6 +79,12 @@ class _SplashScreenState extends State<SplashScreen> {
         await _service.signOut();
         return const LoginScreen();
       }
+
+      final sessionOk = await _service.ensureLocalSessionStillActive();
+      if (!sessionOk) {
+        return const LoginScreen();
+      }
+
       // Admin only when DB role is super_admin (no email/phone backdoors).
       if (isActiveSuperAdmin(profile)) {
         return const AdminPanelScreen(isRootAdmin: true);

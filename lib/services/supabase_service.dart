@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,10 +13,29 @@ import '../models/ledger_bill_settlement.dart';
 import '../models/financial_report.dart';
 import '../utils/admin_access.dart';
 import '../utils/combined_company_selection.dart';
+import '../utils/device_session_info.dart';
 import 'user_preferences_service.dart';
 
 class SupabaseService {
   final SupabaseClient _client = Supabase.instance.client;
+
+  /// Broadcast when server rejects this device (force-login elsewhere).
+  static final StreamController<void> deviceSessionInvalidated =
+      StreamController<void>.broadcast();
+
+  static bool isDeviceSessionReplacedError(Object e) {
+    final msg = e.toString();
+    return msg.contains('DEVICE_SESSION_REPLACED') ||
+        (msg.contains('P0001') && msg.toLowerCase().contains('session'));
+  }
+
+  void _notifyIfSessionReplaced(Object e) {
+    if (isDeviceSessionReplacedError(e)) {
+      if (!deviceSessionInvalidated.isClosed) {
+        deviceSessionInvalidated.add(null);
+      }
+    }
+  }
 
   // ─── Auth & User Profiles ─────────────────────────────────────
   User? get currentUser => _client.auth.currentUser;
@@ -26,6 +46,15 @@ class SupabaseService {
     final user = currentUser;
     if (user == null) {
       throw 'Administrator sign-in required.';
+    }
+    try {
+      await _client.rpc('require_active_device_session');
+    } catch (e) {
+      _notifyIfSessionReplaced(e);
+      if (isDeviceSessionReplacedError(e)) {
+        throw 'Signed in on another device.';
+      }
+      rethrow;
     }
     final profile = await getUserProfile(user.id);
     if (!isActiveSuperAdmin(profile)) {
@@ -698,7 +727,136 @@ class SupabaseService {
   }
 
   Future<void> signOut() async {
-    await _client.auth.signOut();
+    try {
+      await _client.rpc('clear_device_session');
+    } catch (_) {}
+    try {
+      await _client.auth.signOut(scope: SignOutScope.local);
+    } catch (_) {
+      try {
+        await _client.auth.signOut();
+      } catch (_) {}
+    }
+    await UserPreferencesService.clearActiveSessionId();
+  }
+
+  /// True when another device already holds [users.active_session_id].
+  Future<bool> hasActiveSessionConflict() async {
+    final user = currentUser;
+    if (user == null) return false;
+    final profile = await getUserProfile(user.id);
+    final remote = profile?['active_session_id']?.toString();
+    if (remote == null || remote.isEmpty) return false;
+    final local = await UserPreferencesService.loadActiveSessionId();
+    if (local != null && local == remote) return false;
+    return true;
+  }
+
+  /// Claims this device via SECURITY DEFINER RPC (atomic DB update + revoke others).
+  /// Returns false when [force] is false and another device holds the session.
+  Future<bool> claimActiveDeviceSession({
+    required String sessionId,
+    bool force = false,
+  }) async {
+    if (currentUser == null) {
+      throw 'Not signed in.';
+    }
+    final raw = await _client.rpc(
+      'claim_device_session',
+      params: {
+        'p_client_session_id': sessionId,
+        'p_force': force,
+        'p_device_label': currentDeviceLabel(),
+        'p_device_platform': currentDevicePlatform(),
+      },
+    );
+    final result = raw is Map
+        ? Map<String, dynamic>.from(raw)
+        : <String, dynamic>{};
+    if (result['conflict'] == true && !force) {
+      return false;
+    }
+    if (result['ok'] != true) {
+      throw 'Failed to claim device session.';
+    }
+    await UserPreferencesService.saveActiveSessionId(sessionId);
+    try {
+      await _client.auth.signOut(scope: SignOutScope.others);
+    } catch (_) {}
+    return true;
+  }
+
+  /// Splash / cold start: ensure local session still owns the account.
+  /// Returns false if the user must re-login.
+  Future<bool> ensureLocalSessionStillActive() async {
+    final user = currentUser;
+    if (user == null) return false;
+    try {
+      await _client.rpc('require_active_device_session');
+    } catch (e) {
+      _notifyIfSessionReplaced(e);
+      if (isDeviceSessionReplacedError(e)) {
+        await signOut();
+        return false;
+      }
+    }
+    final profile = await getUserProfile(user.id);
+    if (profile == null) return true;
+    final remote = profile['active_session_id']?.toString();
+    final local = await UserPreferencesService.loadActiveSessionId();
+    if (remote == null || remote.isEmpty) {
+      final id = newDeviceSessionId();
+      await claimActiveDeviceSession(sessionId: id, force: true);
+      return true;
+    }
+    if (local != null && local == remote) return true;
+    await signOut();
+    return false;
+  }
+
+  /// Periodic / on-demand check used by [ActiveSessionGuard].
+  Future<bool> isLocalDeviceSessionStillValid() async {
+    final user = currentUser;
+    if (user == null) return false;
+    try {
+      await _client.rpc('require_active_device_session');
+    } catch (e) {
+      _notifyIfSessionReplaced(e);
+      if (isDeviceSessionReplacedError(e)) {
+        return false;
+      }
+    }
+    final profile = await getUserProfile(user.id);
+    final remote = profile?['active_session_id']?.toString();
+    final local = await UserPreferencesService.loadActiveSessionId();
+    if (remote == null || remote.isEmpty) return true;
+    if (local == null || local.isEmpty) return false;
+    return remote == local;
+  }
+
+  /// Wraps an RPC/query so kicked devices surface [deviceSessionInvalidated].
+  Future<T> withDeviceSessionGuard<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } catch (e) {
+      _notifyIfSessionReplaced(e);
+      rethrow;
+    }
+  }
+
+  Future<dynamic> _rpc(
+    String fn, {
+    Map<String, dynamic>? params,
+  }) async {
+    try {
+      if (params == null) {
+        return await _client.rpc(fn);
+      }
+      return await _client.rpc(fn, params: params);
+    } catch (e) {
+      _notifyIfSessionReplaced(e);
+      rethrow;
+    }
   }
 
   // ─── Companies ───────────────────────────────────────────────
@@ -2165,7 +2323,7 @@ class SupabaseService {
     final todayEnd = DateTime(now.year, now.month, now.day + 1);
 
     try {
-      final response = await _client.rpc('get_dashboard_aggregates', params: {
+      final response = await _rpc('get_dashboard_aggregates', params: {
         'p_company_name': companyName,
         'p_today_start': todayStart.toIso8601String(),
         'p_today_end': todayEnd.toIso8601String(),
@@ -2829,10 +2987,10 @@ class SupabaseService {
     bool paged = false,
   }) async {
     if (paged) {
-      final pages = await _readPages(() => _client.rpc(fn, params: params));
+      final pages = await _readPages(() => _rpc(fn, params: params));
       return pages.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     }
-    final response = await _client.rpc(fn, params: params);
+    final response = await _rpc(fn, params: params);
     return List<Map<String, dynamic>>.from(response as List);
   }
 

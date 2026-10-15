@@ -397,12 +397,13 @@ class TallyReportTable extends StatelessWidget {
     final canExpand = group != null && onToggleExpand != null;
     final canOpenSummary = group != null && onOpenSummary != null;
     final isExpanded = group != null && expandedGroups.contains(group);
+    final isInteractive = canExpand || canOpenSummary;
 
     final nameStyle = TextStyle(
       fontSize: stacked ? 14 : (line.indent > 0 ? 12 : 12.5),
       height: 1.3,
       fontWeight: line.emphasize ? FontWeight.w700 : FontWeight.w500,
-      color: canExpand || canOpenSummary
+      color: isInteractive
           ? const Color(0xFF2453FF)
           : (line.emphasize ? const Color(0xFF0F1A2B) : const Color(0xFF3A4A63)),
     );
@@ -413,11 +414,18 @@ class TallyReportTable extends StatelessWidget {
       fontFeatures: const [FontFeature.tabularFigures()],
     );
 
+    VoidCallback? onRowTap;
+    if (canExpand) {
+      onRowTap = () => onToggleExpand!(group);
+    } else if (canOpenSummary) {
+      onRowTap = () => onOpenSummary!(line);
+    }
+
     final pad = stacked ? 14.0 : 12.0;
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: canExpand ? () => onToggleExpand!(group) : null,
+        onTap: onRowTap,
         child: Padding(
           padding: EdgeInsets.fromLTRB(pad + line.indent * pad, stacked ? 12 : 8, 8, stacked ? 12 : 8),
           child: Row(
@@ -622,15 +630,43 @@ bool isBalanceSheetLiability(FinancialReportLine line) {
 
 // ─── Profit & Loss helpers ─────────────────────────────────────
 
-bool _isCosChild(String particulars) {
-  final p = particulars.toLowerCase().trim();
-  return p == 'opening stock' ||
-      p.startsWith('add:') ||
-      p.startsWith('less:') ||
-      p == 'direct expenses';
+/// True when [p] is exactly [label] or starts with "[label] " / "[label](".
+/// Avoids "indirect incomes".contains("direct incomes") false positives.
+bool _plLabelIs(String p, String label) {
+  if (p == label) return true;
+  if (p.startsWith('$label ')) return true;
+  if (p.startsWith('$label(')) return true;
+  return false;
 }
 
-/// Build Tally condensed P&L columns (Cost of Sales + Gross/Nett).
+String _stripAddLessPrefix(String particulars) {
+  final p = particulars.trim();
+  final lower = p.toLowerCase();
+  if (lower.startsWith('add:')) return p.substring(4).trim();
+  if (lower.startsWith('less:')) return p.substring(5).trim();
+  return p;
+}
+
+TallyReportRow _plRow(
+  FinancialReportLine line, {
+  String? label,
+  double? amount,
+  bool emphasize = true,
+}) {
+  final display = label ?? _stripAddLessPrefix(line.particulars);
+  return TallyReportRow(
+    particulars: display,
+    amount: amount ?? line.amount.abs(),
+    emphasize: emphasize,
+    drillGroupName: resolveDrillGroupName(display),
+  );
+}
+
+/// Build classic Tally P&L columns (same order as Gateway → Profit & Loss).
+///
+/// Trading (left): Opening Stock, Purchase Accounts, Direct Expenses, Gross Profit c/o
+/// Trading (right): Sales Accounts, Direct Incomes, Closing Stock
+/// Then Indirect Expenses / Nett vs Gross Profit b/f / Indirect Incomes.
 ({
   List<TallyReportRow> left,
   List<TallyReportRow> right,
@@ -645,37 +681,64 @@ bool _isCosChild(String particulars) {
   double sales = 0;
   double directIncomes = 0;
   double costOfSales = 0;
+  double openingStock = 0;
+  double purchases = 0;
+  double closingStock = 0;
+  double directExpenses = 0;
   double indirectIncomes = 0;
   double indirectExpenses = 0;
 
-  FinancialReportLine? cosLine;
-  final cosChildren = <FinancialReportLine>[];
-  final salesLines = <FinancialReportLine>[];
-  final indirectIncomeLines = <FinancialReportLine>[];
-  final indirectExpenseLines = <FinancialReportLine>[];
+  FinancialReportLine? openingLine;
+  FinancialReportLine? purchaseLine;
+  FinancialReportLine? closingLine;
+  FinancialReportLine? directExpenseLine;
+  FinancialReportLine? salesLine;
+  FinancialReportLine? directIncomeLine;
+  FinancialReportLine? indirectIncomeLine;
+  FinancialReportLine? indirectExpenseLine;
+  var hasCosLine = false;
 
   for (final line in ordered) {
     final p = line.particulars.toLowerCase().trim();
     final signed = tallySignedAmount(line);
+    final abs = signed.abs();
 
-    if (p.contains('sales accounts')) {
-      sales = signed.abs();
-      salesLines.add(line);
-    } else if (p.contains('direct incomes')) {
-      directIncomes = signed.abs();
-      salesLines.add(line);
+    if (_plLabelIs(p, 'sales accounts')) {
+      sales = abs;
+      salesLine = line;
+    } else if (_plLabelIs(p, 'direct incomes')) {
+      directIncomes = abs;
+      directIncomeLine = line;
     } else if (p.startsWith('cost of sales')) {
-      costOfSales = signed.abs();
-      cosLine = line;
-    } else if (_isCosChild(p)) {
-      cosChildren.add(line);
-    } else if (p.contains('indirect incomes')) {
-      indirectIncomes = signed.abs();
-      indirectIncomeLines.add(line);
-    } else if (p.contains('indirect expenses')) {
-      indirectExpenses = signed.abs();
-      indirectExpenseLines.add(line);
+      costOfSales = abs;
+      hasCosLine = true;
+    } else if (p == 'opening stock' || p.startsWith('add: opening')) {
+      openingStock = abs;
+      openingLine = line;
+    } else if (p.contains('purchase accounts') ||
+        (p.startsWith('add:') && p.contains('purchase'))) {
+      purchases = abs;
+      purchaseLine = line;
+    } else if (p == 'closing stock' ||
+        p.startsWith('less: closing') ||
+        p.startsWith('less:closing')) {
+      closingStock = abs;
+      closingLine = line;
+    } else if (_plLabelIs(p, 'direct expenses')) {
+      directExpenses = abs;
+      directExpenseLine = line;
+    } else if (_plLabelIs(p, 'indirect incomes')) {
+      indirectIncomes = abs;
+      indirectIncomeLine = line;
+    } else if (_plLabelIs(p, 'indirect expenses')) {
+      indirectExpenses = abs;
+      indirectExpenseLine = line;
     }
+  }
+
+  if (!hasCosLine) {
+    costOfSales =
+        openingStock + purchases + directExpenses - closingStock;
   }
 
   // Gross = Sales + Direct Incomes − Cost of Sales (matches Tally).
@@ -686,20 +749,25 @@ bool _isCosChild(String particulars) {
   final left = <TallyReportRow>[];
   final right = <TallyReportRow>[];
 
-  // ── Trading account ──
-  if (cosLine != null) {
-    left.add(TallyReportRow.fromLine(cosLine, emphasize: true, amount: costOfSales));
-    for (final child in cosChildren) {
-      left.add(TallyReportRow.fromLine(child, indent: 1));
-    }
-  } else {
-    for (final child in cosChildren) {
-      left.add(TallyReportRow.fromLine(child));
-    }
+  // ── Trading account (classic Tally order) ──
+  if (openingLine != null) {
+    left.add(_plRow(openingLine, label: 'Opening Stock', amount: openingStock));
+  }
+  if (purchaseLine != null) {
+    left.add(_plRow(purchaseLine, label: 'Purchase Accounts', amount: purchases));
+  }
+  if (directExpenseLine != null) {
+    left.add(_plRow(directExpenseLine, amount: directExpenses));
   }
 
-  for (final line in salesLines) {
-    right.add(TallyReportRow.fromLine(line, emphasize: true));
+  if (salesLine != null) {
+    right.add(_plRow(salesLine, amount: sales));
+  }
+  if (directIncomeLine != null) {
+    right.add(_plRow(directIncomeLine, amount: directIncomes));
+  }
+  if (closingLine != null) {
+    right.add(_plRow(closingLine, label: 'Closing Stock', amount: closingStock));
   }
 
   if (gross >= 0) {
@@ -716,7 +784,19 @@ bool _isCosChild(String particulars) {
     ));
   }
 
-  final tradingTotal = sales + directIncomes;
+  // Tally trading total = Opening + Purchase + Direct Exp + GP
+  //                    = Sales + Direct Incomes + Closing Stock
+  final tradingLeft = openingStock +
+      purchases +
+      directExpenses +
+      (gross >= 0 ? gross : 0);
+  final tradingRight = sales +
+      directIncomes +
+      closingStock +
+      (gross < 0 ? gross.abs() : 0);
+  final tradingTotal =
+      tradingLeft > 0 ? tradingLeft : tradingRight;
+
   left.add(TallyReportRow(
     particulars: 'Total',
     amount: tradingTotal,
@@ -729,8 +809,8 @@ bool _isCosChild(String particulars) {
   ));
 
   // ── Profit & Loss account ──
-  for (final line in indirectExpenseLines) {
-    left.add(TallyReportRow.fromLine(line, emphasize: true));
+  if (indirectExpenseLine != null) {
+    left.add(_plRow(indirectExpenseLine, amount: indirectExpenses));
   }
 
   if (gross >= 0) {
@@ -747,8 +827,8 @@ bool _isCosChild(String particulars) {
     ));
   }
 
-  for (final line in indirectIncomeLines) {
-    right.add(TallyReportRow.fromLine(line, emphasize: true));
+  if (indirectIncomeLine != null) {
+    right.add(_plRow(indirectIncomeLine, amount: indirectIncomes));
   }
 
   if (nett >= 0) {
@@ -766,7 +846,8 @@ bool _isCosChild(String particulars) {
   }
 
   // Bottom totals = P&L section (matches Tally: Indirect Exp vs GP+Inc+Nett Loss).
-  final plLeftTotal = indirectExpenses + (nett >= 0 ? nett : 0) + (gross < 0 ? gross.abs() : 0);
+  final plLeftTotal =
+      indirectExpenses + (nett >= 0 ? nett : 0) + (gross < 0 ? gross.abs() : 0);
   final plRightTotal =
       (gross >= 0 ? gross : 0) + indirectIncomes + (nett < 0 ? nett.abs() : 0);
 

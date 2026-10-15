@@ -7,6 +7,7 @@ import '../services/supabase_service.dart';
 import '../config/app_theme.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../utils/admin_access.dart';
+import '../utils/active_session_guard.dart';
 import '../widgets/shimmer_loading.dart';
 import 'login_screen.dart';
 
@@ -302,7 +303,8 @@ class AdminPanelScreen extends StatefulWidget {
   State<AdminPanelScreen> createState() => _AdminPanelScreenState();
 }
 
-class _AdminPanelScreenState extends State<AdminPanelScreen> {
+class _AdminPanelScreenState extends State<AdminPanelScreen>
+    with ActiveSessionGuard {
   int _currentIndex = 0;
   bool _verified = false;
   bool _closing = false;
@@ -334,6 +336,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     if (!mounted) return;
     if (!_allowed(profile)) { await _denyAccess(); return; }
     setState(() => _verified = true);
+    startActiveSessionGuard();
     _profileSubscription = service.streamUserProfile(user!.id).listen((profile) {
       // Realtime can emit empty maps while reconnecting — ignore those.
       // Only force logout when we receive a real profile that fails the check.
@@ -346,6 +349,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
   @override
   void dispose() {
+    stopActiveSessionGuard();
     _profileSubscription?.cancel();
     super.dispose();
   }

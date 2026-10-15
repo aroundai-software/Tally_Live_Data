@@ -10,8 +10,6 @@ import '../widgets/shimmer_loading.dart';
 import '../widgets/tally_report_table.dart';
 import '../widgets/combined_mode_unavailable.dart';
 import 'financial_group_detail_screen.dart';
-import 'ledger_statement_screen.dart';
-import '../models/ledger.dart';
 
 class BalanceSheetScreen extends StatefulWidget {
   const BalanceSheetScreen({super.key});
@@ -30,11 +28,6 @@ class _BalanceSheetScreenState extends State<BalanceSheetScreen> {
   int? _lastSyncTrigger;
   int _loadGeneration = 0;
 
-  final Set<String> _expandedGroups = {};
-  final Set<String> _loadingGroups = {};
-  final Map<String, List<TallyChildRow>> _groupChildren = {};
-  final Map<String, Ledger> _childLedgersByName = {};
-
   final _dateFmt = DateFormat('dd MMM yyyy');
 
   @override
@@ -47,15 +40,41 @@ class _BalanceSheetScreenState extends State<BalanceSheetScreen> {
       _hasLoaded = true;
       _lastCompanyRevision = revision;
       _lastSyncTrigger = syncTrigger;
-      _loadData();
-    } else if (_lastCompanyRevision != revision || _lastSyncTrigger != syncTrigger) {
+      _loadData(showLoading: true);
+    } else if (_lastCompanyRevision != revision) {
       _lastCompanyRevision = revision;
       _lastSyncTrigger = syncTrigger;
-      _loadData();
+      _loadData(showLoading: true);
+    } else if (_lastSyncTrigger != syncTrigger) {
+      _lastSyncTrigger = syncTrigger;
+      // Background refresh after sync — keep current numbers on screen.
+      _loadData(showLoading: false);
     }
   }
 
-  Future<void> _loadData() async {
+  bool _sameReport(BalanceSheetReport? a, BalanceSheetReport? b) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null) return false;
+    if (a.id != b.id || a.syncedAt != b.syncedAt) return false;
+    if (a.totalAssets != b.totalAssets ||
+        a.totalLiabilities != b.totalLiabilities) {
+      return false;
+    }
+    if (a.asOnDate != b.asOnDate) return false;
+    if (a.lines.length != b.lines.length) return false;
+    for (var i = 0; i < a.lines.length; i++) {
+      final x = a.lines[i];
+      final y = b.lines[i];
+      if (x.particulars != y.particulars ||
+          x.amount != y.amount ||
+          x.sortOrder != y.sortOrder) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<void> _loadData({bool showLoading = true}) async {
     final generation = ++_loadGeneration;
     final companyName = CompanyProvider.of(context).selectedCompany;
     if (!CompanyScope.isValid(companyName)) {
@@ -69,10 +88,12 @@ class _BalanceSheetScreenState extends State<BalanceSheetScreen> {
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
 
     try {
       final report = await _service.getBalanceSheetReport(companyName!);
@@ -84,13 +105,14 @@ class _BalanceSheetScreenState extends State<BalanceSheetScreen> {
           )) {
         return;
       }
+      final unchanged = _sameReport(_report, report);
+      if (unchanged && !showLoading && _error == null) {
+        return;
+      }
       setState(() {
-        _report = report;
+        if (!unchanged) _report = report;
         _isLoading = false;
-        _expandedGroups.clear();
-        _loadingGroups.clear();
-        _groupChildren.clear();
-        _childLedgersByName.clear();
+        _error = null;
       });
     } catch (e) {
       if (mounted &&
@@ -100,60 +122,12 @@ class _BalanceSheetScreenState extends State<BalanceSheetScreen> {
             CompanyProvider.of(context).selectedCompany,
           )) {
         setState(() {
-          _error = e.toString();
+          if (showLoading || _report == null) {
+            _error = e.toString();
+          }
           _isLoading = false;
         });
       }
-    }
-  }
-
-  Future<void> _toggleExpand(String groupName) async {
-    if (_expandedGroups.contains(groupName)) {
-      setState(() => _expandedGroups.remove(groupName));
-      return;
-    }
-
-    setState(() {
-      _expandedGroups.add(groupName);
-      if (!_groupChildren.containsKey(groupName)) {
-        _loadingGroups.add(groupName);
-      }
-    });
-
-    if (_groupChildren.containsKey(groupName)) return;
-
-    final companyName = CompanyProvider.of(context).selectedCompany;
-    if (!CompanyScope.isValid(companyName)) {
-      setState(() => _loadingGroups.remove(groupName));
-      return;
-    }
-
-    try {
-      final result = await _service.getLedgersUnderGroupWithMeta(
-        companyName: companyName!,
-        groupName: groupName,
-      );
-      if (!mounted) return;
-      setState(() {
-        _loadingGroups.remove(groupName);
-        _groupChildren[groupName] = result.children
-            .map((l) {
-              _childLedgersByName[l.name] = l;
-              // Company-GUID closing: +Debit / −Credit; BS Gateway shows opposite sign.
-              return TallyChildRow(
-                name: l.name,
-                signedAmount: -l.closingBalance,
-                isGroup: result.expandableNames.contains(l.name),
-              );
-            })
-            .toList();
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _loadingGroups.remove(groupName);
-        _groupChildren[groupName] = const [];
-      });
     }
   }
 
@@ -167,28 +141,6 @@ class _BalanceSheetScreenState extends State<BalanceSheetScreen> {
           groupAmount: row.amount,
           reportTitle: 'Balance Sheet',
         ),
-      ),
-    );
-  }
-
-  void _onChildTap(TallyChildRow child) {
-    if (child.isGroup) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => FinancialGroupDetailScreen(
-            groupName: child.name,
-            groupAmount: child.signedAmount.abs(),
-            reportTitle: 'Balance Sheet',
-          ),
-        ),
-      );
-      return;
-    }
-    final ledger = _childLedgersByName[child.name];
-    if (ledger == null) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => LedgerStatementScreen(ledger: ledger),
       ),
     );
   }
@@ -267,12 +219,7 @@ class _BalanceSheetScreenState extends State<BalanceSheetScreen> {
             rightTotal: cols.rightTotal,
             leftAccent: const Color(0xFFB45309),
             rightAccent: const Color(0xFF0F766E),
-            expandedGroups: _expandedGroups,
-            loadingGroups: _loadingGroups,
-            groupChildren: _groupChildren,
-            onToggleExpand: _toggleExpand,
             onOpenSummary: _openSummary,
-            onChildTap: _onChildTap,
           ),
         ],
       ),

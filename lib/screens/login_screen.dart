@@ -4,8 +4,10 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
+import '../services/user_preferences_service.dart';
 import '../utils/admin_access.dart';
 import '../utils/company_session_bootstrap.dart';
+import '../utils/device_session_info.dart';
 import 'company_selection_screen.dart';
 import 'main_shell.dart';
 import 'admin_panel_screen.dart';
@@ -57,17 +59,18 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _handleLogin() async {
+  Future<void> _handleLogin({bool force = false}) async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
       final rawPhone = _phoneController.text.trim();
+      final password = _passwordController.text.trim();
 
       final authResponse = await _service.signInWithPhone(
         phone: rawPhone,
-        password: _passwordController.text.trim(),
+        password: password,
       );
 
       if (!mounted) return;
@@ -82,6 +85,50 @@ class _LoginScreenState extends State<LoginScreen> {
           if (!mounted) return;
           _showError('Your account could not be verified as active. Please retry or contact the administrator.', icon: Icons.block_rounded);
           setState(() => _isLoading = false);
+          return;
+        }
+
+        final sessionId = force
+            ? (await UserPreferencesService.loadActiveSessionId() ??
+                newDeviceSessionId())
+            : newDeviceSessionId();
+        // Keep a stable id across the force-login retry so the RPC can match.
+        if (!force) {
+          await UserPreferencesService.saveActiveSessionId(sessionId);
+        }
+
+        final claimed = await _service.claimActiveDeviceSession(
+          sessionId: sessionId,
+          force: force,
+        );
+        if (!claimed) {
+          if (!mounted) return;
+          setState(() => _isLoading = false);
+          final shouldForce = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Already logged in'),
+              content: const Text(
+                'Already logged in on another device. Force login here?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('Force login'),
+                ),
+              ],
+            ),
+          );
+          if (shouldForce == true) {
+            await _handleLogin(force: true);
+          } else {
+            await _service.signOut();
+          }
           return;
         }
 

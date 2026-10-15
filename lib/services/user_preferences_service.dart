@@ -24,6 +24,7 @@ class UserPreferencesService {
   static const _kOutstandingSortAmount = 'pref_outstanding_sort_amount';
   static const _kOutstandingSortDate   = 'pref_outstanding_sort_date';
   static const _kLastLoginEmailDomain  = 'pref_last_login_email_domain';
+  static const _kActiveSessionId       = 'pref_active_session_id';
 
   // ─── Company ────────────────────────────────────────────────────────────────
   static Future<void> saveLastCompany(String company) async {
@@ -67,6 +68,22 @@ class UserPreferencesService {
   static Future<String?> loadLastLoginEmailDomain() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_kLastLoginEmailDomain);
+  }
+
+  // ─── Single-device session id ──────────────────────────────────────────────
+  static Future<void> saveActiveSessionId(String sessionId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kActiveSessionId, sessionId);
+  }
+
+  static Future<String?> loadActiveSessionId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kActiveSessionId);
+  }
+
+  static Future<void> clearActiveSessionId() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kActiveSessionId);
   }
 
   // ─── Sales Invoice ──────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import '../providers/company_provider.dart';
 import '../utils/company_scope.dart';
 import '../utils/combined_company_selection.dart';
 import '../services/supabase_service.dart';
+import '../utils/active_session_guard.dart';
 import 'company_selection_screen.dart';
 import 'combined_company_picker_screen.dart';
 import 'combined_outstanding_report_screen.dart';
@@ -35,7 +36,7 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with ActiveSessionGuard {
   int _currentIndex = 0;
   final Set<int> _activatedTabs = {0};
   bool _stockScreenShowSales = false;
@@ -43,6 +44,8 @@ class _MainShellState extends State<MainShell> {
   String _receivablesPayablesFilter = 'all';
   String? _lastScopeKey;
   Object? _featureError;
+  /// Dedupes sync-log stream re-emits so screens only soft-refresh on a new sync.
+  String? _lastNotifiedSyncKey;
   final List<StreamSubscription<Map<String, bool>>> _featureSubscriptions = [];
   final List<StreamSubscription<Map<String, dynamic>>> _syncSubscriptions = [];
   final Map<String, Map<String, bool>> _featuresByCompany = {};
@@ -61,6 +64,7 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     _listenToUserProfile();
+    startActiveSessionGuard();
   }
 
   void _listenToUserProfile() {
@@ -140,6 +144,7 @@ class _MainShellState extends State<MainShell> {
     final scopeKey = companyState.scopeKey;
     if (scopeKey != _lastScopeKey) {
       _lastScopeKey = scopeKey;
+      _lastNotifiedSyncKey = null;
       _currentIndex = 0;
       _stockScreenShowSales = false;
       _receivablesPayablesTab = 0;
@@ -268,6 +273,7 @@ class _MainShellState extends State<MainShell> {
 
   @override
   void dispose() {
+    stopActiveSessionGuard();
     _cancelFeatureAndSync();
     _userProfileSubscription?.cancel();
     super.dispose();
@@ -350,6 +356,25 @@ class _MainShellState extends State<MainShell> {
     _featureSubscriptions.add(sub);
   }
 
+  String _syncEventKey(String company, Map<String, dynamic> event) {
+    final id = event['id']?.toString() ?? '';
+    final finished =
+        event['finished_at']?.toString() ?? event['updated_at']?.toString() ?? '';
+    return '$company|$id|$finished';
+  }
+
+  void _notifyIfNewCompletedSync(
+    String company,
+    Map<String, dynamic> event,
+    CompanyState companyState,
+  ) {
+    if (!mounted || event.isEmpty) return;
+    final key = _syncEventKey(company, event);
+    if (key == _lastNotifiedSyncKey) return;
+    _lastNotifiedSyncKey = key;
+    companyState.notifySyncCompleted();
+  }
+
   void _listenToCombinedSyncLogs(
     List<String> companies,
     CompanyState companyState,
@@ -361,11 +386,8 @@ class _MainShellState extends State<MainShell> {
     for (final company in companies) {
       final sub = SupabaseService().streamSyncLogUpdates(company).listen(
         (event) {
-          if (mounted &&
-              companyState.isCombinedMode &&
-              event.isNotEmpty) {
-            companyState.notifySyncCompleted();
-          }
+          if (!companyState.isCombinedMode) return;
+          _notifyIfNewCompletedSync(company, event, companyState);
         },
         onError: (_) {},
       );
@@ -380,9 +402,7 @@ class _MainShellState extends State<MainShell> {
     _syncSubscriptions.clear();
     final sub = SupabaseService().streamSyncLogUpdates(companyName).listen(
       (event) {
-        if (mounted && event.isNotEmpty) {
-          companyState.notifySyncCompleted();
-        }
+        _notifyIfNewCompletedSync(companyName, event, companyState);
       },
       onError: (_) {},
     );

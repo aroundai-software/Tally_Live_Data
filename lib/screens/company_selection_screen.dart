@@ -7,6 +7,7 @@ import '../config/app_theme.dart';
 import '../services/supabase_service.dart';
 import '../services/user_preferences_service.dart';
 import '../providers/company_provider.dart';
+import '../utils/active_session_guard.dart';
 import '../utils/combined_company_selection.dart';
 import '../utils/company_scope.dart';
 import 'combined_company_picker_screen.dart';
@@ -21,7 +22,8 @@ class CompanySelectionScreen extends StatefulWidget {
   State<CompanySelectionScreen> createState() => _CompanySelectionScreenState();
 }
 
-class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
+class _CompanySelectionScreenState extends State<CompanySelectionScreen>
+    with ActiveSessionGuard {
   final SupabaseService _service = SupabaseService();
   List<String> _companies = [];
   bool _isLoading = true;
@@ -31,8 +33,15 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
   @override
   void initState() {
     super.initState();
+    startActiveSessionGuard();
     _loadCompanies();
     _loadVersion();
+  }
+
+  @override
+  void dispose() {
+    stopActiveSessionGuard();
+    super.dispose();
   }
 
   Future<void> _loadCompanies() async {
