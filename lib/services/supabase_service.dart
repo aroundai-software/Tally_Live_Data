@@ -787,6 +787,34 @@ class SupabaseService {
     return true;
   }
 
+  /// If signed in but [users] has no active device claim (e.g. after a
+  /// partial logout), claim this device again so Profile shows a name.
+  Future<void> ensureCurrentDeviceClaimed() async {
+    final user = currentUser;
+    if (user == null) return;
+    final profile = await getUserProfile(user.id);
+    if (profile == null) return;
+
+    final remote = profile['active_session_id']?.toString();
+    final label = profile['active_device_label']?.toString();
+    final local = await UserPreferencesService.loadActiveSessionId();
+
+    final hasRemote = remote != null && remote.isNotEmpty;
+    final hasLabel = label != null && label.trim().isNotEmpty;
+
+    // Another device owns the session — do not steal here.
+    if (hasRemote && local != null && local.isNotEmpty && local != remote) {
+      return;
+    }
+
+    if (hasRemote && hasLabel && local == remote) return;
+
+    final id = (local != null && local.isNotEmpty)
+        ? local
+        : (hasRemote ? remote! : newDeviceSessionId());
+    await claimActiveDeviceSession(sessionId: id, force: true);
+  }
+
   /// Splash / cold start: ensure local session still owns the account.
   /// Returns false if the user must re-login.
   Future<bool> ensureLocalSessionStillActive() async {
@@ -806,11 +834,17 @@ class SupabaseService {
     final remote = profile['active_session_id']?.toString();
     final local = await UserPreferencesService.loadActiveSessionId();
     if (remote == null || remote.isEmpty) {
-      final id = newDeviceSessionId();
-      await claimActiveDeviceSession(sessionId: id, force: true);
+      await ensureCurrentDeviceClaimed();
       return true;
     }
-    if (local != null && local == remote) return true;
+    if (local != null && local == remote) {
+      // Session id matches but label missing (cleared claim / old row).
+      final label = profile['active_device_label']?.toString();
+      if (label == null || label.trim().isEmpty) {
+        await ensureCurrentDeviceClaimed();
+      }
+      return true;
+    }
     await signOut();
     return false;
   }
@@ -830,7 +864,15 @@ class SupabaseService {
     final profile = await getUserProfile(user.id);
     final remote = profile?['active_session_id']?.toString();
     final local = await UserPreferencesService.loadActiveSessionId();
-    if (remote == null || remote.isEmpty) return true;
+    if (remote == null || remote.isEmpty) {
+      // JWT still valid but claim cleared — reclaim instead of looking "ok".
+      try {
+        await ensureCurrentDeviceClaimed();
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
     if (local == null || local.isEmpty) return false;
     return remote == local;
   }

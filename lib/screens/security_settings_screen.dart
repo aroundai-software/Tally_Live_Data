@@ -32,6 +32,10 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
         if (mounted) setState(() => _isLoading = false);
         return;
       }
+      // Restore current device label if claim was cleared but JWT remains.
+      try {
+        await _service.ensureCurrentDeviceClaimed();
+      } catch (_) {}
       final profile = await _service.getUserProfile(user.id);
       final history = await _service.getDeviceLoginHistory(userId: user.id);
       if (!mounted) return;
