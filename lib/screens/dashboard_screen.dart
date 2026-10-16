@@ -486,7 +486,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         content: Text(
           'The "$featureName" feature is currently disabled for this company. Please contact your system administrator to enable it.',
-          style: const TextStyle(color: Color(0xFF3A4A63), fontSize: 14),
+          style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
         ),
         actions: [
           TextButton(
@@ -525,9 +525,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
+                Text(
                   'Overview',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF1A1F36)),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
                 ),
                 Flexible(
                   child: Row(
@@ -536,7 +536,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       Flexible(
                         child: Text(
                           'Last synced: ${_formatLastSyncedText(_lastSyncedTime)}',
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                          style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -560,16 +560,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
             if (showSummaryGrid) ...[
               _buildSummaryGrid(),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
             ],
             if (showDaybook) ...[
               _buildDaybookCard(),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
             ],
             if (showQuickActionsBlock) ...[
-              const Text(
+              Text(
                 'Quick Actions',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36)),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
               ),
               const SizedBox(height: 14),
               _buildQuickActions(),
@@ -597,7 +597,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       childAspectRatio = 1.5;
     } else {
       crossAxisCount = 2;
-      childAspectRatio = 1.5;
+      // Slightly taller cards so 2-line titles (e.g. Overdue Receivables) fit.
+      childAspectRatio = screenWidth < 360 ? 1.25 : 1.35;
     }
 
     final items = [
@@ -736,11 +737,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppTheme.cardColor,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: AppTheme.dividerColor),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.02),
@@ -757,16 +758,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 color: Colors.blue.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.menu_book_rounded, color: Colors.blue, size: 20),
+              child: Icon(Icons.menu_book_rounded, color: Colors.blue, size: 20),
             ),
-            const SizedBox(width: 12),
-            const Expanded(
+            SizedBox(width: 12),
+            Expanded(
               child: Text(
                 'Today\'s Daybook',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36)),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
               ),
             ),
-            Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey.shade400),
+            Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppTheme.textSecondary),
           ],
         ),
       ),
@@ -837,11 +838,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   _checkFeatureAndRun(featureKey, open);
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  padding: EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppTheme.cardColor,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade200),
+                    border: Border.all(color: AppTheme.dividerColor),
                   ),
                   child: Column(
                     children: [
@@ -863,10 +864,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         textAlign: TextAlign.center,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF1A1F36),
+                          color: AppTheme.textPrimary,
                         ),
                       ),
                     ],
@@ -932,7 +933,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       const SizedBox(height: 4),
                       Text(
                         formatCompactCurrency(netPosition.abs()),
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
@@ -941,7 +942,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       const SizedBox(height: 2),
                       Text(
                         isPositive ? 'Net Position (Surplus)' : 'Net Position (Deficit)',
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white60,
                           fontSize: 12,
                         ),
@@ -1081,7 +1082,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Expanded(
               child: Text(
                 title,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xE6FFFFFF)),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xE6FFFFFF)),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -1135,14 +1136,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Expanded(
                   child: Text(
                     title,
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xE6FFFFFF)),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xE6FFFFFF)),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   formatCurrency(totalValue),
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
                 ),
               ],
             ),
@@ -1169,13 +1170,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           Expanded(
                             child: Text(
                               l.name,
-                              style: const TextStyle(fontSize: 12, color: Colors.white70),
+                              style: TextStyle(fontSize: 12, color: Colors.white70),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           Text(
                             formatCurrency(l.closingBalance),
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
                           ),
                         ],
                       ),
@@ -1277,9 +1278,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return _buildModalOverlay(
       onClose: () => setState(() { _isCashBankDetailsOpen = false; }),
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        margin: EdgeInsets.symmetric(horizontal: 16, vertical: 24),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppTheme.cardColor,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
@@ -1301,18 +1302,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
+                    Text(
                       'Cash & Bank Summary',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF1A1F36)),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close_rounded),
+                      icon: Icon(Icons.close_rounded, color: AppTheme.textSecondary),
                       onPressed: () => setState(() { _isCashBankDetailsOpen = false; }),
                     ),
                   ],
                 ),
-                const Divider(height: 20, color: Color(0xFFE2E8F0)),
-                
+                Divider(height: 20, color: AppTheme.dividerColor),
+
                 // Summary Banner
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -1345,7 +1346,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 netTotal >= 0
                                     ? '${formatCurrency(netTotal)} Dr'
                                     : '${formatCurrency(netTotal.abs())} Cr',
-                                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+                                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
                               ),
                             ),
                           ),
@@ -1371,7 +1372,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 const Text('Total Debit: ', style: TextStyle(color: Colors.white70, fontSize: 11)),
                                 Text(
                                   formatCurrency(grandTotalDebit),
-                                  style: const TextStyle(color: Color(0xFF6EE7B7), fontSize: 12, fontWeight: FontWeight.w700),
+                                  style: TextStyle(color: Color(0xFF6EE7B7), fontSize: 12, fontWeight: FontWeight.w700),
                                 ),
                               ],
                             ),
@@ -1381,7 +1382,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 const Text('Total Credit: ', style: TextStyle(color: Colors.white70, fontSize: 11)),
                                 Text(
                                   formatCurrency(grandTotalCredit),
-                                  style: const TextStyle(color: Color(0xFFFCA5A5), fontSize: 12, fontWeight: FontWeight.w700),
+                                  style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 12, fontWeight: FontWeight.w700),
                                 ),
                               ],
                             ),
@@ -1449,12 +1450,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        color: AppTheme.surfaceColor,
+        border: Border.all(color: AppTheme.dividerColor),
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
+            color: Colors.black.withValues(alpha: AppTheme.isDark ? 0.25 : 0.03),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -1493,10 +1494,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       children: [
                         Text(
                           title,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFF1E293B),
+                            color: AppTheme.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -1504,7 +1505,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           '${ledgers.length} account${ledgers.length == 1 ? '' : 's'}',
                           style: TextStyle(
                             fontSize: 11,
-                            color: Colors.grey.shade500,
+                            color: AppTheme.textSecondary,
                           ),
                         ),
                       ],
@@ -1524,17 +1525,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
-                              color: netBalance >= 0 ? const Color(0xFF0F766E) : const Color(0xFFDC2626),
+                              color: netBalance >= 0
+                                  ? const Color(0xFF0F766E)
+                                  : const Color(0xFFDC2626),
                             ),
                           ),
                           const SizedBox(width: 6),
                           AnimatedRotation(
                             turns: isExpanded ? 0.5 : 0.0,
                             duration: const Duration(milliseconds: 200),
-                            child: const Icon(
+                            child: Icon(
                               Icons.keyboard_arrow_down_rounded,
                               size: 20,
-                              color: Color(0xFF64748B),
+                              color: AppTheme.textSecondary,
                             ),
                           ),
                         ],
@@ -1544,7 +1547,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           padding: const EdgeInsets.only(top: 2, right: 26),
                           child: Text(
                             'Dr: ${formatCurrency(debitTotal)} | Cr: ${formatCurrency(creditTotal)}',
-                            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: AppTheme.textSecondary,
+                            ),
                           ),
                         ),
                     ],
@@ -1556,13 +1562,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           // Expanded Content (Tally Debit & Credit Table)
           if (isExpanded) ...[
-            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            Divider(height: 1, color: AppTheme.dividerColor),
             // Table Header: PARTICULARS | DEBIT | CREDIT
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              color: const Color(0xFFF8FAFC),
+              color: AppTheme.isDark
+                  ? AppTheme.darkCard
+                  : const Color(0xFFF8FAFC),
               child: Row(
-                children: const [
+                children: [
                   Expanded(
                     flex: 5,
                     child: Text(
@@ -1570,12 +1578,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF64748B),
+                        color: AppTheme.textSecondary,
                         letterSpacing: 0.5,
                       ),
                     ),
                   ),
-                  Expanded(
+                  const Expanded(
                     flex: 3,
                     child: Text(
                       'DEBIT',
@@ -1588,7 +1596,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
                   ),
-                  Expanded(
+                  const Expanded(
                     flex: 3,
                     child: Text(
                       'CREDIT',
@@ -1604,24 +1612,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
             ),
-            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            Divider(height: 1, color: AppTheme.dividerColor),
 
             // Account Rows
             if (ledgers.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(16),
+              Padding(
+                padding: const EdgeInsets.all(16),
                 child: Text(
                   'No accounts in this category',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                 ),
               )
             else
               ...ledgers.map((l) {
                 final isDebit = l.closingBalance >= 0;
                 return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: const BoxDecoration(
-                    border: Border(bottom: BorderSide(color: Color(0xFFF8FAFC))),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(color: AppTheme.dividerColor),
+                    ),
                   ),
                   child: Row(
                     children: [
@@ -1631,10 +1642,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           padding: const EdgeInsets.only(right: 6),
                           child: Text(
                             l.name,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
-                              color: Color(0xFF1E293B),
+                              color: AppTheme.textPrimary,
                               height: 1.25,
                             ),
                           ),
@@ -1648,8 +1659,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           textAlign: TextAlign.right,
                           style: TextStyle(
                             fontSize: 12,
-                            fontWeight: isDebit ? FontWeight.w600 : FontWeight.w400,
-                            color: isDebit ? const Color(0xFF0F766E) : Colors.grey.shade400,
+                            fontWeight:
+                                isDebit ? FontWeight.w600 : FontWeight.w400,
+                            color: isDebit
+                                ? const Color(0xFF0F766E)
+                                : AppTheme.textSecondary,
                           ),
                         ),
                       ),
@@ -1657,12 +1671,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       Expanded(
                         flex: 3,
                         child: Text(
-                          !isDebit ? formatCurrency(l.closingBalance.abs()) : '-',
+                          !isDebit
+                              ? formatCurrency(l.closingBalance.abs())
+                              : '-',
                           textAlign: TextAlign.right,
                           style: TextStyle(
                             fontSize: 12,
-                            fontWeight: !isDebit ? FontWeight.w600 : FontWeight.w400,
-                            color: !isDebit ? const Color(0xFFDC2626) : Colors.grey.shade400,
+                            fontWeight:
+                                !isDebit ? FontWeight.w600 : FontWeight.w400,
+                            color: !isDebit
+                                ? const Color(0xFFDC2626)
+                                : AppTheme.textSecondary,
                           ),
                         ),
                       ),
@@ -1674,23 +1693,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
             // Subtotal Footer for this category
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-              decoration: const BoxDecoration(
-                color: Color(0xFFF1F5F9),
-                borderRadius: BorderRadius.only(
+              decoration: BoxDecoration(
+                color: AppTheme.isDark
+                    ? AppTheme.darkCard
+                    : const Color(0xFFF1F5F9),
+                borderRadius: const BorderRadius.only(
                   bottomLeft: Radius.circular(12),
                   bottomRight: Radius.circular(12),
                 ),
               ),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     flex: 5,
                     child: Text(
                       'Category Total',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF334155),
+                        color: AppTheme.textPrimary,
                       ),
                     ),
                   ),

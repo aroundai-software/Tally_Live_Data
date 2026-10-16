@@ -6,8 +6,10 @@ import '../services/supabase_service.dart';
 import '../utils/admin_access.dart';
 import 'admin_panel_screen.dart';
 import 'login_screen.dart';
+import '../providers/theme_provider.dart';
 import 'profile_screen.dart';
 import 'security_settings_screen.dart';
+import 'theme_settings_screen.dart';
 
 /// Clean settings hub — drill into Account Info, Password, Devices, etc.
 class SettingsScreen extends StatefulWidget {
@@ -206,7 +208,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('Update Password'),
+                      : Text('Update Password'),
                 ),
               ],
             );
@@ -221,8 +223,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
+        title: Text('Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: AppTheme.cardColor,
         elevation: 0,
       ),
       body: _loading
@@ -293,6 +295,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 8),
                     _menuCard([
                       _menuTile(
+                        icon: Icons.brightness_6_rounded,
+                        title: 'Theme',
+                        subtitle: ThemeController.of(context).label,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ThemeSettingsScreen(),
+                            ),
+                          ).then((_) {
+                            if (mounted) setState(() {});
+                          });
+                        },
+                      ),
+                      _menuTile(
                         icon: Icons.info_outline_rounded,
                         title: 'App Version',
                         subtitle: _appVersion.isEmpty
@@ -322,7 +338,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(
+                          side: BorderSide(
                             color: AppTheme.errorColor,
                             width: 1.5,
                           ),
@@ -366,7 +382,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           BoxShadow(
             color: AppTheme.primaryColor.withValues(alpha: 0.25),
             blurRadius: 12,
-            offset: const Offset(0, 4),
+            offset: Offset(0, 4),
           ),
         ],
       ),
@@ -374,13 +390,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           CircleAvatar(
             radius: 28,
-            backgroundColor: Colors.white.withValues(alpha: 0.2),
+            backgroundColor: AppTheme.cardColor.withValues(alpha: 0.2),
             child: CircleAvatar(
               radius: 24,
-              backgroundColor: Colors.white,
+              backgroundColor: AppTheme.cardColor,
               child: Text(
                 initials,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
                   color: AppTheme.primaryColor,
@@ -395,7 +411,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   _displayName,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
                     color: Colors.white,
@@ -421,7 +437,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _sectionLabel(String text) {
     return Text(
       text,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 11,
         fontWeight: FontWeight.w700,
         color: AppTheme.textSecondary,
@@ -431,14 +447,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _menuCard(List<Widget> children) {
-    return Material(
-      color: Colors.white,
+    return Material(color: AppTheme.cardColor,
       borderRadius: BorderRadius.circular(16),
       clipBehavior: Clip.antiAlias,
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: AppTheme.dividerColor),
         ),
         child: Column(children: children),
       ),
@@ -467,26 +482,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           title: Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF1A1F36),
+              color: AppTheme.textPrimary,
             ),
           ),
           subtitle: Text(
             subtitle,
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey.shade600,
+              color: AppTheme.textSecondary,
               fontWeight: FontWeight.w500,
             ),
           ),
           trailing: onTap == null
               ? null
-              : Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+              : Icon(Icons.chevron_right_rounded, color: AppTheme.textSecondary),
         ),
         if (showDivider)
-          const Divider(height: 1, indent: 68, color: AppTheme.dividerColor),
+          Divider(height: 1, indent: 68, color: AppTheme.dividerColor),
       ],
     );
   }

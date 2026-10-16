@@ -10,6 +10,7 @@ import '../widgets/shimmer_loading.dart';
 import '../widgets/tally_report_table.dart';
 import '../widgets/combined_mode_unavailable.dart';
 import 'financial_group_detail_screen.dart';
+import '../config/app_theme.dart';
 
 class BalanceSheetScreen extends StatefulWidget {
   const BalanceSheetScreen({super.key});
@@ -148,28 +149,28 @@ class _BalanceSheetScreenState extends State<BalanceSheetScreen> {
   @override
   Widget build(BuildContext context) {
     if (CompanyProvider.of(context).isCombinedMode) {
-      return const CombinedModeUnavailable(featureName: 'Balance Sheet');
+      return CombinedModeUnavailable(featureName: 'Balance Sheet');
     }
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FB),
+      backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Balance Sheet',
           style: TextStyle(
             fontWeight: FontWeight.w700,
-            color: Color(0xFF0F1A2B),
+            color: AppTheme.textPrimary,
             fontSize: 16,
           ),
         ),
         elevation: 0,
-        backgroundColor: Colors.white,
+        backgroundColor: AppTheme.cardColor,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
+          icon: Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
           onPressed: () => Navigator.of(context).pop(),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F1A2B)),
+            icon: Icon(Icons.refresh_rounded, color: AppTheme.textPrimary),
             tooltip: 'Refresh',
             onPressed: _isLoading ? null : _loadData,
           ),
@@ -231,36 +232,36 @@ class _BalanceSheetScreenState extends State<BalanceSheetScreen> {
         ? _dateFmt.format(report.syncedAt!.toLocal())
         : '—';
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE4E9F1)),
+        border: Border.all(color: AppTheme.dividerColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             report.companyName,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF0F1A2B),
+              color: AppTheme.textPrimary,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             'As on ${_dateFmt.format(report.asOnDate)}',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: Color(0xFF6B7A94),
+              color: AppTheme.textSecondary,
             ),
           ),
           const SizedBox(height: 2),
           Text(
             'Synced $synced',
-            style: const TextStyle(fontSize: 11, color: Color(0xFF6B7A94)),
+            style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
           ),
         ],
       ),

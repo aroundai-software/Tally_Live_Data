@@ -111,7 +111,7 @@ class _CombinedCompanyPickerScreenState
     if (!ok || !mounted) return;
     if (widget.enterAppOnConfirm) {
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const MainShell()),
+        MaterialPageRoute(builder: (_) => MainShell()),
         (route) => false,
       );
     } else {
@@ -126,7 +126,7 @@ class _CombinedCompanyPickerScreenState
       return Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          title: const Text(
+          title: Text(
             'Combined',
             style: TextStyle(
               fontWeight: FontWeight.w700,
@@ -135,10 +135,10 @@ class _CombinedCompanyPickerScreenState
             ),
           ),
           elevation: 0,
-          backgroundColor: Colors.white,
-          iconTheme: const IconThemeData(color: AppTheme.textPrimary),
+          backgroundColor: AppTheme.cardColor,
+          iconTheme: IconThemeData(color: AppTheme.textPrimary),
         ),
-        body: const Center(
+        body: Center(
           child: Padding(
             padding: EdgeInsets.all(24),
             child: Text(
@@ -156,15 +156,15 @@ class _CombinedCompanyPickerScreenState
       appBar: AppBar(
         title: Text(
           widget.enterAppOnConfirm ? 'Select Companies' : 'Change Companies',
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w700,
             color: AppTheme.textPrimary,
             fontSize: 16,
           ),
         ),
         elevation: 0,
-        backgroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: AppTheme.textPrimary),
+        backgroundColor: AppTheme.cardColor,
+        iconTheme: IconThemeData(color: AppTheme.textPrimary),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

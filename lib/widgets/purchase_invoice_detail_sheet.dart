@@ -26,9 +26,9 @@ Future<void> showPurchaseInvoiceDetailSheet({
         minChildSize: 0.5,
         builder: (context, scrollController) {
           return Container(
-            margin: const EdgeInsets.only(bottom: 24, left: 16, right: 16),
+            margin: EdgeInsets.only(bottom: 24, left: 16, right: 16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppTheme.cardColor,
               borderRadius: BorderRadius.circular(20),
             ),
             clipBehavior: Clip.antiAlias,
@@ -39,7 +39,7 @@ Future<void> showPurchaseInvoiceDetailSheet({
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: AppTheme.dividerColor,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -70,10 +70,10 @@ Future<void> showPurchaseInvoiceDetailSheet({
                               children: [
                                 Text(
                                   'Invoice #${invoice.invoiceNumber}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w700,
-                                    color: Color(0xFF1A1F36),
+                                    color: AppTheme.textPrimary,
                                   ),
                                 ),
                                 if (invoice.invoiceDate != null)
@@ -81,7 +81,7 @@ Future<void> showPurchaseInvoiceDetailSheet({
                                     dateFormat.format(invoice.invoiceDate!),
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: Colors.grey.shade500,
+                                      color: AppTheme.textSecondary,
                                     ),
                                   ),
                               ],
@@ -110,7 +110,7 @@ Future<void> showPurchaseInvoiceDetailSheet({
                           ),
                           IconButton(
                             icon: const Icon(Icons.close_rounded),
-                            color: Colors.grey.shade700,
+                            color: AppTheme.textSecondary,
                             tooltip: 'Close',
                             onPressed: () => Navigator.pop(context),
                           ),
@@ -201,20 +201,21 @@ Future<void> showPurchaseInvoiceDetailSheet({
 
 Widget _detailSection(String title, List<Widget> children) {
   return Container(
-    padding: const EdgeInsets.all(16),
+    padding: EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: const Color(0xFFF8F9FE),
+      color: AppTheme.surfaceColor,
       borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: AppTheme.dividerColor),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF1A1F36),
+            color: AppTheme.textPrimary,
           ),
         ),
         const SizedBox(height: 10),
@@ -234,19 +235,19 @@ Widget _detailItem(String label, String value) {
           flex: 2,
           child: Text(
             label,
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
           ),
         ),
-        const SizedBox(width: 8),
+        SizedBox(width: 8),
         Expanded(
           flex: 3,
           child: Text(
             value,
             textAlign: TextAlign.right,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF1A1F36),
+              color: AppTheme.textPrimary,
             ),
           ),
         ),
@@ -257,31 +258,32 @@ Widget _detailItem(String label, String value) {
 
 Widget _buildItemsTable(List<PurchaseInvoiceItem> items) {
   return Container(
-    padding: const EdgeInsets.all(16),
+    padding: EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: const Color(0xFFF8F9FE),
+      color: AppTheme.surfaceColor,
       borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: AppTheme.dividerColor),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Items',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF1A1F36),
+            color: AppTheme.textPrimary,
           ),
         ),
-        const SizedBox(height: 10),
+        SizedBox(height: 10),
         ...items.map(
           (item) => Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(12),
+            margin: EdgeInsets.only(bottom: 8),
+            padding: EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppTheme.cardColor,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.grey.shade200),
+              border: Border.all(color: AppTheme.dividerColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,16 +293,16 @@ Widget _buildItemsTable(List<PurchaseInvoiceItem> items) {
                     Expanded(
                       child: Text(
                         item.productName,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF1A1F36),
+                          color: AppTheme.textPrimary,
                         ),
                       ),
                     ),
                     Text(
                       formatCurrency(item.totalAmount),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: AppTheme.purchaseColor,
@@ -337,14 +339,14 @@ Widget _miniChip(String text) {
   return Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
     decoration: BoxDecoration(
-      color: Colors.grey.shade100,
+      color: AppTheme.surfaceColor,
       borderRadius: BorderRadius.circular(6),
     ),
     child: Text(
       text,
       style: TextStyle(
         fontSize: 11,
-        color: Colors.grey.shade700,
+        color: AppTheme.textSecondary,
         fontWeight: FontWeight.w500,
       ),
     ),

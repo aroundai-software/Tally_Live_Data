@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/financial_report.dart';
 import 'summary_card.dart';
+import '../config/app_theme.dart';
 
 /// One display row in a Tally-style two-column report.
 class TallyReportRow {
@@ -154,9 +155,9 @@ class TallyReportTable extends StatelessWidget {
 
         return Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppTheme.cardColor,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE4E9F1)),
+            border: Border.all(color: AppTheme.dividerColor),
           ),
           child: Column(
             children: [
@@ -170,7 +171,7 @@ class TallyReportTable extends StatelessWidget {
                   ],
                 ),
               ),
-              const Divider(height: 1, color: Color(0xFFE4E9F1)),
+              Divider(height: 1, color: AppTheme.dividerColor),
               IntrinsicHeight(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -184,7 +185,7 @@ class TallyReportTable extends StatelessWidget {
                         stacked: false,
                       ),
                     ),
-                    Container(width: 1, color: const Color(0xFFE4E9F1)),
+                    Container(width: 1, color: AppTheme.dividerColor),
                     Expanded(
                       child: _columnBody(
                         lines: rightLines,
@@ -214,9 +215,9 @@ class TallyReportTable extends StatelessWidget {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE4E9F1)),
+        border: Border.all(color: AppTheme.dividerColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -225,7 +226,7 @@ class TallyReportTable extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
             child: _sideHeader(title, accent),
           ),
-          const Divider(height: 1, color: Color(0xFFE4E9F1)),
+          Divider(height: 1, color: AppTheme.dividerColor),
           _columnBody(
             lines: lines,
             accent: accent,
@@ -266,7 +267,7 @@ class TallyReportTable extends StatelessWidget {
           style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w700,
-            color: Colors.grey.shade500,
+            color: AppTheme.textSecondary,
           ),
         ),
       ],
@@ -284,17 +285,17 @@ class TallyReportTable extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (lines.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(14),
+          Padding(
+            padding: const EdgeInsets.all(14),
             child: Text(
               '—',
-              style: TextStyle(color: Color(0xFF6B7A94), fontSize: 13),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
           )
         else
           ...lines.expand((line) => _lineWithChildren(line, stacked: stacked)),
         if (totalLabel != null && total != null) ...[
-          const Divider(height: 1, color: Color(0xFFE4E9F1)),
+          Divider(height: 1, color: AppTheme.dividerColor),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
@@ -302,10 +303,10 @@ class TallyReportTable extends StatelessWidget {
                 Expanded(
                   child: Text(
                     totalLabel,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F1A2B),
+                      color: AppTheme.textPrimary,
                     ),
                   ),
                 ),
@@ -344,11 +345,11 @@ class TallyReportTable extends StatelessWidget {
     final kids = groupChildren[group] ?? const <TallyChildRow>[];
     if (kids.isEmpty) {
       widgets.add(
-        const Padding(
-          padding: EdgeInsets.fromLTRB(36, 4, 14, 10),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(36, 4, 14, 10),
           child: Text(
             'No ledgers under this group',
-            style: TextStyle(fontSize: 12, color: Color(0xFF6B7A94)),
+            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
           ),
         ),
       );
@@ -364,27 +365,27 @@ class TallyReportTable extends StatelessWidget {
   Widget _lineRow(TallyReportRow line, {required bool stacked}) {
     if (line.isSubtotal) {
       return Container(
-        color: const Color(0xFFF5F7FB),
+        color: AppTheme.isDark ? const Color(0xFF243044) : const Color(0xFFF5F7FB),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
             Expanded(
               child: Text(
                 line.particulars,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF6B7A94),
+                  color: AppTheme.textSecondary,
                 ),
               ),
             ),
             const SizedBox(width: 12),
             Text(
               formatCurrency(line.amount),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
-                color: Color(0xFF0F1A2B),
+                color: AppTheme.textPrimary,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
@@ -404,13 +405,13 @@ class TallyReportTable extends StatelessWidget {
       height: 1.3,
       fontWeight: line.emphasize ? FontWeight.w700 : FontWeight.w500,
       color: isInteractive
-          ? const Color(0xFF2453FF)
-          : (line.emphasize ? const Color(0xFF0F1A2B) : const Color(0xFF3A4A63)),
+          ? AppTheme.primaryColor
+          : (line.emphasize ? AppTheme.textPrimary : AppTheme.textSecondary),
     );
     final amountStyle = TextStyle(
       fontSize: stacked ? 13.5 : 12,
       fontWeight: FontWeight.w800,
-      color: const Color(0xFF0F1A2B),
+      color: AppTheme.textPrimary,
       fontFeatures: const [FontFeature.tabularFigures()],
     );
 
@@ -439,7 +440,7 @@ class TallyReportTable extends StatelessWidget {
                         ? Icons.expand_more_rounded
                         : Icons.chevron_right_rounded,
                     size: 20,
-                    color: const Color(0xFF6B7A94),
+                    color: AppTheme.textSecondary,
                   ),
                 ),
               Expanded(
@@ -464,7 +465,7 @@ class TallyReportTable extends StatelessWidget {
                   icon: Icon(
                     Icons.open_in_new_rounded,
                     size: 16,
-                    color: Colors.grey.shade500,
+                    color: AppTheme.textSecondary,
                   ),
                   onPressed: () => onOpenSummary!(line),
                 )
@@ -497,7 +498,7 @@ class TallyReportTable extends StatelessWidget {
                     height: 1.3,
                     fontWeight: child.isGroup ? FontWeight.w600 : FontWeight.w400,
                     fontStyle: FontStyle.italic,
-                    color: const Color(0xFF3A4A63),
+                    color: AppTheme.textSecondary,
                   ),
                 ),
               ),
@@ -508,7 +509,7 @@ class TallyReportTable extends StatelessWidget {
                 style: TextStyle(
                   fontSize: stacked ? 12.5 : 11.5,
                   fontWeight: FontWeight.w500,
-                  color: const Color(0xFF0F1A2B),
+                  color: AppTheme.textPrimary,
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),

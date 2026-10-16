@@ -186,7 +186,7 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
-      return Center(child: Text(_error!, style: const TextStyle(color: Colors.red)));
+      return Center(child: Text(_error!, style: TextStyle(color: Colors.red)));
     }
     if (_settlements.isEmpty) {
       return const Center(
@@ -211,18 +211,18 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
 
         if (showSpeed || showDelay) ...[
           _buildSummaryCard(showSpeed: showSpeed, showDelay: showDelay, showTallyFormula: showTallyFormula),
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
         ],
         if (showTrend) ...[
           _buildTrendChart(),
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
         ],
         if (showHistory) ...[
-          const Text('Settlement History',
+          Text('Settlement History',
               style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A1F36))),
+                  color: AppTheme.textPrimary)),
           const SizedBox(height: 12),
           ..._settlements.map((s) => _buildSettlementCard(s)),
         ],
@@ -235,7 +235,7 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
   Widget _buildMethodToggle() {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF1F3F9),
+        color: AppTheme.isDark ? AppTheme.darkCard : const Color(0xFFF1F3F9),
         borderRadius: BorderRadius.circular(12),
       ),
       padding: const EdgeInsets.all(4),
@@ -270,12 +270,12 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
           curve: Curves.easeInOut,
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
           decoration: BoxDecoration(
-            color: isSelected ? Colors.white : Colors.transparent,
+            color: isSelected ? AppTheme.cardColor : Colors.transparent,
             borderRadius: BorderRadius.circular(9),
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
+                      color: Colors.black.withValues(alpha: AppTheme.isDark ? 0.3 : 0.08),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     )
@@ -288,7 +288,7 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
               Icon(
                 icon,
                 size: 15,
-                color: isSelected ? AppTheme.primaryColor : Colors.grey,
+                color: isSelected ? AppTheme.primaryColor : AppTheme.textSecondary,
               ),
               const SizedBox(width: 6),
               Flexible(
@@ -298,7 +298,9 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
                     fontSize: 12,
                     fontWeight:
                         isSelected ? FontWeight.w700 : FontWeight.w500,
-                    color: isSelected ? AppTheme.primaryColor : Colors.grey,
+                    color: isSelected
+                        ? AppTheme.primaryColor
+                        : AppTheme.textSecondary,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -387,9 +389,9 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
     }
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -401,18 +403,18 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
       child: Column(
         children: [
           Text(title,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 12,
-                  color: Colors.grey,
+                  color: AppTheme.textSecondary,
                   fontWeight: FontWeight.w500),
               textAlign: TextAlign.center),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Text(
             displayValue,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF1A1F36)),
+                color: AppTheme.textPrimary),
           ),
           const SizedBox(height: 8),
           Container(
@@ -437,9 +439,9 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
 
   Widget _loadingMetricCard(String title) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -451,8 +453,8 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
       child: Column(
         children: [
           Text(title,
-              style: const TextStyle(
-                  fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                  fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
               textAlign: TextAlign.center),
           const SizedBox(height: 20),
           const SizedBox(
@@ -479,25 +481,25 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
     final effectiveMaxY = maxY > 0 ? maxY * 1.3 : 30.0;
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
               color: Colors.black.withValues(alpha: 0.03),
               blurRadius: 10,
-              offset: const Offset(0, 4))
+              offset: Offset(0, 4))
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Payment Delay Trend (6 Months)',
+          Text('Payment Delay Trend (6 Months)',
               style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A1F36))),
+                  color: AppTheme.textPrimary)),
           const SizedBox(height: 24),
           SizedBox(
             height: 200,
@@ -507,13 +509,13 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
                 minY: 0,
                 minX: 0,
                 maxX: (_monthlyTrend.length - 1).toDouble(),
-                clipData: const FlClipData.all(),
+                clipData: FlClipData.all(),
                 lineTouchData: LineTouchData(
                   handleBuiltInTouches: true,
                   touchSpotThreshold: 30,
                   touchTooltipData: LineTouchTooltipData(
                     getTooltipColor: (touchedSpot) =>
-                        const Color(0xFF1A1F36).withValues(alpha: 0.9),
+                        AppTheme.textPrimary.withValues(alpha: 0.9),
                     tooltipPadding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     tooltipRoundedRadius: 8,
@@ -522,21 +524,21 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
                         final m = _monthlyTrend[s.spotIndex];
                         return LineTooltipItem(
                           '${m['month']}\n',
-                          const TextStyle(
+                          TextStyle(
                               color: Colors.white70,
                               fontSize: 11,
                               fontWeight: FontWeight.w500),
                           children: [
                             TextSpan(
                               text: '${(m['avg'] as double).round()} Days\n',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold),
                             ),
                             TextSpan(
                               text: '${m['count']} bills',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   color: Colors.white54, fontSize: 10),
                             ),
                           ],
@@ -562,8 +564,8 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
                         return Padding(
                           padding: const EdgeInsets.only(top: 6),
                           child: Text(_monthlyTrend[idx]['month'],
-                              style: const TextStyle(
-                                  fontSize: 10, color: Colors.grey)),
+                              style: TextStyle(
+                                  fontSize: 10, color: AppTheme.textSecondary)),
                         );
                       },
                     ),
@@ -575,7 +577,7 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
                       getTitlesWidget: (value, meta) => Text(
                         value.toInt().toString(),
                         style:
-                            const TextStyle(fontSize: 10, color: Colors.grey),
+                            TextStyle(fontSize: 10, color: AppTheme.textSecondary),
                       ),
                     ),
                   ),
@@ -588,7 +590,7 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
                   show: true,
                   drawVerticalLine: false,
                   getDrawingHorizontalLine: (v) => FlLine(
-                      color: Colors.grey.withValues(alpha: 0.15), strokeWidth: 1),
+                      color: AppTheme.dividerColor, strokeWidth: 1),
                 ),
                 borderData: FlBorderData(show: false),
                 lineBarsData: [
@@ -637,10 +639,10 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
-      color: Colors.white,
+      color: AppTheme.cardColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.withValues(alpha: 0.2)),
+        side: BorderSide(color: AppTheme.dividerColor),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -650,11 +652,15 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(s.billReference,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 14)),
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: AppTheme.textPrimary)),
                 Text(formatCurrency.format(s.billAmount),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 14)),
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: AppTheme.textPrimary)),
               ],
             ),
             const SizedBox(height: 12),
@@ -666,12 +672,12 @@ class _LedgerPerformanceTabState extends State<LedgerPerformanceTab>
                   children: [
                     Text(
                         'Billed: ${s.billDate != null ? formatDate.format(s.billDate!) : 'N/A'}',
-                        style: const TextStyle(
-                            fontSize: 12, color: Colors.grey)),
+                        style: TextStyle(
+                            fontSize: 12, color: AppTheme.textSecondary)),
                     Text(
                         'Cleared: ${s.clearedDate != null ? formatDate.format(s.clearedDate!) : 'N/A'}',
-                        style: const TextStyle(
-                            fontSize: 12, color: Colors.grey)),
+                        style: TextStyle(
+                            fontSize: 12, color: AppTheme.textSecondary)),
                   ],
                 ),
                 Container(

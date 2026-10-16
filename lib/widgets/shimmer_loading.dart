@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
+import '../config/app_theme.dart';
 
 class ShimmerLoading extends StatelessWidget {
   final int itemCount;
@@ -20,13 +21,13 @@ class ShimmerLoading extends StatelessWidget {
       itemCount: itemCount,
       itemBuilder: (context, index) {
         return Shimmer.fromColors(
-          baseColor: Colors.grey.shade200,
-          highlightColor: Colors.grey.shade50,
+          baseColor: AppTheme.isDark ? const Color(0xFF243044) : Colors.grey.shade200,
+          highlightColor: AppTheme.isDark ? const Color(0xFF2A3544) : Colors.grey.shade50,
           child: Container(
             height: height,
-            margin: const EdgeInsets.only(bottom: 12),
+            margin: EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppTheme.cardColor,
               borderRadius: BorderRadius.circular(14),
             ),
           ),
@@ -56,11 +57,11 @@ class ShimmerGridLoading extends StatelessWidget {
       itemCount: itemCount,
       itemBuilder: (context, index) {
         return Shimmer.fromColors(
-          baseColor: Colors.grey.shade200,
-          highlightColor: Colors.grey.shade50,
+          baseColor: AppTheme.isDark ? const Color(0xFF243044) : Colors.grey.shade200,
+          highlightColor: AppTheme.isDark ? const Color(0xFF2A3544) : Colors.grey.shade50,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppTheme.cardColor,
               borderRadius: BorderRadius.circular(16),
             ),
           ),

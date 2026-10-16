@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -37,6 +39,9 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _loadVersion();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_maybeShowSignedOutByOtherDevice());
+    });
   }
 
   Future<void> _loadVersion() async {
@@ -48,6 +53,27 @@ class _LoginScreenState extends State<LoginScreen> {
         });
       }
     } catch (_) {}
+  }
+
+  Future<void> _maybeShowSignedOutByOtherDevice() async {
+    final show = await UserPreferencesService.consumeSignedOutByOtherDevice();
+    if (!show || !mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Signed out'),
+        content: const Text(
+          'Your account was signed in on another device. You’ve been logged out here.',
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -210,7 +236,7 @@ class _LoginScreenState extends State<LoginScreen> {
             Expanded(
               child: Text(
                 message,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
               ),
             ),
           ],
@@ -250,7 +276,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     Text(
                       'Enter your registered 10-digit mobile number to receive password reset instructions.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
@@ -305,7 +331,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   child: isSending
                       ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Send Reset Request'),
+                      : Text('Send Reset Request'),
                 ),
               ],
             );
@@ -318,7 +344,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final isDesktop = screenWidth >= 768;
+    final isDesktop = screenWidth >= 900;
 
     return Scaffold(
       backgroundColor: isDesktop ? Colors.white : AppTheme.surfaceColor,
@@ -331,7 +357,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildDesktopLayout() {
     return Row(
       children: [
-        // Left Hero Panel
+        // Left Hero Panel — capped content so ultrawide screens stay balanced
         Expanded(
           flex: 5,
           child: Container(
@@ -342,12 +368,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 colors: [Color(0xFF0D47A1), Color(0xFF1976D2), Color(0xFF1A73E8)],
               ),
             ),
-            padding: const EdgeInsets.all(48),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 return SingleChildScrollView(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: constraints.maxWidth > 640 ? 64 : 40,
+                    vertical: 48,
+                  ),
                   child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight - 96,
+                      maxWidth: 520,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -369,8 +401,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               child: Image.asset(
                                 'assets/icon/app_logo.png',
-                                width: 72,
-                                height: 72,
+                                width: 64,
+                                height: 64,
                                 fit: BoxFit.contain,
                               ),
                             ),
@@ -378,7 +410,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             Text(
                               'TallyLive',
                               style: AppTheme.brandTitle(
-                                fontSize: 32,
+                                fontSize: 30,
                                 fontWeight: FontWeight.w800,
                                 color: Colors.white,
                                 letterSpacing: 0.5,
@@ -386,32 +418,30 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 36),
+                        const SizedBox(height: 40),
                         const Text(
                           'Real-Time Business Analytics\n& Live Tally Portal',
                           style: TextStyle(
-                            fontSize: 28,
+                            fontSize: 30,
                             fontWeight: FontWeight.w800,
                             color: Colors.white,
-                            height: 1.3,
+                            height: 1.25,
                           ),
                         ),
                         const SizedBox(height: 16),
                         Text(
                           'Access instant sales insights, stock valuation, cashflow, and outstanding balances across all your business branches.',
                           style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white.withValues(alpha: 0.85),
-                            height: 1.5,
+                            fontSize: 15,
+                            color: Colors.white.withValues(alpha: 0.88),
+                            height: 1.55,
                           ),
                         ),
                         const SizedBox(height: 40),
-
-                        // Feature Highlights
                         _buildFeatureBullet(Icons.bolt_rounded, 'Live Tally Synchronization'),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 14),
                         _buildFeatureBullet(Icons.bar_chart_rounded, 'Instant Sales & Profit Reports'),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 14),
                         _buildFeatureBullet(Icons.verified_user_rounded, 'Secure Multi-Tenant Owner Portal'),
                       ],
                     ),
@@ -422,34 +452,54 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
 
-        // Right Form Panel
+        // Right Form Panel — always light/white on desktop
         Expanded(
-          flex: 5,
-          child: Column(
-            children: [
-              Expanded(
-                child: Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(40),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 400),
-                      child: _buildLoginForm(),
+          flex: 4,
+          child: Theme(
+            data: AppTheme.lightTheme,
+            child: ColoredBox(
+              color: Colors.white,
+              child: Column(
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 32),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 420),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Welcome back',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.lightTextSecondary,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              _buildLoginForm(forceLight: true),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 24),
-                child: Text(
-                  '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v3.0.0'}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade500,
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    child: Text(
+                      '© ${DateTime.now().year} Around AI • ${_appVersion ?? 'v3.0.0'}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.lightTextSecondary,
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ],
@@ -464,7 +514,7 @@ class _LoginScreenState extends State<LoginScreen> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.fromLTRB(24, 40, 24, 32),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -527,7 +577,7 @@ class _LoginScreenState extends State<LoginScreen> {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey.shade500,
+                color: AppTheme.textSecondary,
               ),
             ),
           ),
@@ -550,7 +600,7 @@ class _LoginScreenState extends State<LoginScreen> {
         const SizedBox(width: 14),
         Text(
           text,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
             color: Colors.white,
@@ -560,18 +610,23 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildLoginForm() {
+  Widget _buildLoginForm({bool forceLight = false}) {
+    final cardColor = forceLight ? AppTheme.lightCard : AppTheme.cardColor;
+    final borderColor = forceLight ? AppTheme.lightDivider : AppTheme.dividerColor;
+    final textPrimary = forceLight ? AppTheme.lightTextPrimary : AppTheme.textPrimary;
+    final textSecondary = forceLight ? AppTheme.lightTextSecondary : AppTheme.textSecondary;
+
     return Container(
-      padding: const EdgeInsets.all(28),
+      padding: EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardColor,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: borderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: forceLight ? 0.06 : (AppTheme.isDark ? 0.35 : 0.06)),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -581,23 +636,23 @@ class _LoginScreenState extends State<LoginScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
+            Text(
               'Sign In',
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.w800,
-                color: Color(0xFF1A1F36),
+                color: textPrimary,
               ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
 
             // Phone Number Input
-            const Text(
+            Text(
               'Phone Number',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF1A1F36),
+                color: textSecondary,
               ),
             ),
             const SizedBox(height: 6),
@@ -627,15 +682,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 return null;
               },
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
 
             // Password Input
-            const Text(
+            Text(
               'Password',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF1A1F36),
+                color: textSecondary,
               ),
             ),
             const SizedBox(height: 6),
@@ -654,7 +709,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ? Icons.visibility_outlined
                         : Icons.visibility_off_outlined,
                     size: 20,
-                    color: Colors.grey.shade500,
+                    color: textSecondary,
                   ),
                   onPressed: () {
                     setState(() => _obscurePassword = !_obscurePassword);

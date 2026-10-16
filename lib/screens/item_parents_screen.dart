@@ -55,9 +55,9 @@ class _ItemParentsScreenState extends State<ItemParentsScreen> {
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: const Text('Item Parents', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        title: Text('Item Parents', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+        backgroundColor: AppTheme.cardColor,
+        surfaceTintColor: AppTheme.cardColor,
       ),
       body: Column(
         children: [
@@ -95,7 +95,7 @@ class _ItemParentsScreenState extends State<ItemParentsScreen> {
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade200),
+            side: BorderSide(color: AppTheme.dividerColor),
           ),
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -104,10 +104,10 @@ class _ItemParentsScreenState extends State<ItemParentsScreen> {
                 Expanded(
                   child: Text(
                     parent,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 15,
-                      color: Color(0xFF1E293B),
+                      color: AppTheme.textPrimary,
                     ),
                   ),
                 ),
@@ -116,22 +116,26 @@ class _ItemParentsScreenState extends State<ItemParentsScreen> {
                     margin: const EdgeInsets.only(left: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.red.shade50,
+                      color: AppTheme.errorColor.withValues(
+                          alpha: AppTheme.isDark ? 0.15 : 0.08),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.red.shade100),
+                      border: Border.all(
+                        color: AppTheme.errorColor.withValues(
+                            alpha: AppTheme.isDark ? 0.35 : 0.2),
+                      ),
                     ),
-                    child: const Text(
+                    child: Text(
                       'NEW',
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
-                        color: Colors.red,
+                        color: AppTheme.errorColor,
                       ),
                     ),
                   ),
               ],
             ),
-            trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+            trailing: Icon(Icons.chevron_right, color: AppTheme.textSecondary),
             onTap: () {
               Navigator.push(
                 context,

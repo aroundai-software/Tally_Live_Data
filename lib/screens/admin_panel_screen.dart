@@ -9,18 +9,20 @@ import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../utils/admin_access.dart';
 import '../utils/active_session_guard.dart';
 import '../widgets/shimmer_loading.dart';
+import '../providers/theme_provider.dart';
 import 'login_screen.dart';
 import 'profile_screen.dart';
 import 'security_settings_screen.dart';
+import 'theme_settings_screen.dart';
 
 /// Shared AppBar refresh control for admin screens.
 Widget _adminRefreshButton({
   required VoidCallback? onPressed,
-  Color color = AppTheme.textPrimary,
+  Color? color,
 }) {
   return IconButton(
     tooltip: 'Refresh',
-    icon: Icon(Icons.refresh_rounded, color: color),
+    icon: Icon(Icons.refresh_rounded, color: color ?? AppTheme.textPrimary),
     onPressed: onPressed,
   );
 }
@@ -74,7 +76,7 @@ class _AdminPageHeader extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
                     color: AppTheme.textPrimary,
@@ -84,7 +86,7 @@ class _AdminPageHeader extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   subtitle,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w400,
                     color: AppTheme.textSecondary,
@@ -114,7 +116,11 @@ class _AdminStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fg = isPositive ? const Color(0xFF15803D) : AppTheme.textSecondary;
-    final bg = isPositive ? const Color(0xFFDCFCE7) : const Color(0xFFF3F4F6);
+    final bg = isPositive
+        ? (AppTheme.isDark
+            ? const Color(0xFF15803D).withValues(alpha: 0.22)
+            : const Color(0xFFDCFCE7))
+        : (AppTheme.isDark ? AppTheme.dividerColor : const Color(0xFFF3F4F6));
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -176,13 +182,13 @@ class _AdminSidebarItem extends StatelessWidget {
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(width: 10),
+                SizedBox(width: 10),
                 Icon(
                   icon,
                   size: 20,
                   color: isSelected ? AppTheme.primaryColor : AppTheme.textSecondary,
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     label,
@@ -215,8 +221,8 @@ class _AdminSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 240,
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor,
         border: Border(
           right: BorderSide(color: AppTheme.dividerColor, width: 1),
         ),
@@ -359,7 +365,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
   @override
   Widget build(BuildContext context) {
     if (!_verified) {
-      return const Scaffold(
+      return Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         body: Center(child: CircularProgressIndicator(color: AppTheme.primaryColor)),
       );
@@ -378,7 +384,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
 
     if (isWide) {
       return ScrollConfiguration(
-        behavior: const _AdminScrollBehavior(),
+        behavior: _AdminScrollBehavior(),
         child: Scaffold(
           backgroundColor: AppTheme.surfaceColor,
           body: Row(
@@ -395,14 +401,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
     }
 
     return ScrollConfiguration(
-      behavior: const _AdminScrollBehavior(),
+      behavior: _AdminScrollBehavior(),
       child: Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         body: stack,
         bottomNavigationBar: Container(
           decoration: BoxDecoration(
-            color: Colors.white,
-            border: const Border(
+            color: AppTheme.cardColor,
+            border: Border(
               top: BorderSide(color: AppTheme.dividerColor, width: 1),
             ),
             boxShadow: [
@@ -459,7 +465,7 @@ class _AdminNavItem extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
 
-  const _AdminNavItem({
+  _AdminNavItem({
     required this.icon,
     required this.label,
     required this.isSelected,
@@ -549,7 +555,7 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
   Widget _buildAnalyticsHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      color: Colors.white,
+      color: AppTheme.cardColor,
       child: Row(
         children: [
           Expanded(child: _buildStatCard('Total Companies', _companiesFeatures.length.toString(), Icons.business)),
@@ -562,7 +568,7 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
 
   Widget _buildStatCard(String title, String count, IconData icon) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppTheme.surfaceColor,
         borderRadius: BorderRadius.circular(16),
@@ -571,7 +577,7 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
       child: Row(
         children: [
           Icon(icon, color: AppTheme.primaryColor, size: 20),
-          const SizedBox(width: 8),
+          SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -613,21 +619,21 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
                 onChanged: (val) => setState(() => _searchQuery = val),
                 decoration: InputDecoration(
                   hintText: 'Search companies...',
-                  hintStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
-                  prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.textSecondary, size: 20),
+                  hintStyle: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                  prefixIcon: Icon(Icons.search_rounded, color: AppTheme.textSecondary, size: 20),
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: AppTheme.cardColor,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.dividerColor),
+                    borderSide: BorderSide(color: AppTheme.dividerColor),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.dividerColor),
+                    borderSide: BorderSide(color: AppTheme.dividerColor),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.primaryColor, width: 1.5),
+                    borderSide: BorderSide(color: AppTheme.primaryColor, width: 1.5),
                   ),
                   contentPadding: const EdgeInsets.symmetric(vertical: 12),
                 ),
@@ -650,7 +656,7 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
                                     _searchQuery.isEmpty
                                         ? 'No companies synced yet.'
                                         : 'No companies match "$_searchQuery"',
-                                    style: const TextStyle(color: AppTheme.textSecondary),
+                                    style: TextStyle(color: AppTheme.textSecondary),
                                   ),
                                 ),
                               ),
@@ -673,8 +679,7 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
                                   child: SlideAnimation(
                                     verticalOffset: 24.0,
                                     child: FadeInAnimation(
-                                      child: Material(
-                                        color: Colors.white,
+                                      child: Material(color: AppTheme.cardColor,
                                         borderRadius: BorderRadius.circular(12),
                                         clipBehavior: Clip.antiAlias,
                                         child: InkWell(
@@ -720,14 +725,14 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
                                                 Expanded(
                                                   child: Text(
                                                     companyName,
-                                                    style: const TextStyle(
+                                                    style: TextStyle(
                                                       fontSize: 15,
                                                       fontWeight: FontWeight.w600,
                                                       color: AppTheme.textPrimary,
                                                     ),
                                                   ),
                                                 ),
-                                                const Text(
+                                                Text(
                                                   'Features',
                                                   style: TextStyle(
                                                     fontSize: 13,
@@ -736,7 +741,7 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
                                                   ),
                                                 ),
                                                 const SizedBox(width: 4),
-                                                const Icon(
+                                                Icon(
                                                   Icons.chevron_right_rounded,
                                                   size: 20,
                                                   color: AppTheme.textSecondary,
@@ -989,8 +994,8 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
       isScrollControlled: true,
       builder: (sheetCtx) {
         return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
+          decoration: BoxDecoration(
+            color: AppTheme.cardColor,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
           padding: EdgeInsets.only(
@@ -1008,7 +1013,7 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: AppTheme.dividerColor,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -1024,7 +1029,7 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                     ),
                     child: const Icon(Icons.sync_lock_rounded, color: AppTheme.primaryColor, size: 24),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1053,7 +1058,7 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
               ),
               const SizedBox(height: 16),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: AppTheme.surfaceColor,
                   borderRadius: BorderRadius.circular(12),
@@ -1079,7 +1084,7 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: 20),
               Text(
                 'Select Extension Plan:',
                 style: TextStyle(
@@ -1186,7 +1191,7 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
             _applyNewExpiry(machineId, newExpiry);
           },
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               border: Border.all(color: AppTheme.dividerColor),
               borderRadius: BorderRadius.circular(12),
@@ -1352,21 +1357,21 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                 onChanged: (val) => setState(() => _searchQuery = val),
                 decoration: InputDecoration(
                   hintText: 'Search by company or machine...',
-                  hintStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
-                  prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.textSecondary, size: 20),
+                  hintStyle: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                  prefixIcon: Icon(Icons.search_rounded, color: AppTheme.textSecondary, size: 20),
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: AppTheme.cardColor,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.dividerColor),
+                    borderSide: BorderSide(color: AppTheme.dividerColor),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.dividerColor),
+                    borderSide: BorderSide(color: AppTheme.dividerColor),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.primaryColor, width: 1.5),
+                    borderSide: BorderSide(color: AppTheme.primaryColor, width: 1.5),
                   ),
                   contentPadding: const EdgeInsets.symmetric(vertical: 12),
                 ),
@@ -1383,15 +1388,15 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                       decoration: InputDecoration(
                         labelText: 'Sort',
                         filled: true,
-                        fillColor: Colors.white,
+                        fillColor: AppTheme.cardColor,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.dividerColor),
+                          borderSide: BorderSide(color: AppTheme.dividerColor),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.dividerColor),
+                          borderSide: BorderSide(color: AppTheme.dividerColor),
                         ),
                       ),
                       items: _LicenseSort.values
@@ -1415,15 +1420,15 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                       decoration: InputDecoration(
                         labelText: 'Filter',
                         filled: true,
-                        fillColor: Colors.white,
+                        fillColor: AppTheme.cardColor,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.dividerColor),
+                          borderSide: BorderSide(color: AppTheme.dividerColor),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.dividerColor),
+                          borderSide: BorderSide(color: AppTheme.dividerColor),
                         ),
                       ),
                       items: _LicenseFilter.values
@@ -1459,7 +1464,7 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                                     _searchQuery.isEmpty && _filter == _LicenseFilter.all
                                         ? 'No sync machines found'
                                         : 'No machines match your search/filter',
-                                    style: const TextStyle(color: AppTheme.textSecondary),
+                                    style: TextStyle(color: AppTheme.textSecondary),
                                   ),
                                 ),
                               ],
@@ -1520,7 +1525,7 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
 
                                 return Container(
                                   decoration: BoxDecoration(
-                                    color: Colors.white,
+                                    color: AppTheme.cardColor,
                                     borderRadius: BorderRadius.circular(10),
                                     border: Border.all(
                                       color: isExpired
@@ -1528,175 +1533,171 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                                           : AppTheme.dividerColor,
                                     ),
                                   ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 8,
-                                  ),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
                                     children: [
-                                      Container(
-                                        width: 32,
-                                        height: 32,
-                                        decoration: BoxDecoration(
-                                          color: AppTheme.primaryColor.withValues(alpha: 0.1),
-                                          borderRadius: BorderRadius.circular(7),
-                                        ),
-                                        child: const Icon(
-                                          Icons.computer_rounded,
-                                          color: AppTheme.primaryColor,
-                                          size: 17,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(
-                                              machineName,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontSize: 13.5,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppTheme.textPrimary,
-                                                height: 1.2,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 1),
-                                            Text(
-                                              companyName,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                color: AppTheme.textSecondary,
-                                                height: 1.2,
-                                              ),
-                                            ),
-                                            if (linked.isNotEmpty) ...[
-                                              const SizedBox(height: 1),
-                                              Text(
-                                                'Linked: ${linked.join(', ')}',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  fontSize: 10.5,
-                                                  color: AppTheme.textSecondary,
-                                                  height: 1.2,
-                                                ),
-                                              ),
-                                            ],
-                                            const SizedBox(height: 3),
-                                            Row(
-                                              children: [
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(
-                                                    horizontal: 5,
-                                                    vertical: 1,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: isOnline
-                                                        ? const Color(0xFFDCFCE7)
-                                                        : const Color(0xFFF3F4F6),
-                                                    borderRadius: BorderRadius.circular(4),
-                                                  ),
-                                                  child: Text(
-                                                    isOnline ? 'Online' : 'Offline',
-                                                    style: TextStyle(
-                                                      fontSize: 9.5,
-                                                      fontWeight: FontWeight.w600,
-                                                      height: 1.2,
-                                                      color: isOnline
-                                                          ? const Color(0xFF15803D)
-                                                          : AppTheme.textSecondary,
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 6),
-                                                Expanded(
-                                                  child: Tooltip(
-                                                    message:
-                                                        'Last sync PC heartbeat. Online = within 3 hours.',
-                                                    child: Text(
-                                                      seenLabel == null
-                                                          ? expiryLabel
-                                                          : '$expiryLabel · $seenLabel',
-                                                      maxLines: 1,
-                                                      overflow: TextOverflow.ellipsis,
-                                                      style: TextStyle(
-                                                        fontSize: 11,
-                                                        fontWeight: FontWeight.w500,
-                                                        height: 1.2,
-                                                        color: isExpired
-                                                            ? AppTheme.errorColor
-                                                            : AppTheme.textSecondary,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
                                       Row(
-                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            crossAxisAlignment: CrossAxisAlignment.center,
-                                            children: [
-                                              const Text(
-                                                'Sync',
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: AppTheme.textSecondary,
-                                                  height: 1,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Transform.scale(
-                                                    scale: 0.82,
-                                                    child: Switch.adaptive(
-                                                      value: shouldRun,
-                                                      materialTapTargetSize:
-                                                          MaterialTapTargetSize.shrinkWrap,
-                                                      activeColor: AppTheme.primaryColor,
-                                                      onChanged: (_) => _toggleSyncRun(
-                                                        machineId,
-                                                        shouldRun,
-                                                      ),
-                                                    ),
+                                          Container(
+                                            width: 32,
+                                            height: 32,
+                                            decoration: BoxDecoration(
+                                              color: AppTheme.primaryColor
+                                                  .withValues(alpha: 0.1),
+                                              borderRadius: BorderRadius.circular(7),
+                                            ),
+                                            child: const Icon(
+                                              Icons.computer_rounded,
+                                              color: AppTheme.primaryColor,
+                                              size: 17,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  machineName,
+                                                  softWrap: true,
+                                                  style: TextStyle(
+                                                    fontSize: 13.5,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppTheme.textPrimary,
+                                                    height: 1.2,
                                                   ),
+                                                ),
+                                                const SizedBox(height: 1),
+                                                Text(
+                                                  companyName,
+                                                  softWrap: true,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: AppTheme.textSecondary,
+                                                    height: 1.2,
+                                                  ),
+                                                ),
+                                                if (linked.isNotEmpty) ...[
+                                                  const SizedBox(height: 1),
                                                   Text(
-                                                    shouldRun ? 'On' : 'Off',
+                                                    'Linked: ${linked.join(', ')}',
+                                                    softWrap: true,
                                                     style: TextStyle(
-                                                      fontSize: 11,
-                                                      fontWeight: FontWeight.w600,
-                                                      color: shouldRun
-                                                          ? const Color(0xFF15803D)
-                                                          : AppTheme.errorColor,
+                                                      fontSize: 10.5,
+                                                      color: AppTheme.textSecondary,
+                                                      height: 1.25,
                                                     ),
                                                   ),
                                                 ],
-                                              ),
-                                            ],
+                                                const SizedBox(height: 4),
+                                                Wrap(
+                                                  crossAxisAlignment:
+                                                      WrapCrossAlignment.center,
+                                                  spacing: 6,
+                                                  runSpacing: 2,
+                                                  children: [
+                                                    Container(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                        horizontal: 5,
+                                                        vertical: 1,
+                                                      ),
+                                                      decoration: BoxDecoration(
+                                                        color: isOnline
+                                                            ? (AppTheme.isDark
+                                                                ? const Color(0xFF15803D)
+                                                                    .withValues(alpha: 0.22)
+                                                                : const Color(0xFFDCFCE7))
+                                                            : (AppTheme.isDark
+                                                                ? AppTheme.dividerColor
+                                                                : const Color(0xFFF3F4F6)),
+                                                        borderRadius:
+                                                            BorderRadius.circular(4),
+                                                      ),
+                                                      child: Text(
+                                                        isOnline ? 'Online' : 'Offline',
+                                                        style: TextStyle(
+                                                          fontSize: 9.5,
+                                                          fontWeight: FontWeight.w600,
+                                                          height: 1.2,
+                                                          color: isOnline
+                                                              ? Color(0xFF15803D)
+                                                              : AppTheme.textSecondary,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    Tooltip(
+                                                      message:
+                                                          'Last sync PC heartbeat. Online = within 3 hours.',
+                                                      child: Text(
+                                                        seenLabel == null
+                                                            ? expiryLabel
+                                                            : '$expiryLabel · $seenLabel',
+                                                        softWrap: true,
+                                                        style: TextStyle(
+                                                          fontSize: 11,
+                                                          fontWeight: FontWeight.w500,
+                                                          height: 1.2,
+                                                          color: isExpired
+                                                              ? AppTheme.errorColor
+                                                              : AppTheme.textSecondary,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
                                           ),
-                                          const SizedBox(width: 8),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Divider(height: 1, thickness: 1),
+                                      const SizedBox(height: 6),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            'Sync',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppTheme.textSecondary,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Transform.scale(
+                                            scale: 0.78,
+                                            child: Switch.adaptive(
+                                              value: shouldRun,
+                                              materialTapTargetSize:
+                                                  MaterialTapTargetSize.shrinkWrap,
+                                              activeColor: AppTheme.primaryColor,
+                                              onChanged: (_) => _toggleSyncRun(
+                                                machineId,
+                                                shouldRun,
+                                              ),
+                                            ),
+                                          ),
+                                          Text(
+                                            shouldRun ? 'On' : 'Off',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                              color: shouldRun
+                                                  ? const Color(0xFF15803D)
+                                                  : AppTheme.errorColor,
+                                            ),
+                                          ),
+                                          const Spacer(),
                                           OutlinedButton(
                                             onPressed: () =>
                                                 _showExtendLicenseSheet(context, m),
                                             style: OutlinedButton.styleFrom(
                                               foregroundColor: AppTheme.primaryColor,
-                                              side: const BorderSide(
+                                              side: BorderSide(
                                                 color: AppTheme.primaryColor,
                                               ),
                                               visualDensity: VisualDensity.compact,
@@ -1704,7 +1705,7 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                                                   MaterialTapTargetSize.shrinkWrap,
                                               minimumSize: const Size(0, 30),
                                               padding: const EdgeInsets.symmetric(
-                                                horizontal: 10,
+                                                horizontal: 12,
                                                 vertical: 4,
                                               ),
                                               shape: RoundedRectangleBorder(
@@ -1962,7 +1963,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                     children: [
                       Text(
                         'Link company to $userName',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
                         ),
@@ -1972,14 +1973,14 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                         'Select a Tally company. No mobile verification required.',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey.shade600,
+                          color: AppTheme.textSecondary,
                         ),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         decoration: InputDecoration(
                           hintText: 'Search companies…',
-                          prefixIcon: const Icon(Icons.search_rounded),
+                          prefixIcon: Icon(Icons.search_rounded),
                           filled: true,
                           fillColor: AppTheme.surfaceColor,
                           border: OutlineInputBorder(
@@ -1992,7 +1993,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                       const SizedBox(height: 8),
                       Expanded(
                         child: filtered.isEmpty
-                            ? const Center(
+                            ? Center(
                                 child: Text(
                                   'No matching companies',
                                   style: TextStyle(color: AppTheme.textSecondary),
@@ -2045,7 +2046,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                 : () => Navigator.of(ctx).pop(selected),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppTheme.primaryColor,
-                              foregroundColor: Colors.white,
+                              foregroundColor: AppTheme.cardColor,
                             ),
                             child: const Text('Link'),
                           ),
@@ -2106,7 +2107,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.errorColor,
-              foregroundColor: Colors.white,
+              foregroundColor: AppTheme.cardColor,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Unlink'),
@@ -2216,7 +2217,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                       const SizedBox(height: 12),
                       Text(
                         'Register a new business owner. Link companies after creating the account.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
@@ -2305,7 +2306,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                             onPressed: isRegistering ? null : submitRegistration,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppTheme.primaryColor,
-                              foregroundColor: Colors.white,
+                              foregroundColor: AppTheme.cardColor,
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
                             child: isRegistering
@@ -2345,7 +2346,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
           : FloatingActionButton.extended(
               onPressed: _showCreateUserDialog,
               backgroundColor: AppTheme.primaryColor,
-              foregroundColor: Colors.white,
+              foregroundColor: AppTheme.cardColor,
               elevation: 2,
               icon: const Icon(Icons.person_add_rounded),
               label: const Text('Create User'),
@@ -2379,21 +2380,21 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                 controller: _searchController,
                 decoration: InputDecoration(
                   hintText: 'Search by name or phone...',
-                  hintStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
-                  prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.textSecondary, size: 20),
+                  hintStyle: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                  prefixIcon: Icon(Icons.search_rounded, color: AppTheme.textSecondary, size: 20),
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: AppTheme.cardColor,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.dividerColor),
+                    borderSide: BorderSide(color: AppTheme.dividerColor),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.dividerColor),
+                    borderSide: BorderSide(color: AppTheme.dividerColor),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.primaryColor, width: 1.5),
+                    borderSide: BorderSide(color: AppTheme.primaryColor, width: 1.5),
                   ),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
@@ -2421,7 +2422,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                       _users.isEmpty
                                           ? 'No users found'
                                           : 'No users match your search',
-                                      style: const TextStyle(color: AppTheme.textSecondary),
+                                      style: TextStyle(color: AppTheme.textSecondary),
                                     ),
                                   ),
                                 ),
@@ -2444,8 +2445,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                     _loadingCompaniesUserIds.contains(userId);
                                 final companies = _userCompaniesMap[userId] ?? [];
 
-                                return Material(
-                                  color: Colors.white,
+                                return Material(color: AppTheme.cardColor,
                                   borderRadius: BorderRadius.circular(12),
                                   clipBehavior: Clip.antiAlias,
                                   child: Container(
@@ -2481,7 +2481,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                           .first
                                                           .toUpperCase()
                                                       : 'U'),
-                                                  style: const TextStyle(
+                                                  style: TextStyle(
                                                     color: AppTheme.primaryColor,
                                                     fontWeight: FontWeight.w700,
                                                     fontSize: 13,
@@ -2496,7 +2496,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                     Text(
                                                       user['full_name']?.toString() ??
                                                           'Unknown User',
-                                                      style: const TextStyle(
+                                                      style: TextStyle(
                                                         fontWeight: FontWeight.w600,
                                                         color: AppTheme.textPrimary,
                                                         fontSize: 14,
@@ -2505,7 +2505,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                     const SizedBox(height: 2),
                                                     Text(
                                                       user['phone_number']?.toString() ?? '',
-                                                      style: const TextStyle(
+                                                      style: TextStyle(
                                                         color: AppTheme.textSecondary,
                                                         fontSize: 12,
                                                       ),
@@ -2541,13 +2541,13 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                         ),
                                       ),
                                       if (isExpanded) ...[
-                                        const Divider(
+                                        Divider(
                                           height: 1,
                                           color: AppTheme.dividerColor,
                                         ),
                                         Container(
                                           width: double.infinity,
-                                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+                                          padding: EdgeInsets.fromLTRB(12, 12, 12, 14),
                                           color: AppTheme.surfaceColor,
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2558,7 +2558,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                   vertical: 6,
                                                 ),
                                                 decoration: BoxDecoration(
-                                                  color: Colors.white,
+                                                  color: AppTheme.cardColor,
                                                   borderRadius: BorderRadius.circular(10),
                                                   border: Border.all(
                                                     color: AppTheme.dividerColor,
@@ -2572,7 +2572,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                       color: Color(0xFF1565C0),
                                                     ),
                                                     const SizedBox(width: 8),
-                                                    const Expanded(
+                                                    Expanded(
                                                       child: Column(
                                                         crossAxisAlignment:
                                                             CrossAxisAlignment.start,
@@ -2585,7 +2585,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                               color: AppTheme.textPrimary,
                                                             ),
                                                           ),
-                                                          SizedBox(height: 2),
+                                                          const SizedBox(height: 2),
                                                           Text(
                                                             'User can combine data from their linked companies',
                                                             style: TextStyle(
@@ -2620,7 +2620,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                   Expanded(
                                                     child: Text(
                                                       'Linked Companies (${companies.length})',
-                                                      style: const TextStyle(
+                                                      style: TextStyle(
                                                         fontWeight: FontWeight.w600,
                                                         fontSize: 13,
                                                         color: AppTheme.textPrimary,
@@ -2662,7 +2662,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                   ),
                                                 )
                                               else if (companies.isEmpty)
-                                                const Text(
+                                                Text(
                                                   'No companies linked. Tap Link to assign companies.',
                                                   style: TextStyle(
                                                     color: AppTheme.textSecondary,
@@ -2675,8 +2675,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                   spacing: 8,
                                                   runSpacing: 8,
                                                   children: companies.map((comp) {
-                                                    return Material(
-                                                      color: Colors.white,
+                                                    return Material(color: AppTheme.cardColor,
                                                       borderRadius: BorderRadius.circular(8),
                                                       child: InkWell(
                                                         onTap: () async {
@@ -2734,7 +2733,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                                   maxLines: 1,
                                                                   overflow:
                                                                       TextOverflow.ellipsis,
-                                                                  style: const TextStyle(
+                                                                  style: TextStyle(
                                                                     fontSize: 12,
                                                                     fontWeight: FontWeight.w500,
                                                                     color: AppTheme.textPrimary,
@@ -2749,7 +2748,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                                                 ),
                                                                 borderRadius:
                                                                     BorderRadius.circular(10),
-                                                                child: const Padding(
+                                                                child: Padding(
                                                                   padding: EdgeInsets.all(2),
                                                                   child: Icon(
                                                                     Icons.close_rounded,
@@ -2858,7 +2857,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
       await _service.signOut();
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        MaterialPageRoute(builder: (_) => LoginScreen()),
         (route) => false,
       );
     }
@@ -2894,9 +2893,9 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Container(
-                                padding: const EdgeInsets.all(16),
+                                padding: EdgeInsets.all(16),
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
+                                  color: AppTheme.cardColor,
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(color: AppTheme.dividerColor),
                                 ),
@@ -2922,7 +2921,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                                         children: [
                                           Text(
                                             _adminName,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 16,
                                               fontWeight: FontWeight.w700,
                                               color: AppTheme.textPrimary,
@@ -2933,7 +2932,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                                             _adminPhone.isEmpty
                                                 ? 'System Administrator'
                                                 : 'Phone: $_adminPhone',
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 13,
                                               color: AppTheme.textSecondary,
                                             ),
@@ -2945,7 +2944,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                                 ),
                               ),
                               const SizedBox(height: 24),
-                              const Text(
+                              Text(
                                 'ACCOUNT',
                                 style: TextStyle(
                                   fontSize: 11,
@@ -2991,7 +2990,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                                 },
                               ),
                               const SizedBox(height: 24),
-                              const Text(
+                              Text(
                                 'ADMINS',
                                 style: TextStyle(
                                   fontSize: 11,
@@ -3009,7 +3008,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                                 onTap: _showCreateAdminDialog,
                               ),
                               const SizedBox(height: 24),
-                              const Text(
+                              Text(
                                 'APP',
                                 style: TextStyle(
                                   fontSize: 11,
@@ -3019,6 +3018,22 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                                 ),
                               ),
                               const SizedBox(height: 10),
+                              _buildActionItem(
+                                icon: Icons.brightness_6_rounded,
+                                title: 'Theme',
+                                subtitle: ThemeController.of(context).label,
+                                color: AppTheme.primaryColor,
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => ThemeSettingsScreen(),
+                                    ),
+                                  ).then((_) {
+                                    if (mounted) setState(() {});
+                                  });
+                                },
+                              ),
+                              SizedBox(height: 10),
                               _buildActionItem(
                                 icon: Icons.info_outline_rounded,
                                 title: 'App Version',
@@ -3045,7 +3060,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                                     ),
                                   ),
                                   style: OutlinedButton.styleFrom(
-                                    side: const BorderSide(
+                                    side: BorderSide(
                                       color: AppTheme.errorColor,
                                       width: 1.5,
                                     ),
@@ -3076,14 +3091,13 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
     required Color color,
     VoidCallback? onTap,
   }) {
-    return Material(
-      color: Colors.white,
+    return Material(color: AppTheme.cardColor,
       borderRadius: BorderRadius.circular(10),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: AppTheme.dividerColor),
@@ -3098,7 +3112,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                 ),
                 child: Icon(icon, color: color, size: 20),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -3117,7 +3131,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                       const SizedBox(height: 2),
                       Text(
                         subtitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppTheme.textSecondary,
                           fontSize: 12,
                         ),
@@ -3182,9 +3196,9 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
 
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              backgroundColor: Colors.white,
-              surfaceTintColor: Colors.white,
-              title: const Text('Change Password', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+              backgroundColor: AppTheme.cardColor,
+              surfaceTintColor: AppTheme.cardColor,
+              title: Text('Change Password', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
               content: SingleChildScrollView(
                 child: Form(
                   key: formKey,
@@ -3194,7 +3208,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                       TextFormField(
                         controller: passwordCtrl,
                         obscureText: obscurePassword,
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14),
                         decoration: InputDecoration(
                           labelText: 'New Password',
                           prefixIcon: const Icon(Icons.lock_rounded, size: 20),
@@ -3210,7 +3224,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                       TextFormField(
                         controller: confirmPasswordCtrl,
                         obscureText: obscureConfirm,
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14),
                         decoration: InputDecoration(
                           labelText: 'Confirm Password',
                           prefixIcon: const Icon(Icons.lock_rounded, size: 20),
@@ -3233,7 +3247,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
               actions: [
                 TextButton(
                   onPressed: isUpdating ? null : () => Navigator.of(ctx).pop(),
-                  child: const Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+                  child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
                 ),
                 ElevatedButton(
                   onPressed: isUpdating ? null : submitPasswordChange,
@@ -3322,7 +3336,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                       const SizedBox(height: 12),
                       Text(
                         'Register a new Super Administrator with full system access.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
@@ -3411,7 +3425,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                             onPressed: isRegistering ? null : submitRegistration,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppTheme.primaryColor,
-                              foregroundColor: Colors.white,
+                              foregroundColor: AppTheme.cardColor,
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
                             child: isRegistering
@@ -3595,12 +3609,12 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
         appBar: AppBar(
           title: Text(
             widget.companyName,
-            style: const TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary, fontSize: 16),
+            style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary, fontSize: 16),
           ),
           elevation: 0,
-          backgroundColor: Colors.white,
+          backgroundColor: AppTheme.cardColor,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
+            icon: Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
           actions: [
@@ -3613,7 +3627,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
         body: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           children: [
-            const Text(
+            Text(
               'Feature configurations',
               style: TextStyle(
                 fontSize: 13,
@@ -3621,10 +3635,10 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
                 color: AppTheme.textSecondary,
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: AppTheme.cardColor,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppTheme.dividerColor),
               ),
@@ -3641,7 +3655,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
                       initialFeatures: _features,
                     ),
                   ),
-                  const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                  Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                   _buildNavCategoryItem(
                     'Stock Inventory',
                     'stock',
@@ -3652,7 +3666,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
                       initialFeatures: _features,
                     ),
                   ),
-                  const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                  Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                   _buildNavCategoryItem(
                     'Outstanding Reports',
                     'outstanding',
@@ -3663,7 +3677,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
                       initialFeatures: _features,
                     ),
                   ),
-                  const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                  Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                   _buildNavCategoryItem(
                     'Analytics & Reports',
                     'analytics',
@@ -3674,7 +3688,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
                       initialFeatures: _features,
                     ),
                   ),
-                  const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                  Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                   _buildNavCategoryItem(
                     'Cash Flow Insights',
                     'cash_flow',
@@ -3685,9 +3699,9 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
                       initialFeatures: _features,
                     ),
                   ),
-                  const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                  Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                   _buildFinancialStatementsNavItem(),
-                  const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                  Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                   _buildNavCategoryItem(
                     'Ledgers & Transactions',
                     'ledgers',
@@ -3698,9 +3712,9 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
                       initialFeatures: _features,
                     ),
                   ),
-                  const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                  Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                   _buildToggleItem('Sales Invoices', 'sales', Icons.description_outlined),
-                  const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                  Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                   _buildToggleItem('Purchase Invoices', 'purchases', Icons.shopping_bag_outlined),
                 ],
               ),
@@ -3721,8 +3735,8 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
     ].join(' • ');
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.account_balance_outlined, size: 20, color: AppTheme.textSecondary),
-      title: const Text(
+      leading: Icon(Icons.account_balance_outlined, size: 20, color: AppTheme.textSecondary),
+      title: Text(
         'Financial Statements',
         style: TextStyle(
           fontSize: 14,
@@ -3738,7 +3752,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           color: isEnabled ? AppTheme.primaryColor : AppTheme.textSecondary,
         ),
       ),
-      trailing: const Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.textSecondary),
+      trailing: Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.textSecondary),
       onTap: () async {
         if (_savingFeature) return;
         final updatedFeatures = await Navigator.of(context).push<Map<String, bool>>(
@@ -3765,7 +3779,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
       leading: Icon(icon, size: 20, color: AppTheme.textSecondary),
       title: Text(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w600,
           color: AppTheme.textPrimary,
@@ -3779,7 +3793,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           color: isEnabled ? AppTheme.primaryColor : AppTheme.textSecondary,
         ),
       ),
-      trailing: const Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.textSecondary),
+      trailing: Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.textSecondary),
       onTap: () async {
         if (_savingFeature) return;
         final updatedFeatures = await Navigator.of(context).push<Map<String, bool>>(
@@ -3797,7 +3811,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
   Widget _buildToggleItem(String label, String featureKey, IconData icon) {
     final isEnabled = _features[featureKey] ?? true;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         children: [
           Icon(icon, size: 20, color: AppTheme.textSecondary),
@@ -3805,7 +3819,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: AppTheme.textPrimary,
@@ -3917,14 +3931,14 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
       child: Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          title: const Text(
+          title: Text(
             'Dashboard Settings',
             style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary, fontSize: 16),
           ),
           elevation: 0,
-          backgroundColor: Colors.white,
+          backgroundColor: AppTheme.cardColor,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
+            icon: Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
           actions: [
@@ -3941,12 +3955,12 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
             Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: AppTheme.dividerColor),
+                side: BorderSide(color: AppTheme.dividerColor),
               ),
               elevation: 0,
-              color: Colors.white,
+              color: AppTheme.cardColor,
               child: ListTile(
-                title: const Text('Dashboard Screen', style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+                title: Text('Dashboard Screen', style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                 subtitle: const Text('Enable or disable the entire dashboard tab'),
                 trailing: Switch.adaptive(
                   value: isDashboardEnabled,
@@ -3957,7 +3971,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
             ),
             const SizedBox(height: 24),
             
-            const Text(
+            Text(
               'DASHBOARD COMPONENTS',
               style: TextStyle(
                 fontSize: 13,
@@ -3974,10 +3988,10 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                 child: Card(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: AppTheme.dividerColor),
+                    side: BorderSide(color: AppTheme.dividerColor),
                   ),
                   elevation: 0,
-                  color: Colors.white,
+                  color: AppTheme.cardColor,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8),
                     child: Column(
@@ -3998,16 +4012,16 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                           _buildNetPositionDetailsConfig(),
                           const SizedBox(height: 8),
                         ],
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('6 Grid Summary Cards', 'db_summary_cards', Icons.grid_view_rounded),
                         if (_features['db_summary_cards'] ?? true) ...[
                           const SizedBox(height: 8),
                           _buildVisualCardGrid(),
                           const SizedBox(height: 8),
                         ],
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Daybook Section', 'db_daybook', Icons.today_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Quick Actions Grid', 'db_quick_actions', Icons.bolt_rounded),
                         if (_features['db_quick_actions'] ?? true) ...[
                           const SizedBox(height: 8),
@@ -4081,7 +4095,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
     ];
 
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: AppTheme.surfaceColor,
         borderRadius: BorderRadius.circular(12),
@@ -4090,7 +4104,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'ACTIVE SUMMARY CARDS (TAP TO TOGGLE)',
             style: TextStyle(
               fontSize: 10,
@@ -4124,9 +4138,9 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                               duration: const Duration(milliseconds: 200),
                               width: cardWidth,
                               height: 88,
-                              padding: const EdgeInsets.all(8),
+                              padding: EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: isItemEnabled ? color.withOpacity(0.08) : Colors.white,
+                                color: isItemEnabled ? color.withOpacity(0.08) : AppTheme.cardColor,
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
                                   color: isItemEnabled ? color : AppTheme.dividerColor,
@@ -4140,7 +4154,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                                     child: Icon(
                                       isItemEnabled ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
                                       size: 14,
-                                      color: isItemEnabled ? color : Colors.grey.shade300,
+                                      color: isItemEnabled ? color : AppTheme.dividerColor,
                                     ),
                                   ),
                                   Center(
@@ -4150,16 +4164,16 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                                         Icon(
                                           item['icon'] as IconData,
                                           size: 20,
-                                          color: isItemEnabled ? color : Colors.grey.shade400,
+                                          color: isItemEnabled ? color : AppTheme.textSecondary,
                                         ),
-                                        const SizedBox(height: 5),
+                                        SizedBox(height: 5),
                                         Text(
                                           item['title'] as String,
                                           textAlign: TextAlign.center,
                                           style: TextStyle(
                                             fontSize: 11,
                                             fontWeight: FontWeight.w700,
-                                            color: isItemEnabled ? AppTheme.textPrimary : Colors.grey.shade500,
+                                            color: isItemEnabled ? AppTheme.textPrimary : AppTheme.textSecondary,
                                           ),
                                         ),
                                       ],
@@ -4230,7 +4244,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
     ];
 
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: AppTheme.surfaceColor,
         borderRadius: BorderRadius.circular(12),
@@ -4239,7 +4253,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'ACTIVE QUICK ACTIONS (TAP TO TOGGLE)',
             style: TextStyle(
               fontSize: 10,
@@ -4270,9 +4284,9 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                             onTap: () => _toggleFeature(key, isItemEnabled),
                             child: Container(
                               margin: const EdgeInsets.symmetric(horizontal: 4),
-                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              padding: EdgeInsets.symmetric(vertical: 8),
                               decoration: BoxDecoration(
-                                color: isItemEnabled ? color.withOpacity(0.06) : Colors.white,
+                                color: isItemEnabled ? color.withOpacity(0.06) : AppTheme.cardColor,
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
                                   color: isItemEnabled ? color : AppTheme.dividerColor,
@@ -4285,7 +4299,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                                   Icon(
                                     item['icon'] as IconData,
                                     size: 18,
-                                    color: isItemEnabled ? color : Colors.grey.shade400,
+                                    color: isItemEnabled ? color : AppTheme.textSecondary,
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
@@ -4298,7 +4312,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                                       fontWeight: FontWeight.w700,
                                       color: isItemEnabled
                                           ? AppTheme.textPrimary
-                                          : Colors.grey.shade500,
+                                          : AppTheme.textSecondary,
                                     ),
                                   ),
                                 ],
@@ -4357,7 +4371,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
     ];
 
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: AppTheme.surfaceColor,
         borderRadius: BorderRadius.circular(12),
@@ -4366,7 +4380,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'NET POSITION DETAILS (TAP TO TOGGLE ROWS)',
             style: TextStyle(
               fontSize: 10,
@@ -4400,9 +4414,9 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                               duration: const Duration(milliseconds: 200),
                               width: cardWidth,
                               height: 88,
-                              padding: const EdgeInsets.all(8),
+                              padding: EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: isItemEnabled ? color.withOpacity(0.08) : Colors.white,
+                                color: isItemEnabled ? color.withOpacity(0.08) : AppTheme.cardColor,
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
                                   color: isItemEnabled ? color : AppTheme.dividerColor,
@@ -4416,7 +4430,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                                     child: Icon(
                                       isItemEnabled ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
                                       size: 14,
-                                      color: isItemEnabled ? color : Colors.grey.shade300,
+                                      color: isItemEnabled ? color : AppTheme.dividerColor,
                                     ),
                                   ),
                                   Center(
@@ -4426,16 +4440,16 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                                         Icon(
                                           item['icon'] as IconData,
                                           size: 20,
-                                          color: isItemEnabled ? color : Colors.grey.shade400,
+                                          color: isItemEnabled ? color : AppTheme.textSecondary,
                                         ),
-                                        const SizedBox(height: 5),
+                                        SizedBox(height: 5),
                                         Text(
                                           item['title'] as String,
                                           textAlign: TextAlign.center,
                                           style: TextStyle(
                                             fontSize: 11,
                                             fontWeight: FontWeight.w700,
-                                            color: isItemEnabled ? AppTheme.textPrimary : Colors.grey.shade500,
+                                            color: isItemEnabled ? AppTheme.textPrimary : AppTheme.textSecondary,
                                           ),
                                         ),
                                       ],
@@ -4475,7 +4489,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
   }) {
     final isEnabled = _features[featureKey] ?? true;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         children: [
           Icon(icon, size: 20, color: AppTheme.textSecondary),
@@ -4489,7 +4503,7 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
                     child: Text(
                       label,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                         color: AppTheme.textPrimary,
@@ -4610,14 +4624,14 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
       child: Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          title: const Text(
+          title: Text(
             'Stock Settings',
             style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary, fontSize: 16),
           ),
           elevation: 0,
-          backgroundColor: Colors.white,
+          backgroundColor: AppTheme.cardColor,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
+            icon: Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
           actions: [
@@ -4633,12 +4647,12 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
             Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: AppTheme.dividerColor),
+                side: BorderSide(color: AppTheme.dividerColor),
               ),
               elevation: 0,
-              color: Colors.white,
+              color: AppTheme.cardColor,
               child: ListTile(
-                title: const Text('Stock Screen', style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+                title: Text('Stock Screen', style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                 subtitle: const Text('Enable or disable the entire stock tab'),
                 trailing: Switch.adaptive(
                   value: isStockEnabled,
@@ -4649,7 +4663,7 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
             ),
             const SizedBox(height: 24),
             
-            const Text(
+            Text(
               'STOCK PRIVACY & CONTROLS',
               style: TextStyle(
                 fontSize: 13,
@@ -4666,10 +4680,10 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
                 child: Card(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: AppTheme.dividerColor),
+                    side: BorderSide(color: AppTheme.dividerColor),
                   ),
                   elevation: 0,
-                  color: Colors.white,
+                  color: AppTheme.cardColor,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
                     child: Column(
@@ -4680,7 +4694,7 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
                           'Allows users to see product purchase rates and margins',
                           Icons.attach_money_rounded,
                         ),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem(
                           'Item Parents & New Categories',
                           'stock_item_parents',
@@ -4702,7 +4716,7 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
   Widget _buildSubToggleItem(String label, String featureKey, String description, IconData icon) {
     final isEnabled = _features[featureKey] ?? true;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
         children: [
           Icon(icon, size: 20, color: AppTheme.textSecondary),
@@ -4713,7 +4727,7 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
               children: [
                 Text(
                   label,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: AppTheme.textPrimary,
@@ -4722,7 +4736,7 @@ class _StockFeaturesScreenState extends State<StockFeaturesScreen> {
                 const SizedBox(height: 2),
                 Text(
                   description,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     color: AppTheme.textSecondary,
                   ),
@@ -4838,14 +4852,14 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
       child: Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          title: const Text(
+          title: Text(
             'Outstanding Settings',
             style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary, fontSize: 16),
           ),
           elevation: 0,
-          backgroundColor: Colors.white,
+          backgroundColor: AppTheme.cardColor,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
+            icon: Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
           actions: [
@@ -4861,12 +4875,12 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
             Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: AppTheme.dividerColor),
+                side: BorderSide(color: AppTheme.dividerColor),
               ),
               elevation: 0,
-              color: Colors.white,
+              color: AppTheme.cardColor,
               child: ListTile(
-                title: const Text('Outstanding Screen', style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+                title: Text('Outstanding Screen', style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                 subtitle: const Text('Enable or disable the entire Recv/Pay tab'),
                 trailing: Switch.adaptive(
                   value: isOutstandingEnabled,
@@ -4877,7 +4891,7 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
             ),
             const SizedBox(height: 24),
             
-            const Text(
+            Text(
               'OUTSTANDING TAB VISIBILITY',
               style: TextStyle(
                 fontSize: 13,
@@ -4894,16 +4908,16 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
                 child: Card(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: AppTheme.dividerColor),
+                    side: BorderSide(color: AppTheme.dividerColor),
                   ),
                   elevation: 0,
-                  color: Colors.white,
+                  color: AppTheme.cardColor,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
                     child: Column(
                       children: [
                         _buildSubToggleItem('Receivables Tab', 'out_receivables', Icons.call_received_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Payables Tab', 'out_payables', Icons.call_made_rounded),
                       ],
                     ),
@@ -4920,7 +4934,7 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
   Widget _buildSubToggleItem(String label, String featureKey, IconData icon) {
     final isEnabled = _features[featureKey] ?? true;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         children: [
           Icon(icon, size: 20, color: AppTheme.textSecondary),
@@ -4928,7 +4942,7 @@ class _OutstandingFeaturesScreenState extends State<OutstandingFeaturesScreen> {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: AppTheme.textPrimary,
@@ -5046,14 +5060,14 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
       child: Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          title: const Text(
+          title: Text(
             'Reports Settings',
             style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary, fontSize: 16),
           ),
           elevation: 0,
-          backgroundColor: Colors.white,
+          backgroundColor: AppTheme.cardColor,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
+            icon: Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
           actions: [
@@ -5069,12 +5083,12 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
             Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: AppTheme.dividerColor),
+                side: BorderSide(color: AppTheme.dividerColor),
               ),
               elevation: 0,
-              color: Colors.white,
+              color: AppTheme.cardColor,
               child: ListTile(
-                title: const Text('Analytics & Reports Screen', style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+                title: Text('Analytics & Reports Screen', style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                 subtitle: const Text('Enable or disable the entire reports screen'),
                 trailing: Switch.adaptive(
                   value: isReportsEnabled,
@@ -5085,7 +5099,7 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
             ),
             const SizedBox(height: 24),
             
-            const Text(
+            Text(
               'REPORT TYPE VISIBILITY',
               style: TextStyle(
                 fontSize: 13,
@@ -5102,18 +5116,18 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
                 child: Card(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: AppTheme.dividerColor),
+                    side: BorderSide(color: AppTheme.dividerColor),
                   ),
                   elevation: 0,
-                  color: Colors.white,
+                  color: AppTheme.cardColor,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
                     child: Column(
                       children: [
                         _buildSubToggleItem('Sales Reports', 'rep_sales', Icons.trending_up_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Purchase Reports', 'rep_purchases', Icons.trending_down_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Ledger Reports & Analysis', 'rep_ledgers', Icons.people_alt_rounded),
                       ],
                     ),
@@ -5130,7 +5144,7 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
   Widget _buildSubToggleItem(String label, String featureKey, IconData icon) {
     final isEnabled = _features[featureKey] ?? true;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         children: [
           Icon(icon, size: 20, color: AppTheme.textSecondary),
@@ -5138,7 +5152,7 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: AppTheme.textPrimary,
@@ -5160,12 +5174,12 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: Icon(icon, size: 20, color: AppTheme.textSecondary),
-      title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+      title: Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
       subtitle: Text(
         isEnabled ? 'Enabled • $subtitleText' : 'Disabled',
         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: isEnabled ? AppTheme.primaryColor : AppTheme.textSecondary),
       ),
-      trailing: const Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.textSecondary),
+      trailing: Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.textSecondary),
       onTap: () async {
         if (_savingFeature) return;
         final updatedFeatures = await Navigator.of(context).push<Map<String, bool>>(
@@ -5285,12 +5299,12 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
       child: Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          title: const Text('Cash Flow Settings',
+          title: Text('Cash Flow Settings',
               style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary, fontSize: 16)),
           elevation: 0,
-          backgroundColor: Colors.white,
+          backgroundColor: AppTheme.cardColor,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
+            icon: Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
           actions: [
@@ -5306,12 +5320,12 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
             Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: AppTheme.dividerColor),
+                side: BorderSide(color: AppTheme.dividerColor),
               ),
               elevation: 0,
-              color: Colors.white,
+              color: AppTheme.cardColor,
               child: ListTile(
-                title: const Text('Cash Flow Insights Screen',
+                title: Text('Cash Flow Insights Screen',
                     style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                 subtitle: const Text('Enable or disable the entire Cash Flow screen'),
                 trailing: Switch.adaptive(
@@ -5322,7 +5336,7 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               'SECTION VISIBILITY',
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.textSecondary, letterSpacing: 1.0),
             ),
@@ -5334,24 +5348,24 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
                 child: Card(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: AppTheme.dividerColor),
+                    side: BorderSide(color: AppTheme.dividerColor),
                   ),
                   elevation: 0,
-                  color: Colors.white,
+                  color: AppTheme.cardColor,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
                     child: Column(
                       children: [
                         _buildSubToggleItem('Summary Cards (Total Bills & Amount)', 'cf_summary', Icons.grid_view_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Global Overview Banner', 'cf_overview', Icons.bar_chart_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Speed Distribution Chart', 'cf_pie_chart', Icons.pie_chart_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Monthly Trend Chart', 'cf_trend', Icons.show_chart_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Fastest Paying Customers', 'cf_fastest', Icons.emoji_events_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Slowest Paying Customers', 'cf_slowest', Icons.warning_amber_rounded),
                       ],
                     ),
@@ -5368,13 +5382,13 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
   Widget _buildSubToggleItem(String label, String featureKey, IconData icon) {
     final isEnabled = _features[featureKey] ?? true;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         children: [
           Icon(icon, size: 20, color: AppTheme.textSecondary),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+            child: Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
           ),
           Switch.adaptive(
             value: isEnabled,
@@ -5517,12 +5531,12 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
       child: Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          title: const Text('Ledger Settings',
+          title: Text('Ledger Settings',
               style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary, fontSize: 16)),
           elevation: 0,
-          backgroundColor: Colors.white,
+          backgroundColor: AppTheme.cardColor,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
+            icon: Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
             onPressed: _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
           actions: [
@@ -5539,12 +5553,12 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
             Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: AppTheme.dividerColor),
+                side: BorderSide(color: AppTheme.dividerColor),
               ),
               elevation: 0,
-              color: Colors.white,
+              color: AppTheme.cardColor,
               child: ListTile(
-                title: const Text('Ledgers & Transactions Screen',
+                title: Text('Ledgers & Transactions Screen',
                     style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                 subtitle: const Text('Enable or disable the entire Ledgers section'),
                 trailing: Switch.adaptive(
@@ -5557,7 +5571,7 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
             const SizedBox(height: 24),
 
             // Tabs section
-            const Text('TAB VISIBILITY', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.textSecondary, letterSpacing: 1.0)),
+            Text('TAB VISIBILITY', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.textSecondary, letterSpacing: 1.0)),
             const SizedBox(height: 12),
             IgnorePointer(
               ignoring: !isLedgersEnabled,
@@ -5566,16 +5580,16 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
                 child: Card(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: AppTheme.dividerColor),
+                    side: BorderSide(color: AppTheme.dividerColor),
                   ),
                   elevation: 0,
-                  color: Colors.white,
+                  color: AppTheme.cardColor,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
                     child: Column(
                       children: [
                         _buildSubToggleItem('Transactions Tab', 'ls_transactions', Icons.receipt_long_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Performance Tab', 'ls_performance', Icons.insights_rounded),
                       ],
                     ),
@@ -5586,7 +5600,7 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
             const SizedBox(height: 24),
 
             // Performance sub-sections
-            const Text('PERFORMANCE TAB SECTIONS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.textSecondary, letterSpacing: 1.0)),
+            Text('PERFORMANCE TAB SECTIONS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.textSecondary, letterSpacing: 1.0)),
             const SizedBox(height: 12),
             IgnorePointer(
               ignoring: !isPerfEnabled,
@@ -5595,22 +5609,22 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
                 child: Card(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: AppTheme.dividerColor),
+                    side: BorderSide(color: AppTheme.dividerColor),
                   ),
                   elevation: 0,
-                  color: Colors.white,
+                  color: AppTheme.cardColor,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
                     child: Column(
                       children: [
                         _buildSubToggleItem('Avg Collection Speed Card', 'ls_perf_speed', Icons.speed_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Enable Tally Formula Toggle', 'ls_perf_tally_formula', Icons.calculate_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Avg Payment Delay Card', 'ls_perf_delay', Icons.timer_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Payment Delay Trend Chart', 'ls_perf_trend', Icons.show_chart_rounded),
-                        const Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
+                        Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                         _buildSubToggleItem('Settlement History List', 'ls_perf_history', Icons.history_rounded),
                       ],
                     ),
@@ -5627,13 +5641,13 @@ class _LedgerFeaturesScreenState extends State<LedgerFeaturesScreen> {
   Widget _buildSubToggleItem(String label, String featureKey, IconData icon) {
     final isEnabled = _features[featureKey] ?? true;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         children: [
           Icon(icon, size: 20, color: AppTheme.textSecondary),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+            child: Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
           ),
           Switch.adaptive(
             value: isEnabled,
@@ -5744,7 +5758,7 @@ class _FinancialReportsFeaturesScreenState
       child: Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          title: const Text(
+          title: Text(
             'Financial Statements',
             style: TextStyle(
               fontWeight: FontWeight.w700,
@@ -5753,9 +5767,9 @@ class _FinancialReportsFeaturesScreenState
             ),
           ),
           elevation: 0,
-          backgroundColor: Colors.white,
+          backgroundColor: AppTheme.cardColor,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
+            icon: Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
             onPressed:
                 _savingFeature ? null : () => Navigator.of(context).pop(_features),
           ),
@@ -5769,7 +5783,7 @@ class _FinancialReportsFeaturesScreenState
         body: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
           children: [
-            const Text(
+            Text(
               'BALANCE SHEET',
               style: TextStyle(
                 fontSize: 13,
@@ -5781,12 +5795,12 @@ class _FinancialReportsFeaturesScreenState
             Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: AppTheme.dividerColor),
+                side: BorderSide(color: AppTheme.dividerColor),
               ),
               elevation: 0,
-              color: Colors.white,
+              color: AppTheme.cardColor,
               child: ListTile(
-                title: const Text(
+                title: Text(
                   'Balance Sheet Screen',
                   style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
                 ),
@@ -5806,10 +5820,10 @@ class _FinancialReportsFeaturesScreenState
                 child: Card(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: AppTheme.dividerColor),
+                    side: BorderSide(color: AppTheme.dividerColor),
                   ),
                   elevation: 0,
-                  color: Colors.white,
+                  color: AppTheme.cardColor,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
                     child: _buildSubToggleItem(
@@ -5822,7 +5836,7 @@ class _FinancialReportsFeaturesScreenState
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               'PROFIT & LOSS',
               style: TextStyle(
                 fontSize: 13,
@@ -5834,12 +5848,12 @@ class _FinancialReportsFeaturesScreenState
             Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: AppTheme.dividerColor),
+                side: BorderSide(color: AppTheme.dividerColor),
               ),
               elevation: 0,
-              color: Colors.white,
+              color: AppTheme.cardColor,
               child: ListTile(
-                title: const Text(
+                title: Text(
                   'Profit & Loss Screen',
                   style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
                 ),
@@ -5859,10 +5873,10 @@ class _FinancialReportsFeaturesScreenState
                 child: Card(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: AppTheme.dividerColor),
+                    side: BorderSide(color: AppTheme.dividerColor),
                   ),
                   elevation: 0,
-                  color: Colors.white,
+                  color: AppTheme.cardColor,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
                     child: _buildSubToggleItem(
@@ -5883,7 +5897,7 @@ class _FinancialReportsFeaturesScreenState
   Widget _buildSubToggleItem(String label, String featureKey, IconData icon) {
     final isEnabled = _features[featureKey] ?? true;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         children: [
           Icon(icon, size: 20, color: AppTheme.textSecondary),
@@ -5891,7 +5905,7 @@ class _FinancialReportsFeaturesScreenState
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: AppTheme.textPrimary,

@@ -203,8 +203,8 @@ class _LedgerVoucherDetailSheetState extends State<LedgerVoucherDetailSheet> {
     final maxHeight = screen.height * 0.85;
 
     return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      backgroundColor: Colors.white,
+      insetPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      backgroundColor: AppTheme.cardColor,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: 480, maxHeight: maxHeight),
@@ -238,7 +238,7 @@ class _LedgerVoucherDetailSheetState extends State<LedgerVoucherDetailSheet> {
                     tooltip: 'Close',
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close_rounded),
-                    color: Colors.grey.shade700,
+                    color: AppTheme.textSecondary,
                   ),
                 ],
               ),
@@ -271,10 +271,10 @@ class _LedgerVoucherDetailSheetState extends State<LedgerVoucherDetailSheet> {
                             children: [
                               Text(
                                 entry.particulars ?? entry.ledgerName,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w700,
-                                  color: Color(0xFF1A1F36),
+                                  color: AppTheme.textPrimary,
                                 ),
                               ),
                               const SizedBox(height: 4),
@@ -282,7 +282,10 @@ class _LedgerVoucherDetailSheetState extends State<LedgerVoucherDetailSheet> {
                                 entry.date != null
                                     ? DateFormat('EEEE, d MMM yyyy').format(entry.date!)
                                     : 'Date unavailable',
-                                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: AppTheme.textSecondary,
+                                ),
                               ),
                             ],
                           ),
@@ -304,14 +307,14 @@ class _LedgerVoucherDetailSheetState extends State<LedgerVoucherDetailSheet> {
                       ),
                     ]),
                     if (entry.narration != null && entry.narration!.trim().isNotEmpty) ...[
-                      const SizedBox(height: 14),
+                      SizedBox(height: 14),
                       _section('Narration', [
                         Text(
                           entry.narration!.trim(),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
                             height: 1.4,
-                            color: Color(0xFF1A1F36),
+                            color: AppTheme.textPrimary,
                           ),
                         ),
                       ]),
@@ -435,20 +438,21 @@ class _LedgerVoucherDetailSheetState extends State<LedgerVoucherDetailSheet> {
   Widget _section(String title, List<Widget> children) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8F9FE),
+        color: AppTheme.surfaceColor,
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.dividerColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF1A1F36),
+              color: AppTheme.textPrimary,
             ),
           ),
           const SizedBox(height: 10),
@@ -466,7 +470,10 @@ class _LedgerVoucherDetailSheetState extends State<LedgerVoucherDetailSheet> {
         children: [
           Expanded(
             flex: 2,
-            child: Text(label, style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+            ),
           ),
           Expanded(
             flex: 3,
@@ -476,7 +483,7 @@ class _LedgerVoucherDetailSheetState extends State<LedgerVoucherDetailSheet> {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: valueColor ?? const Color(0xFF1A1F36),
+                color: valueColor ?? AppTheme.textPrimary,
               ),
             ),
           ),
@@ -491,12 +498,12 @@ class _LedgerVoucherDetailSheetState extends State<LedgerVoucherDetailSheet> {
       items
           .map(
             (item) => Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
+              margin: EdgeInsets.only(bottom: 8),
+              padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: AppTheme.cardColor,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.grey.shade200),
+                border: Border.all(color: AppTheme.dividerColor),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -506,16 +513,16 @@ class _LedgerVoucherDetailSheetState extends State<LedgerVoucherDetailSheet> {
                       Expanded(
                         child: Text(
                           item.name,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF1A1F36),
+                            color: AppTheme.textPrimary,
                           ),
                         ),
                       ),
                       Text(
                         _currency.format(item.amount),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                           color: AppTheme.primaryColor,
@@ -526,7 +533,7 @@ class _LedgerVoucherDetailSheetState extends State<LedgerVoucherDetailSheet> {
                   const SizedBox(height: 6),
                   Text(
                     'Qty ${item.qty} · Rate ${_currency.format(item.rate)} · GST ${item.gst.toStringAsFixed(0)}%',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                   ),
                 ],
               ),

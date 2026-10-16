@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_theme.dart';
 
 class EmptyState extends StatelessWidget {
   final IconData icon;
@@ -27,18 +28,20 @@ class EmptyState extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.grey.shade100,
+                color: AppTheme.isDark
+                    ? const Color(0xFF243044)
+                    : Colors.grey.shade100,
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 36, color: Colors.grey.shade400),
+              child: Icon(icon, size: 36, color: AppTheme.textSecondary),
             ),
-            const SizedBox(height: 14),
+            SizedBox(height: 14),
             Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF1A1F36),
+                color: AppTheme.textPrimary,
               ),
               textAlign: TextAlign.center,
             ),
@@ -48,7 +51,7 @@ class EmptyState extends StatelessWidget {
                 subtitle!,
                 style: TextStyle(
                   fontSize: 13,
-                  color: Colors.grey.shade500,
+                  color: AppTheme.textSecondary,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -83,18 +86,18 @@ class ErrorState extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: Colors.red.shade50,
+                color: Colors.red.withValues(alpha: AppTheme.isDark ? 0.15 : 0.08),
                 shape: BoxShape.circle,
               ),
               child: Icon(Icons.error_outline_rounded, size: 48, color: Colors.red.shade400),
             ),
-            const SizedBox(height: 20),
-            const Text(
+            SizedBox(height: 20),
+            Text(
               'Something went wrong',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF1A1F36),
+                color: AppTheme.textPrimary,
               ),
             ),
             const SizedBox(height: 8),
@@ -102,7 +105,7 @@ class ErrorState extends StatelessWidget {
               message,
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey.shade500,
+                color: AppTheme.textSecondary,
               ),
               textAlign: TextAlign.center,
             ),

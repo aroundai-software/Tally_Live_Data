@@ -123,7 +123,7 @@ class _CombinedPurchasesReportScreenState
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
         decoration: BoxDecoration(
           border: Border(
-            bottom: BorderSide(color: Colors.grey.shade200),
+            bottom: BorderSide(color: AppTheme.dividerColor),
           ),
         ),
         child: Column(
@@ -134,7 +134,7 @@ class _CombinedPurchasesReportScreenState
                 _companies.join(' • '),
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.grey.shade600,
+                  color: AppTheme.textSecondary,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -144,22 +144,22 @@ class _CombinedPurchasesReportScreenState
               selected: _dateFilter,
               onChanged: (v) => setState(() => _dateFilter = v),
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: 10),
             TextField(
               decoration: InputDecoration(
                 hintText: 'Search bill, supplier, company',
                 isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                prefixIcon: const Icon(Icons.search, size: 20),
+                contentPadding: EdgeInsets.symmetric(vertical: 10),
+                prefixIcon: Icon(Icons.search, size: 20),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: AppTheme.cardColor,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.shade200),
+                  borderSide: BorderSide(color: AppTheme.dividerColor),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.shade200),
+                  borderSide: BorderSide(color: AppTheme.dividerColor),
                 ),
               ),
               onChanged: (v) => setState(() => _search = v),
@@ -172,9 +172,8 @@ class _CombinedPurchasesReportScreenState
 
   Widget _buildInvoiceTile(PurchaseInvoice inv) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: Colors.white,
+      padding: EdgeInsets.only(bottom: 8),
+      child: Material(color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
@@ -183,7 +182,7 @@ class _CombinedPurchasesReportScreenState
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
+              border: Border.all(color: AppTheme.dividerColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -193,7 +192,7 @@ class _CombinedPurchasesReportScreenState
                     Expanded(
                       child: Text(
                         '#${inv.invoiceNumber}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 14,
                         ),
@@ -201,7 +200,7 @@ class _CombinedPurchasesReportScreenState
                     ),
                     Text(
                       formatCurrency(inv.totalAmount),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.w700,
                         color: AppTheme.purchaseColor,
                       ),
@@ -213,7 +212,7 @@ class _CombinedPurchasesReportScreenState
                   inv.supplierName,
                   style: TextStyle(
                     fontSize: 13,
-                    color: Colors.grey.shade700,
+                    color: AppTheme.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -232,7 +231,7 @@ class _CombinedPurchasesReportScreenState
                         _dateFormat.format(inv.invoiceDate!),
                         style: TextStyle(
                           fontSize: 11,
-                          color: Colors.grey.shade500,
+                          color: AppTheme.textSecondary,
                         ),
                       ),
                   ],
@@ -284,9 +283,9 @@ class _CombinedPurchasesReportScreenState
                     totalsByCompany: _totalsByCompany,
                     accent: AppTheme.purchaseColor,
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   if (rows.isEmpty)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.symmetric(vertical: 40),
                       child: Center(
                         child: Text(
@@ -312,7 +311,7 @@ class _CombinedPurchasesReportScreenState
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Combined Purchases',
           style: TextStyle(
             fontWeight: FontWeight.w700,
@@ -321,8 +320,8 @@ class _CombinedPurchasesReportScreenState
           ),
         ),
         elevation: 0,
-        backgroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: AppTheme.textPrimary),
+        backgroundColor: AppTheme.cardColor,
+        iconTheme: IconThemeData(color: AppTheme.textPrimary),
       ),
       body: body,
     );

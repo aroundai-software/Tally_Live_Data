@@ -163,12 +163,9 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
       saveText: 'Apply',
       builder: (context, child) {
         return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF2453FF),
-              onPrimary: Colors.white,
-              onSurface: Colors.black87,
-            ),
+          data: AppTheme.datePickerOverlayTheme(
+            context,
+            primary: const Color(0xFF2453FF),
           ),
           child: child!,
         );
@@ -517,20 +514,20 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                   },
                 )
               : null,
-          title: const Text('Outstanding'),
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.white,
+          title: Text('Outstanding'),
+          backgroundColor: AppTheme.cardColor,
+          surfaceTintColor: AppTheme.cardColor,
         ),
-        body: const Center(
+        body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2453FF)),
-              SizedBox(height: 12),
-              Text('Feature Locked', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
-              SizedBox(height: 8),
+              const Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2453FF)),
+              const SizedBox(height: 12),
+              Text('Feature Locked', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.textPrimary)),
+              const SizedBox(height: 8),
               Text('Outstanding Reports are disabled for this company.', textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF6B7A94))),
+                  style: TextStyle(color: AppTheme.textSecondary)),
             ],
           ),
         ),
@@ -589,9 +586,9 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                 },
               )
             : null,
-        title: const Text('Outstanding'),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        title: Text('Outstanding'),
+        backgroundColor: AppTheme.cardColor,
+        surfaceTintColor: AppTheme.cardColor,
         actions: [
           IconButton(
             onPressed: _pickDateFilter,
@@ -600,7 +597,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                 : 'Filter by date range',
             icon: Icon(
               Icons.date_range_rounded,
-              color: _selectedDateRange != null ? const Color(0xFF2453FF) : Colors.black87,
+              color: _selectedDateRange != null ? const Color(0xFF2453FF) : AppTheme.textPrimary,
             ),
           ),
           if (_selectedDateRange != null)
@@ -625,34 +622,34 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
           // --- Sticky: Receivables / Payables tab bar (only shown if both tabs are visible) ---
           if (visibleTabs.length > 1)
             Container(
-              color: Colors.white,
+              color: AppTheme.surfaceColor,
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
               child: Container(
                 height: 36,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF1F3F9),
+                  color: AppTheme.isDark ? const Color(0xFF243044) : AppTheme.surfaceColor,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: TabBar(
                   controller: _tabController,
                   indicatorSize: TabBarIndicatorSize.tab,
                   dividerColor: Colors.transparent,
-                  padding: const EdgeInsets.all(2),
+                  padding: EdgeInsets.all(2),
                   indicator: BoxDecoration(
-                    color: Colors.white,
+                    color: AppTheme.cardColor,
                     borderRadius: BorderRadius.circular(8),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.06),
+                        color: Colors.black.withValues(alpha: AppTheme.isDark ? 0.25 : 0.06),
                         blurRadius: 4,
                         offset: const Offset(0, 1),
                       ),
                     ],
                   ),
                   labelColor: AppTheme.primaryColor,
-                  unselectedLabelColor: Colors.grey.shade500,
-                  labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                  unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                  unselectedLabelColor: AppTheme.textSecondary,
+                  labelStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
                   tabs: visibleTabs,
                 ),
               ),
@@ -673,12 +670,12 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                 const SizedBox(width: 8),
                 Container(
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppTheme.cardColor,
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.grey.shade200),
+                    border: Border.all(color: AppTheme.dividerColor),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.04),
+                        color: Colors.black.withValues(alpha: AppTheme.isDark ? 0.2 : 0.04),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       ),
@@ -687,6 +684,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                   child: PopupMenuButton<String>(
                     icon: const Icon(Icons.sort_rounded, color: AppTheme.primaryColor),
                     tooltip: 'Sort Options',
+                    color: AppTheme.cardColor,
                     onSelected: (value) {
                       setState(() {
                         if (value == 'amount') {
@@ -708,11 +706,11 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                           children: [
                             Icon(
                               _sortByAmount ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
-                              color: _sortByAmount ? AppTheme.primaryColor : Colors.grey,
+                              color: _sortByAmount ? AppTheme.primaryColor : AppTheme.textSecondary,
                               size: 20,
                             ),
                             const SizedBox(width: 8),
-                            const Text('Sort by Amount', style: TextStyle(fontSize: 14)),
+                            Text('Sort by Amount', style: TextStyle(fontSize: 14, color: AppTheme.textPrimary)),
                           ],
                         ),
                       ),
@@ -722,11 +720,11 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                           children: [
                             Icon(
                               _sortByDate ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
-                              color: _sortByDate ? AppTheme.primaryColor : Colors.grey,
+                              color: _sortByDate ? AppTheme.primaryColor : AppTheme.textSecondary,
                               size: 20,
                             ),
                             const SizedBox(width: 8),
-                            const Text('Sort by Due Date', style: TextStyle(fontSize: 14)),
+                            Text('Sort by Due Date', style: TextStyle(fontSize: 14, color: AppTheme.textPrimary)),
                           ],
                         ),
                       ),
@@ -813,10 +811,10 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                 decoration: BoxDecoration(
-                  color: hasGroupFilter ? AppTheme.primaryColor.withValues(alpha: 0.08) : const Color(0xFFF4F6FA),
+                  color: hasGroupFilter ? AppTheme.primaryColor.withValues(alpha: 0.08) : AppTheme.cardColor,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: hasGroupFilter ? AppTheme.primaryColor : Colors.grey.shade300,
+                    color: hasGroupFilter ? AppTheme.primaryColor : AppTheme.dividerColor,
                     width: hasGroupFilter ? 1.2 : 0.8,
                   ),
                 ),
@@ -825,7 +823,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                     Icon(
                       Icons.folder_outlined,
                       size: 15,
-                      color: hasGroupFilter ? AppTheme.primaryColor : Colors.grey.shade600,
+                      color: hasGroupFilter ? AppTheme.primaryColor : AppTheme.textSecondary,
                     ),
                     const SizedBox(width: 6),
                     Expanded(
@@ -836,7 +834,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: hasGroupFilter ? FontWeight.w600 : FontWeight.w500,
-                          color: hasGroupFilter ? AppTheme.primaryColor : const Color(0xFF2C3242),
+                          color: hasGroupFilter ? AppTheme.primaryColor : AppTheme.textPrimary,
                         ),
                       ),
                     ),
@@ -855,7 +853,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                         ),
                       )
                     else
-                      Icon(Icons.arrow_drop_down_rounded, size: 18, color: Colors.grey.shade600),
+                      Icon(Icons.arrow_drop_down_rounded, size: 18, color: AppTheme.textSecondary),
                   ],
                 ),
               ),
@@ -871,10 +869,10 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                 decoration: BoxDecoration(
-                  color: hasLedgerFilter ? AppTheme.primaryColor.withValues(alpha: 0.08) : const Color(0xFFF4F6FA),
+                  color: hasLedgerFilter ? AppTheme.primaryColor.withValues(alpha: 0.08) : AppTheme.cardColor,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: hasLedgerFilter ? AppTheme.primaryColor : Colors.grey.shade300,
+                    color: hasLedgerFilter ? AppTheme.primaryColor : AppTheme.dividerColor,
                     width: hasLedgerFilter ? 1.2 : 0.8,
                   ),
                 ),
@@ -883,7 +881,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                     Icon(
                       Icons.person_outline_rounded,
                       size: 15,
-                      color: hasLedgerFilter ? AppTheme.primaryColor : Colors.grey.shade600,
+                      color: hasLedgerFilter ? AppTheme.primaryColor : AppTheme.textSecondary,
                     ),
                     const SizedBox(width: 6),
                     Expanded(
@@ -894,7 +892,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: hasLedgerFilter ? FontWeight.w600 : FontWeight.w500,
-                          color: hasLedgerFilter ? AppTheme.primaryColor : const Color(0xFF2C3242),
+                          color: hasLedgerFilter ? AppTheme.primaryColor : AppTheme.textPrimary,
                         ),
                       ),
                     ),
@@ -913,7 +911,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                         ),
                       )
                     else
-                      Icon(Icons.arrow_drop_down_rounded, size: 18, color: Colors.grey.shade600),
+                      Icon(Icons.arrow_drop_down_rounded, size: 18, color: AppTheme.textSecondary),
                   ],
                 ),
               ),
@@ -954,8 +952,8 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
 
             return Container(
               height: MediaQuery.of(context).size.height * 0.7,
-              decoration: const BoxDecoration(
-                color: Colors.white,
+              decoration: BoxDecoration(
+                color: AppTheme.cardColor,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
               ),
               child: Column(
@@ -965,18 +963,18 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                     child: Row(
                       children: [
                         const Icon(Icons.folder_open_rounded, color: AppTheme.primaryColor, size: 22),
-                        const SizedBox(width: 10),
-                        const Expanded(
+                        SizedBox(width: 10),
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 'Select Group',
-                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36)),
+                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
                               ),
                               Text(
                                 'Filter outstandings by Tally group',
-                                style: TextStyle(fontSize: 12, color: Colors.grey),
+                                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                               ),
                             ],
                           ),
@@ -997,7 +995,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                         prefixIcon: const Icon(Icons.search_rounded, size: 20),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         filled: true,
-                        fillColor: const Color(0xFFF5F6FA),
+                        fillColor: AppTheme.surfaceColor,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                           borderSide: BorderSide.none,
@@ -1019,17 +1017,17 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                             decoration: BoxDecoration(
                               color: _selectedGroup == 'All Items'
                                   ? AppTheme.primaryColor.withValues(alpha: 0.1)
-                                  : const Color(0xFFF1F3F9),
+                                  : AppTheme.surfaceColor,
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
                               Icons.all_inclusive_rounded,
                               size: 18,
-                              color: _selectedGroup == 'All Items' ? AppTheme.primaryColor : Colors.grey.shade600,
+                              color: _selectedGroup == 'All Items' ? AppTheme.primaryColor : AppTheme.textSecondary,
                             ),
                           ),
                           title: const Text('All Items', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                          subtitle: Text('${allRecords.length} total bills', style: const TextStyle(fontSize: 12)),
+                          subtitle: Text('${allRecords.length} total bills', style: TextStyle(fontSize: 12)),
                           trailing: _selectedGroup == 'All Items'
                               ? const Icon(Icons.check_circle_rounded, color: AppTheme.primaryColor, size: 20)
                               : null,
@@ -1052,17 +1050,17 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                               decoration: BoxDecoration(
                                 color: isSelected
                                     ? AppTheme.primaryColor.withValues(alpha: 0.1)
-                                    : const Color(0xFFF1F3F9),
+                                    : AppTheme.surfaceColor,
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
                                 Icons.folder_rounded,
                                 size: 18,
-                                color: isSelected ? AppTheme.primaryColor : Colors.grey.shade600,
+                                color: isSelected ? AppTheme.primaryColor : AppTheme.textSecondary,
                               ),
                             ),
-                            title: Text(g, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                            subtitle: Text('$count bill${count == 1 ? '' : 's'}', style: const TextStyle(fontSize: 12)),
+                            title: Text(g, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                            subtitle: Text('$count bill${count == 1 ? '' : 's'}', style: TextStyle(fontSize: 12)),
                             trailing: isSelected
                                 ? const Icon(Icons.check_circle_rounded, color: AppTheme.primaryColor, size: 20)
                                 : null,
@@ -1132,8 +1130,8 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
 
             return Container(
               height: MediaQuery.of(context).size.height * 0.75,
-              decoration: const BoxDecoration(
-                color: Colors.white,
+              decoration: BoxDecoration(
+                color: AppTheme.cardColor,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
               ),
               child: Column(
@@ -1148,15 +1146,15 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
+                              Text(
                                 'Select Party / Ledger',
-                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36)),
+                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
                               ),
                               Text(
                                 _selectedGroup == 'All Items'
                                     ? 'All parties (${ledgers.length} total)'
                                     : 'Parties in $_selectedGroup (${ledgers.length})',
-                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                               ),
                             ],
                           ),
@@ -1177,7 +1175,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                         prefixIcon: const Icon(Icons.search_rounded, size: 20),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         filled: true,
-                        fillColor: const Color(0xFFF5F6FA),
+                        fillColor: AppTheme.surfaceColor,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                           borderSide: BorderSide.none,
@@ -1199,17 +1197,17 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                             decoration: BoxDecoration(
                               color: _selectedLedger == null
                                   ? AppTheme.primaryColor.withValues(alpha: 0.1)
-                                  : const Color(0xFFF1F3F9),
+                                  : AppTheme.surfaceColor,
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
                               Icons.groups_rounded,
                               size: 18,
-                              color: _selectedLedger == null ? AppTheme.primaryColor : Colors.grey.shade600,
+                              color: _selectedLedger == null ? AppTheme.primaryColor : AppTheme.textSecondary,
                             ),
                           ),
                           title: const Text('All Ledgers', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                          subtitle: Text('${scopedRecords.length} bills', style: const TextStyle(fontSize: 12)),
+                          subtitle: Text('${scopedRecords.length} bills', style: TextStyle(fontSize: 12)),
                           trailing: _selectedLedger == null
                               ? const Icon(Icons.check_circle_rounded, color: AppTheme.primaryColor, size: 20)
                               : null,
@@ -1234,19 +1232,19 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                               decoration: BoxDecoration(
                                 color: isSelected
                                     ? AppTheme.primaryColor.withValues(alpha: 0.1)
-                                    : const Color(0xFFF1F3F9),
+                                    : AppTheme.surfaceColor,
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
                                 Icons.person_rounded,
                                 size: 18,
-                                color: isSelected ? AppTheme.primaryColor : Colors.grey.shade600,
+                                color: isSelected ? AppTheme.primaryColor : AppTheme.textSecondary,
                               ),
                             ),
-                            title: Text(l, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                            title: Text(l, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                             subtitle: Text(
                               '$count bill${count == 1 ? '' : 's'} • ${formatCurrency(totalAmt)}',
-                              style: const TextStyle(fontSize: 12),
+                              style: TextStyle(fontSize: 12),
                             ),
                             trailing: isSelected
                                 ? const Icon(Icons.check_circle_rounded, color: AppTheme.primaryColor, size: 20)
@@ -1310,7 +1308,7 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
                             const SizedBox(width: 5),
                             Text(
                               '${DateFormat('dd MMM').format(_selectedDateRange!.start)} – ${DateFormat('dd MMM').format(_selectedDateRange!.end)}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Color(0xFF2453FF),
                                 fontWeight: FontWeight.w600,
                                 fontSize: 12,
@@ -1354,9 +1352,9 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
           decoration: BoxDecoration(
-            color: isSelected ? activeColor : const Color(0xFFF1F3F9),
+            color: isSelected ? activeColor : AppTheme.cardColor,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: isSelected ? activeColor : Colors.transparent),
+            border: Border.all(color: isSelected ? activeColor : AppTheme.dividerColor),
             boxShadow: isSelected
                 ? [
                     BoxShadow(
@@ -1370,14 +1368,14 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 14, color: isSelected ? Colors.white : Colors.grey.shade600),
+              Icon(icon, size: 14, color: isSelected ? Colors.white : AppTheme.textSecondary),
               const SizedBox(width: 4),
               Text(
                 label,
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                  color: isSelected ? Colors.white : Colors.grey.shade700,
+                  color: isSelected ? Colors.white : AppTheme.textPrimary,
                 ),
               ),
               if (badgeCount != null && badgeCount > 0) ...[
@@ -1570,12 +1568,12 @@ class _OutstandingCard extends StatelessWidget {
         item.isOverdue || (item.dueDate != null && item.dueDate!.isBefore(today));
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isOverdue ? Colors.red.shade300 : Colors.grey.shade200,
+          color: isOverdue ? Colors.red.shade300 : AppTheme.dividerColor,
           width: isOverdue ? 1.2 : 1.0,
         ),
         boxShadow: [
@@ -1602,10 +1600,10 @@ class _OutstandingCard extends StatelessWidget {
                     children: [
                       Text(
                         item.customerName,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF1A1F36),
+                          color: AppTheme.textPrimary,
                         ),
                       ),
                       if (item.groupName != null &&
@@ -1615,7 +1613,7 @@ class _OutstandingCard extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 1.5),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF1F3F9),
+                            color: AppTheme.isDark ? const Color(0xFF243044) : AppTheme.surfaceColor,
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
@@ -1623,7 +1621,7 @@ class _OutstandingCard extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w500,
-                              color: Colors.grey.shade700,
+                              color: AppTheme.textSecondary,
                             ),
                           ),
                         ),
@@ -1634,7 +1632,7 @@ class _OutstandingCard extends StatelessWidget {
                           'Inv: ${item.invoiceNumber}',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey.shade600,
+                            color: AppTheme.textSecondary,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -1671,7 +1669,7 @@ class _OutstandingCard extends StatelessWidget {
                 Icon(
                   Icons.chevron_right_rounded,
                   size: 20,
-                  color: Colors.grey.shade400,
+                  color: AppTheme.textSecondary,
                 ),
               ],
             ),

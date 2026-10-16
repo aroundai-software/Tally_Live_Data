@@ -69,14 +69,14 @@ class ErrorStateWidget extends StatelessWidget {
                 color: AppTheme.errorColor,
               ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             Text(
               title,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF1A1F36),
+                color: AppTheme.textPrimary,
               ),
             ),
             const SizedBox(height: 8),
@@ -85,7 +85,7 @@ class ErrorStateWidget extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
-                color: Colors.grey.shade600,
+                color: AppTheme.textSecondary,
                 height: 1.4,
               ),
             ),

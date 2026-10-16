@@ -439,13 +439,13 @@ class _LedgerScreenState extends State<LedgerScreen> {
       appBar: AppBar(
         leading: widget.onBack != null
             ? IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: Icon(Icons.arrow_back),
                 onPressed: widget.onBack,
               )
             : null,
-        title: const Text('Ledgers'),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        title: Text('Ledgers'),
+        backgroundColor: AppTheme.cardColor,
+        surfaceTintColor: AppTheme.cardColor,
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.sort_rounded, color: AppTheme.primaryColor),
@@ -517,8 +517,8 @@ class _LedgerScreenState extends State<LedgerScreen> {
               children: [
                 const Text('Total Customers', style: TextStyle(color: Colors.white70, fontSize: 13)),
                 const SizedBox(height: 4),
-                Text('$_displayTotalCount', style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
-                Text('$activeCount active', style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                Text('$_displayTotalCount', style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
+                Text('$activeCount active', style: TextStyle(color: Colors.white60, fontSize: 12)),
               ],
             ),
           ),
@@ -545,9 +545,17 @@ class _LedgerScreenState extends State<LedgerScreen> {
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilterChip(
-              label: Text(type, style: TextStyle(fontSize: 13, color: isSelected ? Colors.white : Colors.black87)),
+              label: Text(
+                type,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isSelected ? Colors.white : AppTheme.textPrimary,
+                ),
+              ),
               selected: isSelected,
               selectedColor: AppTheme.primaryColor,
+              backgroundColor: AppTheme.cardColor,
+              side: BorderSide(color: AppTheme.dividerColor),
               checkmarkColor: Colors.white,
               onSelected: (selected) {
                 if (selected) {
@@ -599,11 +607,11 @@ class _CustomerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: AppTheme.dividerColor),
       ),
       child: InkWell(
         onTap: () {
@@ -627,14 +635,14 @@ class _CustomerCard extends StatelessWidget {
                 ),
                 child: const Icon(Icons.person_rounded, color: AppTheme.primaryColor, size: 18),
               ),
-              const SizedBox(width: 16),
+              SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       customer.name,
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)),
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                     ),
                     if (CompanyProvider.of(context).isCombinedMode &&
                         customer.companyName != null &&

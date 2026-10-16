@@ -83,19 +83,19 @@ class _CustomerRankingScreenState extends State<CustomerRankingScreen> {
     final customers = _isFastest ? widget.fastestCustomers : widget.slowestCustomers;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6FB),
+      backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
         title: Text(title,
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: Color(0xFF1A1F36))),
-        backgroundColor: Colors.white,
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.textPrimary)),
+        backgroundColor: AppTheme.cardColor,
         elevation: 0,
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Color(0xFF1A1F36)),
+        iconTheme: IconThemeData(color: AppTheme.textPrimary),
       ),
       body: Column(
         children: [
           Container(
-            color: Colors.white,
+            color: AppTheme.surfaceColor,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
@@ -111,12 +111,12 @@ class _CustomerRankingScreenState extends State<CustomerRankingScreen> {
           ),
           Expanded(
             child: customers.isEmpty
-                ? const Center(child: Text('No customers found.'))
+                ? Center(child: Text('No customers found.', style: TextStyle(color: AppTheme.textSecondary)))
                 : ListView.separated(
                     cacheExtent: 1500,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     itemCount: customers.length,
-                    separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                    separatorBuilder: (context, index) => Divider(height: 1, color: AppTheme.dividerColor),
                     itemBuilder: (context, index) {
                       final customer = customers[index];
                       final rank = index + 1;
@@ -142,14 +142,17 @@ class _CustomerRankingScreenState extends State<CustomerRankingScreen> {
                                   child: Text('#$rank', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: accentColor)),
                                 ),
                               ),
-                              const SizedBox(width: 16),
+                              SizedBox(width: 16),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36))),
+                                    Text(name, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
                                     const SizedBox(height: 4),
-                                    Text('$count bills settled', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                    Text(
+                                      '$count bill${count == 1 ? '' : 's'} settled',
+                                      style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -165,7 +168,7 @@ class _CustomerRankingScreenState extends State<CustomerRankingScreen> {
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              const Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 20),
+                              Icon(Icons.chevron_right_rounded, color: AppTheme.textSecondary, size: 20),
                             ],
                           ),
                         ),
@@ -188,14 +191,14 @@ class _CustomerRankingScreenState extends State<CustomerRankingScreen> {
         padding: const EdgeInsets.symmetric(vertical: 10),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: isSelected ? color : Colors.transparent,
-          border: Border.all(color: isSelected ? color : Colors.grey.withValues(alpha: 0.3)),
+          color: isSelected ? color : AppTheme.cardColor,
+          border: Border.all(color: isSelected ? color : AppTheme.dividerColor),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Text(
           text,
           style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey[700],
+            color: isSelected ? Colors.white : AppTheme.textPrimary,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
           ),
         ),

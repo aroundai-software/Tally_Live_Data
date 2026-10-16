@@ -30,8 +30,12 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
   int _fastCount = 0;
   int _modCount = 0;
   int _slowCount = 0;
+  int _fastPct = 0;
+  int _modPct = 0;
+  int _slowPct = 0;
   int _totalBills = 0;
   double _totalAmount = 0;
+  bool _hasAnalyticsData = false;
   List<Map<String, dynamic>> _fastestCustomers = [];
   List<Map<String, dynamic>> _slowestCustomers = [];
   List<Map<String, dynamic>> _allFastestCustomers = [];
@@ -40,7 +44,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
 
   // Filter
   String _selectedPeriod = 'All';
-  final List<String> _periods = ['All', 'Last 3 Months', 'Last 6 Months', 'This Year'];
+  final List<String> _periods = ['All', 'Last 3 Months', 'Last 6 Months', 'This FY'];
   bool _useDueDate = true;
 
   bool _hasLoaded = false;
@@ -73,22 +77,35 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
           _isLoading = false;
           _error = 'No company selected';
           _allSettlements = [];
+          _hasAnalyticsData = false;
         });
       }
       return;
     }
     setState(() { _isLoading = true; _error = null; });
     try {
-      final data = await _service.getBillSettlements(companyName!);
+      final results = await Future.wait([
+        _service.getBillSettlements(companyName!),
+        _service.getSundryDebtorNames(companyName),
+      ]);
+      final raw = results[0] as List<LedgerBillSettlement>;
+      final debtors = results[1] as Set<String>;
+
+      // Prefer receivable (customer) settlements when ledger types are known.
+      final data = debtors.isEmpty
+          ? raw
+          : raw
+              .where((s) => debtors.contains(s.ledgerName.trim().toLowerCase()))
+              .toList();
 
       if (!mounted ||
           generation != _loadGeneration ||
           !CompanyScope.stillActive(companyName, CompanyProvider.of(context).selectedCompany)) {
         return;
       }
-      _applyFilter(data, _selectedPeriod);
       setState(() {
         _allSettlements = data;
+        _applyFilter(data, _selectedPeriod);
         _isLoading = false;
       });
     } catch (e) {
@@ -100,54 +117,132 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
     }
   }
 
-  void _applyFilter(List<LedgerBillSettlement> data, String period) {
-    final now = DateTime.now();
-    List<LedgerBillSettlement> filtered;
-
-    switch (period) {
-      case 'Last 3 Months':
-        final cutoff = DateTime(now.year, now.month - 3, now.day);
-        filtered = data.where((s) => s.clearedDate != null && s.clearedDate!.isAfter(cutoff)).toList();
-        break;
-      case 'Last 6 Months':
-        final cutoff = DateTime(now.year, now.month - 6, now.day);
-        filtered = data.where((s) => s.clearedDate != null && s.clearedDate!.isAfter(cutoff)).toList();
-        break;
-      case 'This Year':
-        filtered = data.where((s) => s.clearedDate != null && s.clearedDate!.year == now.year).toList();
-        break;
-      default:
-        filtered = data;
+  /// Safe calendar-month subtraction that clamps the day (avoids May 31 − 3 → Mar 2/3).
+  static DateTime _monthsAgoClamped(DateTime now, int months) {
+    var year = now.year;
+    var month = now.month - months;
+    while (month <= 0) {
+      month += 12;
+      year -= 1;
     }
-
-    _processData(filtered);
+    final lastDay = DateTime(year, month + 1, 0).day;
+    final day = now.day > lastDay ? lastDay : now.day;
+    return DateTime(year, month, day);
   }
 
-  void _processData(List<LedgerBillSettlement> data) {
-    // Only consider bills that have the required days value
-    final billsWithDelay = data.where((s) {
-      if (_useDueDate) return s.daysFromDueDate != null;
-      return s.daysToClear != null;
-    }).toList();
+  static DateTime _indianFyStart(DateTime now) =>
+      now.month >= 4 ? DateTime(now.year, 4, 1) : DateTime(now.year - 1, 4, 1);
 
-    // Include same-day clears; reject impossible negative invoice-to-payment ages.
-    // If using due date, keep early/on-time payments (delay <= 0) because they represent adherence to terms.
-    final billsForAvg = data.where((s) {
-      if (_useDueDate) return s.daysFromDueDate != null;
-      return s.daysToClear != null && s.daysToClear! >= 0;
-    }).toList();
+  static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
-    double totalDays = 0;
+  /// Inclusive cleared-date window for the selected period.
+  List<LedgerBillSettlement> _filterByPeriod(
+    List<LedgerBillSettlement> data,
+    String period,
+  ) {
+    final now = DateTime.now();
+    switch (period) {
+      case 'Last 3 Months':
+        final cutoff = _monthsAgoClamped(now, 3);
+        return data
+            .where((s) =>
+                s.clearedDate != null && !_dateOnly(s.clearedDate!).isBefore(cutoff))
+            .toList();
+      case 'Last 6 Months':
+        final cutoff = _monthsAgoClamped(now, 6);
+        return data
+            .where((s) =>
+                s.clearedDate != null && !_dateOnly(s.clearedDate!).isBefore(cutoff))
+            .toList();
+      case 'This FY':
+      case 'This Year': // legacy label
+        final fyStart = _indianFyStart(now);
+        return data
+            .where((s) =>
+                s.clearedDate != null && !_dateOnly(s.clearedDate!).isBefore(fyStart))
+            .toList();
+      default:
+        return data;
+    }
+  }
+
+  int _trendMonthCount(String period) {
+    final now = DateTime.now();
+    switch (period) {
+      case 'Last 3 Months':
+        return 3;
+      case 'Last 6 Months':
+        return 6;
+      case 'This FY':
+      case 'This Year':
+        final fyStart = _indianFyStart(now);
+        return (now.year - fyStart.year) * 12 + (now.month - fyStart.month) + 1;
+      default:
+        return 6;
+    }
+  }
+
+  /// Same analysis set for totals, average, distribution, and leaderboards.
+  bool _isAnalyzable(LedgerBillSettlement s) {
+    final days = s.resolvedDelayDays(useDueDate: _useDueDate);
+    if (days == null) return false;
+    // Invoice→cleared cannot be negative; treat as bad sync and exclude everywhere.
+    if (!_useDueDate && days < 0) return false;
+    return true;
+  }
+
+  /// Largest-remainder percents so pie labels always sum to 100.
+  static List<int> _largestRemainderPercents(List<int> counts) {
+    final total = counts.fold<int>(0, (a, b) => a + b);
+    if (total == 0) return List.filled(counts.length, 0);
+    final exact = counts.map((c) => c * 100.0 / total).toList();
+    final floors = exact.map((e) => e.floor()).toList();
+    var rem = 100 - floors.fold<int>(0, (a, b) => a + b);
+    final order = List.generate(counts.length, (i) => i)
+      ..sort((a, b) {
+        final fa = exact[a] - floors[a];
+        final fb = exact[b] - floors[b];
+        return fb.compareTo(fa);
+      });
+    for (var i = 0; i < rem; i++) {
+      floors[order[i]]++;
+    }
+    return floors;
+  }
+
+  void _applyFilter(List<LedgerBillSettlement> data, String period) {
+    _processData(_filterByPeriod(data, period), period);
+  }
+
+  void _processData(List<LedgerBillSettlement> data, String period) {
+    final bills = data.where(_isAnalyzable).toList();
+
     _fastCount = 0;
     _modCount = 0;
     _slowCount = 0;
-    _totalBills = billsWithDelay.length;
-    _totalAmount = data.fold(0, (sum, s) => sum + s.billAmount);
+    _totalBills = bills.length;
+    _totalAmount = bills.fold<double>(0, (sum, s) => sum + s.billAmount);
+    _hasAnalyticsData = bills.isNotEmpty;
 
-    Map<String, List<int>> ledgerDaysMap = {};
+    if (!_hasAnalyticsData) {
+      _globalAvgDays = 0;
+      _fastPct = _modPct = _slowPct = 0;
+      _fastestCustomers = [];
+      _slowestCustomers = [];
+      _allFastestCustomers = [];
+      _allSlowestCustomers = [];
+      _monthlyTrend = [];
+      return;
+    }
 
-    for (var s in billsWithDelay) {
-      final days = _useDueDate ? s.daysFromDueDate! : s.daysToClear!;
+    double weightedDays = 0;
+    double weightSum = 0;
+    final ledgerDays = <String, List<int>>{};
+    final ledgerWeights = <String, List<double>>{};
+
+    for (final s in bills) {
+      final days = s.resolvedDelayDays(useDueDate: _useDueDate)!;
+      final amount = s.billAmount.abs() > 0 ? s.billAmount.abs() : 1.0;
 
       if (days <= 7) {
         _fastCount++;
@@ -157,65 +252,100 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
         _slowCount++;
       }
 
-      if (!ledgerDaysMap.containsKey(s.ledgerName)) {
-        ledgerDaysMap[s.ledgerName] = [];
+      weightedDays += days * amount;
+      weightSum += amount;
+
+      ledgerDays.putIfAbsent(s.ledgerName, () => []).add(days);
+      ledgerWeights.putIfAbsent(s.ledgerName, () => []).add(amount);
+    }
+
+    _globalAvgDays = weightSum > 0 ? weightedDays / weightSum : 0;
+
+    final pcts = _largestRemainderPercents([_fastCount, _modCount, _slowCount]);
+    _fastPct = pcts[0];
+    _modPct = pcts[1];
+    _slowPct = pcts[2];
+
+    final customerAverages = <Map<String, dynamic>>[];
+    for (final entry in ledgerDays.entries) {
+      final days = entry.value;
+      final weights = ledgerWeights[entry.key]!;
+      double wSum = 0;
+      double wDays = 0;
+      for (var i = 0; i < days.length; i++) {
+        wDays += days[i] * weights[i];
+        wSum += weights[i];
       }
-      ledgerDaysMap[s.ledgerName]!.add(days);
+      customerAverages.add({
+        'ledger': entry.key,
+        'avgDays': wSum > 0 ? wDays / wSum : 0.0,
+        'count': days.length,
+      });
     }
 
-    for (var s in billsForAvg) {
-      totalDays += _useDueDate ? s.daysFromDueDate! : s.daysToClear!;
-    }
-    _globalAvgDays = billsForAvg.isNotEmpty ? totalDays / billsForAvg.length : 0;
-
-    // Customer ranking includes same-day and early payments.
-    List<Map<String, dynamic>> customerAverages = [];
-    ledgerDaysMap.forEach((ledger, days) {
-      final nonZero = days.toList();
-      if (nonZero.isEmpty) return;
-      double avg = nonZero.fold(0, (sum, val) => sum + val) / nonZero.length;
-      customerAverages.add({'ledger': ledger, 'avgDays': avg, 'count': nonZero.length});
-    });
-
-    customerAverages.sort((a, b) => (a['avgDays'] as double).compareTo(b['avgDays'] as double));
+    customerAverages
+        .sort((a, b) => (a['avgDays'] as double).compareTo(b['avgDays'] as double));
     _allFastestCustomers = List.from(customerAverages);
     _allSlowestCustomers = customerAverages.reversed.toList();
     _fastestCustomers = _allFastestCustomers.take(5).toList();
     _slowestCustomers = _allSlowestCustomers.take(5).toList();
 
-    // Monthly trend (last 6 months)
+    // Monthly trend — window matches selected period; averages are amount-weighted.
     final now = DateTime.now();
-    Map<String, List<int>> monthlyMap = {};
-    for (int i = 5; i >= 0; i--) {
+    final monthCount = _trendMonthCount(period).clamp(1, 24);
+    final monthlyDays = <String, List<int>>{};
+    final monthlyWeights = <String, List<double>>{};
+    final monthKeys = <String>[];
+    for (int i = monthCount - 1; i >= 0; i--) {
       final month = DateTime(now.year, now.month - i, 1);
       final key = DateFormat('MMM yy').format(month);
-      monthlyMap[key] = [];
+      monthKeys.add(key);
+      monthlyDays[key] = [];
+      monthlyWeights[key] = [];
     }
 
-    for (var s in billsForAvg) {
+    for (final s in bills) {
       if (s.clearedDate == null) continue;
       final key = DateFormat('MMM yy').format(s.clearedDate!);
-      if (monthlyMap.containsKey(key)) {
-        monthlyMap[key]!.add(_useDueDate ? s.daysFromDueDate! : s.daysToClear!);
-      }
+      if (!monthlyDays.containsKey(key)) continue;
+      final days = s.resolvedDelayDays(useDueDate: _useDueDate)!;
+      final amount = s.billAmount.abs() > 0 ? s.billAmount.abs() : 1.0;
+      monthlyDays[key]!.add(days);
+      monthlyWeights[key]!.add(amount);
     }
 
-    _monthlyTrend = monthlyMap.entries.map((e) {
-      final avg = e.value.isEmpty ? 0.0 : e.value.fold(0, (s, v) => s + v) / e.value.length;
-      return {'month': e.key, 'avg': avg, 'count': e.value.length};
+    _monthlyTrend = monthKeys.map((key) {
+      final days = monthlyDays[key]!;
+      final weights = monthlyWeights[key]!;
+      if (days.isEmpty) {
+        return {'month': key, 'avg': 0.0, 'count': 0};
+      }
+      double wDays = 0;
+      double wSum = 0;
+      for (var i = 0; i < days.length; i++) {
+        wDays += days[i] * weights[i];
+        wSum += weights[i];
+      }
+      return {
+        'month': key,
+        'avg': wSum > 0 ? wDays / wSum : 0.0,
+        'count': days.length,
+      };
     }).toList();
   }
 
   Color _getHealthColor(double days) {
+    if (!_hasAnalyticsData) return const Color(0xFF94A3B8);
     if (days <= 7) return const Color(0xFF22C55E);
     if (days <= 20) return const Color(0xFFF59E0B);
     return const Color(0xFFEF4444);
   }
 
   String _getHealthText(double days) {
-    if (days <= 7) return "Excellent";
-    if (days <= 20) return "Moderate";
-    return "Needs Attention";
+    if (!_hasAnalyticsData) return 'No data';
+    if (days <= 7) return 'Excellent';
+    if (days <= 20) return 'Moderate';
+    return 'Needs Attention';
   }
 
   Future<void> _navigateToLedger(BuildContext context, String ledgerName) async {
@@ -255,32 +385,34 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
   Widget build(BuildContext context) {
     final companyState = CompanyProvider.of(context);
     if (companyState.isCombinedMode) {
-      return const CombinedModeUnavailable(featureName: 'Cash Flow');
+      return CombinedModeUnavailable(featureName: 'Cash Flow');
     }
     final isEnabled = companyState.isFeatureEnabled('cash_flow');
 
     if (!isEnabled) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF4F6FB),
+        backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          title: const Text('Cash Flow Insights',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: Color(0xFF1A1F36))),
-          backgroundColor: Colors.white,
+          title: Text('Cash Flow Insights',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.textPrimary)),
+          backgroundColor: AppTheme.cardColor,
           elevation: 0,
           centerTitle: true,
-          iconTheme: const IconThemeData(color: Color(0xFF1A1F36)),
+          iconTheme: IconThemeData(color: AppTheme.textPrimary),
         ),
-        body: const Center(
+        body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2453FF)),
-              SizedBox(height: 12),
-              Text('Feature Locked', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
-              SizedBox(height: 8),
+              const Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2453FF)),
+              const SizedBox(height: 12),
+              Text('Feature Locked',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.textPrimary)),
+              const SizedBox(height: 8),
               Text('Cash Flow Insights is disabled for this company.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF6B7A94))),
+                  style: TextStyle(color: AppTheme.textSecondary)),
             ],
           ),
         ),
@@ -288,14 +420,14 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6FB),
+      backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: const Text('Cash Flow Insights',
-            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: Color(0xFF1A1F36))),
-        backgroundColor: Colors.white,
+        title: Text('Cash Flow Insights',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.textPrimary)),
+        backgroundColor: AppTheme.cardColor,
         elevation: 0,
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Color(0xFF1A1F36)),
+        iconTheme: IconThemeData(color: AppTheme.textPrimary),
         actions: [
           if (!_isLoading)
             IconButton(
@@ -325,7 +457,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
             children: [
               const Icon(Icons.error_outline, size: 48, color: Colors.red),
               const SizedBox(height: 12),
-              Text(_error!, style: const TextStyle(color: Colors.red), textAlign: TextAlign.center),
+              Text(_error!, style: TextStyle(color: Colors.red), textAlign: TextAlign.center),
               const SizedBox(height: 16),
               ElevatedButton(onPressed: _loadData, child: const Text('Retry')),
             ],
@@ -334,15 +466,18 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
       );
     }
     if (_allSettlements.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.account_balance_wallet_outlined, size: 64, color: Colors.grey),
-            SizedBox(height: 12),
-            Text("No settlement data available.", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            SizedBox(height: 6),
-            Text("Data will appear here once bills are settled.", style: TextStyle(color: Colors.grey)),
+            Icon(Icons.account_balance_wallet_outlined, size: 64, color: AppTheme.textSecondary),
+            const SizedBox(height: 12),
+            Text('No settlement data available.',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.textPrimary)),
+            const SizedBox(height: 6),
+            Text('Data will appear here once bills are settled.',
+                style: TextStyle(color: AppTheme.textSecondary)),
           ],
         ),
       );
@@ -363,29 +498,38 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
           _buildPeriodFilter(),
-          if (showSummary) ...[
-            const SizedBox(height: 16),
-            _buildSummaryRow(),
-          ],
-          if (showOverview) ...[
-            const SizedBox(height: 16),
-            _buildGlobalOverview(),
-          ],
-          if (showPieChart) ...[
-            const SizedBox(height: 16),
-            _buildDistributionChart(),
-          ],
-          if (showTrend) ...[
-            const SizedBox(height: 16),
-            _buildTrendChart(),
-          ],
-          if (showFastest) ...[
-            const SizedBox(height: 16),
-            _buildLeaderboard('🏆 Fastest Paying Customers', _fastestCustomers, _allFastestCustomers, const Color(0xFF22C55E)),
-          ],
-          if (showSlowest) ...[
-            const SizedBox(height: 16),
-            _buildLeaderboard('⚠️ Slowest Paying Customers', _slowestCustomers, _allSlowestCustomers, const Color(0xFFEF4444)),
+          if (!_hasAnalyticsData) ...[
+            const SizedBox(height: 24),
+            const EmptyState(
+              icon: Icons.date_range_outlined,
+              title: 'No bills in this period',
+              subtitle: 'Try a wider date range or switch calculation mode.',
+            ),
+          ] else ...[
+            if (showSummary) ...[
+              const SizedBox(height: 16),
+              _buildSummaryRow(),
+            ],
+            if (showOverview) ...[
+              const SizedBox(height: 16),
+              _buildGlobalOverview(),
+            ],
+            if (showPieChart) ...[
+              const SizedBox(height: 16),
+              _buildDistributionChart(),
+            ],
+            if (showTrend) ...[
+              const SizedBox(height: 16),
+              _buildTrendChart(),
+            ],
+            if (showFastest) ...[
+              const SizedBox(height: 16),
+              _buildLeaderboard('🏆 Fastest Paying Customers', _fastestCustomers, _allFastestCustomers, const Color(0xFF22C55E)),
+            ],
+            if (showSlowest) ...[
+              const SizedBox(height: 16),
+              _buildLeaderboard('⚠️ Slowest Paying Customers', _slowestCustomers, _allSlowestCustomers, const Color(0xFFEF4444)),
+            ],
           ],
         ],
       ),
@@ -411,29 +555,32 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                   padding: EdgeInsets.zero,
                   labelPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
                   onSelected: (_) {
-                    setState(() { _selectedPeriod = p; });
-                    _applyFilter(_allSettlements, p);
+                    setState(() {
+                      _selectedPeriod = p;
+                      _applyFilter(_allSettlements, p);
+                    });
                   },
                   selectedColor: AppTheme.primaryColor,
                   labelStyle: TextStyle(
-                    color: selected ? Colors.white : Colors.grey.shade700,
+                    color: selected ? Colors.white : AppTheme.textPrimary,
                     fontWeight: selected ? FontWeight.bold : FontWeight.w500,
                     fontSize: 11.5,
                   ),
-                  backgroundColor: Colors.white,
+                  backgroundColor: AppTheme.cardColor,
+                  side: BorderSide(color: AppTheme.dividerColor),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
               );
             }).toList(),
           ),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16),
         Container(
           width: double.infinity,
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppTheme.cardColor,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: AppTheme.dividerColor),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: LayoutBuilder(
@@ -452,7 +599,8 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                   });
                 },
                 style: SegmentedButton.styleFrom(
-                  backgroundColor: Colors.grey.shade50,
+                  backgroundColor: AppTheme.isDark ? const Color(0xFF243044) : AppTheme.surfaceColor,
+                  foregroundColor: AppTheme.textPrimary,
                   selectedForegroundColor: Colors.white,
                   selectedBackgroundColor: AppTheme.primaryColor,
                   visualDensity: VisualDensity.compact,
@@ -463,9 +611,9 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Calculate Speed From:',
-                      style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF3A4A63), fontSize: 13),
+                      style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.textPrimary, fontSize: 13),
                     ),
                     const SizedBox(height: 8),
                     SizedBox(
@@ -479,9 +627,9 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
               return Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Calculate Speed From:',
-                    style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF3A4A63), fontSize: 13),
+                    style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.textPrimary, fontSize: 13),
                   ),
                   segmentedButton,
                 ],
@@ -506,9 +654,9 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
 
   Widget _buildStatCard(String label, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
       ),
@@ -524,14 +672,14 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 2),
+                Text(label, style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                SizedBox(height: 2),
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
                     value,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36)),
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
                   ),
                 ),
               ],
@@ -560,10 +708,11 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(_useDueDate ? 'Average Payment Delay' : 'Average Collection Speed',
-              style: const TextStyle(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w500)),
+              style: TextStyle(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
-          Text('${_globalAvgDays.toStringAsFixed(1)} Days',
-              style: const TextStyle(fontSize: 38, fontWeight: FontWeight.w800, color: Colors.white)),
+          Text(
+              _hasAnalyticsData ? '${_globalAvgDays.toStringAsFixed(1)} Days' : '—',
+              style: TextStyle(fontSize: 38, fontWeight: FontWeight.w800, color: Colors.white)),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -572,7 +721,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(_getHealthText(_globalAvgDays),
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12)),
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12)),
           ),
         ],
       ),
@@ -586,17 +735,17 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
     if (total == 0) return const SizedBox.shrink();
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: Offset(0, 2))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Clearance Speed Distribution',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36))),
+          Text('Clearance Speed Distribution',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
           const SizedBox(height: 20),
           Row(
             children: [
@@ -611,23 +760,23 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                       PieChartSectionData(
                         color: const Color(0xFF22C55E),
                         value: _fastCount.toDouble(),
-                        title: '${((_fastCount / total) * 100).toStringAsFixed(0)}%',
+                        title: '$_fastPct%',
                         radius: 45,
-                        titleStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                        titleStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                       PieChartSectionData(
                         color: const Color(0xFFF59E0B),
                         value: _modCount.toDouble(),
-                        title: '${((_modCount / total) * 100).toStringAsFixed(0)}%',
+                        title: '$_modPct%',
                         radius: 45,
-                        titleStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                        titleStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                       PieChartSectionData(
                         color: const Color(0xFFEF4444),
                         value: _slowCount.toDouble(),
-                        title: '${((_slowCount / total) * 100).toStringAsFixed(0)}%',
+                        title: '$_slowPct%',
                         radius: 45,
-                        titleStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                        titleStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                     ],
                   ),
@@ -657,13 +806,13 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
     return Row(
       children: [
         Container(width: 12, height: 12, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3))),
-        const SizedBox(width: 8),
+        SizedBox(width: 8),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-              Text('$count bills', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36))),
+              Text(label, style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+              Text('$count bills', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
             ],
           ),
         ),
@@ -675,10 +824,14 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
     final hasData = _monthlyTrend.any((m) => (m['count'] as int) > 0);
     if (!hasData) return const SizedBox.shrink();
 
-    final maxY = _monthlyTrend
-        .map((m) => (m['avg'] as double))
-        .fold(0.0, (a, b) => a > b ? a : b);
-    final effectiveMaxY = maxY > 0 ? maxY * 1.3 : 30.0;
+    final avgs = _monthlyTrend
+        .where((m) => (m['count'] as int) > 0)
+        .map((m) => m['avg'] as double)
+        .toList();
+    final maxY = avgs.isEmpty ? 0.0 : avgs.reduce((a, b) => a > b ? a : b);
+    final minY = avgs.isEmpty ? 0.0 : avgs.reduce((a, b) => a < b ? a : b);
+    final effectiveMaxY = maxY > 0 ? maxY * 1.3 : (minY < 0 ? 5.0 : 30.0);
+    final effectiveMinY = minY < 0 ? minY * 1.2 : 0.0;
 
     final sharedTitlesData = FlTitlesData(
       bottomTitles: AxisTitles(
@@ -693,7 +846,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
             return Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(_monthlyTrend[idx]['month'],
-                  style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                  style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
             );
           },
         ),
@@ -703,7 +856,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
           showTitles: true,
           reservedSize: 32,
           getTitlesWidget: (value, meta) =>
-              Text(value.toInt().toString(), style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              Text(value.toInt().toString(), style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
         ),
       ),
       topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -714,13 +867,13 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
       show: true,
       drawVerticalLine: false,
       getDrawingHorizontalLine: (v) =>
-          FlLine(color: Colors.grey.withValues(alpha: 0.15), strokeWidth: 1),
+          FlLine(color: AppTheme.dividerColor, strokeWidth: 1),
     );
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
       ),
@@ -733,17 +886,17 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Monthly Trend',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36))),
+                    Text('Monthly Trend',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                     Text(_useDueDate ? 'Avg. delay days per month' : 'Avg. collection days per month',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                   ],
                 ),
               ),
               // Toggle bar / line
               Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF4F6FB),
+                  color: AppTheme.surfaceColor,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
@@ -765,7 +918,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                   ? LineChart(
                       LineChartData(
                         maxY: effectiveMaxY,
-                        minY: 0,
+                        minY: effectiveMinY,
                         minX: 0,
                         maxX: (_monthlyTrend.length - 1).toDouble(),
                         clipData: const FlClipData.all(),
@@ -776,7 +929,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                                 final m = _monthlyTrend[s.spotIndex];
                                 return LineTooltipItem(
                                   '${m['month']}\n${(m['avg'] as double).toStringAsFixed(1)} days\n${m['count']} bills',
-                                  const TextStyle(color: Colors.white, fontSize: 12),
+                                  TextStyle(color: Colors.white, fontSize: 12),
                                 );
                               }).toList();
                             },
@@ -826,13 +979,14 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                       BarChartData(
                         alignment: BarChartAlignment.spaceAround,
                         maxY: effectiveMaxY,
+                        minY: effectiveMinY,
                         barTouchData: BarTouchData(
                           touchTooltipData: BarTouchTooltipData(
                             getTooltipItem: (group, groupIndex, rod, rodIndex) {
                               final m = _monthlyTrend[groupIndex];
                               return BarTooltipItem(
                                 '${m['month']}\n${(m['avg'] as double).toStringAsFixed(1)} days\n${m['count']} bills',
-                                const TextStyle(color: Colors.white, fontSize: 12),
+                                TextStyle(color: Colors.white, fontSize: 12),
                               );
                             },
                           ),
@@ -842,17 +996,24 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                         borderData: FlBorderData(show: false),
                         barGroups: _monthlyTrend.asMap().entries.map((e) {
                           final avg = e.value['avg'] as double;
+                          final hasCount = (e.value['count'] as int) > 0;
                           return BarChartGroupData(
                             x: e.key,
                             barRods: [
                               BarChartRodData(
-                                toY: avg,
+                                fromY: avg < 0 ? avg : 0,
+                                toY: avg < 0 ? 0 : (hasCount ? avg : 0),
                                 color: _getHealthColor(avg),
                                 width: 22,
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(6),
-                                  topRight: Radius.circular(6),
-                                ),
+                                borderRadius: avg < 0
+                                    ? const BorderRadius.only(
+                                        bottomLeft: Radius.circular(6),
+                                        bottomRight: Radius.circular(6),
+                                      )
+                                    : const BorderRadius.only(
+                                        topLeft: Radius.circular(6),
+                                        topRight: Radius.circular(6),
+                                      ),
                               ),
                             ],
                           );
@@ -877,7 +1038,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
           color: selected ? AppTheme.primaryColor : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon, size: 18, color: selected ? Colors.white : Colors.grey),
+        child: Icon(icon, size: 18, color: selected ? Colors.white : AppTheme.textSecondary),
       ),
     );
   }
@@ -885,9 +1046,9 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
   Widget _buildLeaderboard(String title, List<Map<String, dynamic>> topCustomers, List<Map<String, dynamic>> allCustomers, Color accentColor) {
     if (topCustomers.isEmpty) return const SizedBox.shrink();
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
       ),
@@ -902,9 +1063,9 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1A1F36))),
+                    Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                     const SizedBox(height: 4),
-                    const Text('Tap to view ledger', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text('Tap to view ledger', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                   ],
                 ),
               ),
@@ -962,14 +1123,14 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                 child: Text('#$rank', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: accentColor)),
               ),
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)),
+                  Text(name, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                       maxLines: 1, overflow: TextOverflow.ellipsis),
-                  Text('$count bills settled', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text('$count bills settled', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                 ],
               ),
             ),
@@ -985,7 +1146,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
               ),
             ),
             const SizedBox(width: 4),
-            const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+            Icon(Icons.chevron_right, size: 18, color: AppTheme.textSecondary),
           ],
         ),
       ),

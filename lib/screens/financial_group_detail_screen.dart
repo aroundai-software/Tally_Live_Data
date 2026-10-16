@@ -9,6 +9,7 @@ import '../widgets/shimmer_loading.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/combined_mode_unavailable.dart';
 import 'ledger_statement_screen.dart';
+import '../config/app_theme.dart';
 
 /// Tally Group Summary style: one row per ledger, Closing Balance Debit | Credit.
 class FinancialGroupDetailScreen extends StatefulWidget {
@@ -140,28 +141,28 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
   @override
   Widget build(BuildContext context) {
     if (CompanyProvider.of(context).isCombinedMode) {
-      return const CombinedModeUnavailable(featureName: 'Financial report');
+      return CombinedModeUnavailable(featureName: 'Financial report');
     }
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FB),
+      backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
         title: Text(
           widget.groupName,
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w700,
-            color: Color(0xFF0F1A2B),
+            color: AppTheme.textPrimary,
             fontSize: 16,
           ),
         ),
         elevation: 0,
-        backgroundColor: Colors.white,
+        backgroundColor: AppTheme.cardColor,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F1A2B)),
+          icon: Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
           onPressed: () => Navigator.of(context).pop(),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F1A2B)),
+            icon: Icon(Icons.refresh_rounded, color: AppTheme.textPrimary),
             onPressed: _isLoading ? null : _loadData,
           ),
         ],
@@ -198,14 +199,14 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
     return RefreshIndicator(
       onRefresh: _loadData,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 16, 12, 32),
+        padding: EdgeInsets.fromLTRB(12, 16, 12, 32),
         children: [
           Container(
-            padding: const EdgeInsets.all(14),
+            padding: EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppTheme.cardColor,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFE4E9F1)),
+              border: Border.all(color: AppTheme.dividerColor),
             ),
             child: Row(
               children: [
@@ -215,19 +216,19 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
                     children: [
                       Text(
                         widget.reportTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF6B7A94),
+                          color: AppTheme.textSecondary,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         widget.groupName,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w800,
-                          color: Color(0xFF0F1A2B),
+                          color: AppTheme.textPrimary,
                         ),
                       ),
                     ],
@@ -236,7 +237,7 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
                 if (widget.groupAmount != null)
                   Text(
                     formatCurrency(widget.groupAmount!),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w800,
                       color: Color(0xFF2453FF),
@@ -245,19 +246,19 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: 14),
           Container(
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppTheme.cardColor,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE4E9F1)),
+              border: Border.all(color: AppTheme.dividerColor),
             ),
             child: Column(
               children: [
                 _buildTableHeader(),
-                const Divider(height: 1, color: Color(0xFFE4E9F1)),
+                Divider(height: 1, color: AppTheme.dividerColor),
                 ..._children.map(_buildChildRow),
-                const Divider(height: 1, color: Color(0xFFE4E9F1)),
+                Divider(height: 1, color: AppTheme.dividerColor),
                 _buildGrandTotalRow(totalDebit, totalCredit),
               ],
             ),
@@ -274,27 +275,27 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   'PARTICULARS',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.6,
-                    color: Color(0xFF6B7A94),
+                    color: AppTheme.textSecondary,
                   ),
                 ),
               ),
               SizedBox(
                 width: _debitColWidth + _creditColWidth,
-                child: const Text(
+                child: Text(
                   'CLOSING BALANCE',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.4,
-                    color: Color(0xFF6B7A94),
+                    color: AppTheme.textSecondary,
                   ),
                 ),
               ),
@@ -313,7 +314,7 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: Colors.grey.shade600,
+                    color: AppTheme.textSecondary,
                   ),
                 ),
               ),
@@ -325,7 +326,7 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: Colors.grey.shade600,
+                    color: AppTheme.textSecondary,
                   ),
                 ),
               ),
@@ -356,7 +357,7 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
                     ? Icons.folder_outlined
                     : Icons.account_balance_wallet_outlined,
                 size: 18,
-                color: const Color(0xFF6B7A94),
+                color: AppTheme.textSecondary,
               ),
             ),
             const SizedBox(width: 8),
@@ -367,7 +368,7 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: isGroup ? FontWeight.w700 : FontWeight.w500,
-                  color: const Color(0xFF0F1A2B),
+                  color: AppTheme.textPrimary,
                   height: 1.25,
                 ),
               ),
@@ -378,10 +379,10 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
               child: Text(
                 debit > 0 ? formatCurrency(debit) : '',
                 textAlign: TextAlign.right,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF0F1A2B),
+                  color: AppTheme.textPrimary,
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
               ),
@@ -391,10 +392,10 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
               child: Text(
                 credit > 0 ? formatCurrency(credit) : '',
                 textAlign: TextAlign.right,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF0F1A2B),
+                  color: AppTheme.textPrimary,
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
               ),
@@ -402,7 +403,7 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
             Icon(
               Icons.chevron_right_rounded,
               size: 18,
-              color: Colors.grey.shade400,
+              color: AppTheme.textSecondary,
             ),
           ],
         ),
@@ -415,13 +416,13 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
       padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
               'Grand Total',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
-                color: Color(0xFF0F1A2B),
+                color: AppTheme.textPrimary,
               ),
             ),
           ),
@@ -430,10 +431,10 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
             child: Text(
               totalDebit > 0 ? formatCurrency(totalDebit) : '',
               textAlign: TextAlign.right,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
-                color: Color(0xFF0F1A2B),
+                color: AppTheme.textPrimary,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
@@ -443,10 +444,10 @@ class _FinancialGroupDetailScreenState extends State<FinancialGroupDetailScreen>
             child: Text(
               totalCredit > 0 ? formatCurrency(totalCredit) : '',
               textAlign: TextAlign.right,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
-                color: Color(0xFF0F1A2B),
+                color: AppTheme.textPrimary,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),

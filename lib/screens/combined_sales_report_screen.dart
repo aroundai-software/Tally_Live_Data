@@ -124,7 +124,7 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
         decoration: BoxDecoration(
           border: Border(
-            bottom: BorderSide(color: Colors.grey.shade200),
+            bottom: BorderSide(color: AppTheme.dividerColor),
           ),
         ),
         child: Column(
@@ -135,7 +135,7 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
                 _companies.join(' • '),
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.grey.shade600,
+                  color: AppTheme.textSecondary,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -145,22 +145,22 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
               selected: _dateFilter,
               onChanged: (v) => setState(() => _dateFilter = v),
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: 10),
             TextField(
               decoration: InputDecoration(
                 hintText: 'Search invoice, customer, company',
                 isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                prefixIcon: const Icon(Icons.search, size: 20),
+                contentPadding: EdgeInsets.symmetric(vertical: 10),
+                prefixIcon: Icon(Icons.search, size: 20),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: AppTheme.cardColor,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.shade200),
+                  borderSide: BorderSide(color: AppTheme.dividerColor),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.shade200),
+                  borderSide: BorderSide(color: AppTheme.dividerColor),
                 ),
               ),
               onChanged: (v) => setState(() => _search = v),
@@ -173,9 +173,8 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
 
   Widget _buildInvoiceTile(SalesInvoice inv) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: Colors.white,
+      padding: EdgeInsets.only(bottom: 8),
+      child: Material(color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
@@ -184,7 +183,7 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
+              border: Border.all(color: AppTheme.dividerColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,7 +193,7 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
                     Expanded(
                       child: Text(
                         '#${inv.invoiceNumber}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 14,
                         ),
@@ -202,7 +201,7 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
                     ),
                     Text(
                       formatCurrency(inv.totalAmount),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.w700,
                         color: AppTheme.salesColor,
                       ),
@@ -214,7 +213,7 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
                   inv.customerName,
                   style: TextStyle(
                     fontSize: 13,
-                    color: Colors.grey.shade700,
+                    color: AppTheme.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -232,7 +231,7 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
                         _dateFormat.format(inv.invoiceDate!),
                         style: TextStyle(
                           fontSize: 11,
-                          color: Colors.grey.shade500,
+                          color: AppTheme.textSecondary,
                         ),
                       ),
                   ],
@@ -284,9 +283,9 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
                     totalsByCompany: _totalsByCompany,
                     accent: AppTheme.salesColor,
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   if (rows.isEmpty)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.symmetric(vertical: 40),
                       child: Center(
                         child: Text(
@@ -312,7 +311,7 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Combined Sales',
           style: TextStyle(
             fontWeight: FontWeight.w700,
@@ -321,8 +320,8 @@ class _CombinedSalesReportScreenState extends State<CombinedSalesReportScreen> {
           ),
         ),
         elevation: 0,
-        backgroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: AppTheme.textPrimary),
+        backgroundColor: AppTheme.cardColor,
+        iconTheme: IconThemeData(color: AppTheme.textPrimary),
       ),
       body: body,
     );

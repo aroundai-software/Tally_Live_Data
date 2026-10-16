@@ -483,13 +483,13 @@ class _StockScreenState extends State<StockScreen> {
         toolbarHeight: 46.0,
         leading: widget.onBack != null
             ? IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: Icon(Icons.arrow_back),
                 onPressed: widget.onBack,
               )
             : null,
         title: Text(_showSalesValue ? 'Products Sales Value' : 'Products'),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: AppTheme.cardColor,
+        surfaceTintColor: AppTheme.cardColor,
         actions: [
           IconButton(
             onPressed: _loadData,
@@ -507,7 +507,7 @@ class _StockScreenState extends State<StockScreen> {
                       top: -2,
                       child: Container(
                         padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           color: Colors.red,
                           shape: BoxShape.circle,
                         ),
@@ -581,12 +581,12 @@ class _StockScreenState extends State<StockScreen> {
                 const SizedBox(width: 8),
                 Container(
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppTheme.cardColor,
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.grey.shade200),
+                    border: Border.all(color: AppTheme.dividerColor),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.04),
+                        color: Colors.black.withValues(alpha: AppTheme.isDark ? 0.25 : 0.04),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       ),
@@ -610,14 +610,14 @@ class _StockScreenState extends State<StockScreen> {
                             Icon(
                               Icons.sort_by_alpha_rounded,
                               size: 18,
-                              color: _sortBy == 'alpha_asc' ? AppTheme.primaryColor : Colors.grey,
+                              color: _sortBy == 'alpha_asc' ? AppTheme.primaryColor : AppTheme.textSecondary,
                             ),
                             const SizedBox(width: 8),
                             Text(
                               'Name: A to Z',
                               style: TextStyle(
                                 fontWeight: _sortBy == 'alpha_asc' ? FontWeight.bold : FontWeight.normal,
-                                color: _sortBy == 'alpha_asc' ? AppTheme.primaryColor : Colors.black,
+                                color: _sortBy == 'alpha_asc' ? AppTheme.primaryColor : AppTheme.textPrimary,
                               ),
                             ),
                           ],
@@ -630,14 +630,14 @@ class _StockScreenState extends State<StockScreen> {
                             Icon(
                               Icons.sort_by_alpha_rounded,
                               size: 18,
-                              color: _sortBy == 'alpha_desc' ? AppTheme.primaryColor : Colors.grey,
+                              color: _sortBy == 'alpha_desc' ? AppTheme.primaryColor : AppTheme.textSecondary,
                             ),
                             const SizedBox(width: 8),
                             Text(
                               'Name: Z to A',
                               style: TextStyle(
                                 fontWeight: _sortBy == 'alpha_desc' ? FontWeight.bold : FontWeight.normal,
-                                color: _sortBy == 'alpha_desc' ? AppTheme.primaryColor : Colors.black,
+                                color: _sortBy == 'alpha_desc' ? AppTheme.primaryColor : AppTheme.textPrimary,
                               ),
                             ),
                           ],
@@ -650,14 +650,14 @@ class _StockScreenState extends State<StockScreen> {
                             Icon(
                               Icons.arrow_downward_rounded,
                               size: 18,
-                              color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.grey,
+                              color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : AppTheme.textSecondary,
                             ),
                             const SizedBox(width: 8),
                             Text(
                               'Quantity: High to Low',
                               style: TextStyle(
                                 fontWeight: _sortBy == 'qty_desc' ? FontWeight.bold : FontWeight.normal,
-                                color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : Colors.black,
+                                color: _sortBy == 'qty_desc' ? AppTheme.primaryColor : AppTheme.textPrimary,
                               ),
                             ),
                           ],
@@ -670,14 +670,14 @@ class _StockScreenState extends State<StockScreen> {
                             Icon(
                               Icons.arrow_upward_rounded,
                               size: 18,
-                              color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.grey,
+                              color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : AppTheme.textSecondary,
                             ),
                             const SizedBox(width: 8),
                             Text(
                               'Quantity: Low to High',
                               style: TextStyle(
                                 fontWeight: _sortBy == 'qty_asc' ? FontWeight.bold : FontWeight.normal,
-                                color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : Colors.black,
+                                color: _sortBy == 'qty_asc' ? AppTheme.primaryColor : AppTheme.textPrimary,
                               ),
                             ),
                           ],
@@ -736,12 +736,12 @@ class _StockScreenState extends State<StockScreen> {
               children: [
                 Text(
                   _showSalesValue ? 'Total Sales Value' : 'Total Stock Value',
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   formatCurrency(_totalValue),
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
@@ -758,7 +758,7 @@ class _StockScreenState extends State<StockScreen> {
             ),
             child: Text(
               '$_totalItems products',
-              style: const TextStyle(
+              style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
                 fontSize: 13,
@@ -780,9 +780,17 @@ class _StockScreenState extends State<StockScreen> {
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilterChip(
-              label: Text(filter, style: TextStyle(fontSize: 13, color: isSelected ? Colors.white : Colors.black87)),
+              label: Text(
+                filter,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isSelected ? Colors.white : AppTheme.textPrimary,
+                ),
+              ),
               selected: isSelected,
               selectedColor: AppTheme.primaryColor,
+              backgroundColor: AppTheme.cardColor,
+              side: BorderSide(color: AppTheme.dividerColor),
               checkmarkColor: Colors.white,
               onSelected: (selected) {
                 if (selected) {
@@ -862,7 +870,7 @@ class _StockScreenState extends State<StockScreen> {
         margin: const EdgeInsets.fromLTRB(16, 2, 16, 2),
         padding: const EdgeInsets.all(2),
         decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
+          color: AppTheme.isDark ? AppTheme.darkCard : const Color(0xFFF1F5F9),
           borderRadius: BorderRadius.circular(30),
         ),
         child: Row(
@@ -904,12 +912,12 @@ class _StockScreenState extends State<StockScreen> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.transparent,
+          color: isSelected ? AppTheme.cardColor : Colors.transparent,
           borderRadius: BorderRadius.circular(26),
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
+                    color: Colors.black.withValues(alpha: AppTheme.isDark ? 0.3 : 0.05),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   )
@@ -922,7 +930,7 @@ class _StockScreenState extends State<StockScreen> {
             Icon(
               icon,
               size: 16,
-              color: isSelected ? selectedColor : const Color(0xFF64748B),
+              color: isSelected ? selectedColor : AppTheme.textSecondary,
             ),
             const SizedBox(width: 8),
             Text(
@@ -930,7 +938,7 @@ class _StockScreenState extends State<StockScreen> {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected ? const Color(0xFF1E293B) : const Color(0xFF64748B),
+                color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
               ),
             ),
           ],
@@ -961,17 +969,25 @@ class _ProductCard extends StatelessWidget {
 
     final Color borderColor = isOutOfStock
         ? AppTheme.errorColor
-        : (isLowStock ? const Color(0xFFF59E0B) : Colors.grey.shade200);
+        : (isLowStock ? const Color(0xFFF59E0B) : AppTheme.dividerColor);
 
     final double borderWidth = (isOutOfStock || isLowStock) ? 1.5 : 1.0;
 
     final Color cardBg = isOutOfStock
-        ? const Color(0xFFFFFBFB)
-        : (isLowStock ? const Color(0xFFFFFDF5) : Colors.white);
+        ? (AppTheme.isDark
+            ? AppTheme.errorColor.withValues(alpha: 0.12)
+            : const Color(0xFFFFFBFB))
+        : (isLowStock
+            ? (AppTheme.isDark
+                ? const Color(0xFFF59E0B).withValues(alpha: 0.12)
+                : const Color(0xFFFFFDF5))
+            : AppTheme.cardColor);
 
     final Color detailBoxBg = isOutOfStock
-        ? AppTheme.errorColor.withValues(alpha: 0.03)
-        : (isLowStock ? const Color(0xFFF59E0B).withValues(alpha: 0.04) : const Color(0xFFF8F9FE));
+        ? AppTheme.errorColor.withValues(alpha: AppTheme.isDark ? 0.12 : 0.03)
+        : (isLowStock
+            ? const Color(0xFFF59E0B).withValues(alpha: AppTheme.isDark ? 0.12 : 0.04)
+            : AppTheme.surfaceColor);
 
     final Color? qtyColor = isOutOfStock
         ? AppTheme.errorColor
@@ -1069,10 +1085,10 @@ class _ProductCard extends StatelessWidget {
                   children: [
                     Text(
                       item.name,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF1A1F36),
+                        color: AppTheme.textPrimary,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1089,7 +1105,7 @@ class _ProductCard extends StatelessWidget {
                           metaText,
                           style: TextStyle(
                             fontSize: 10.5,
-                            color: Colors.grey.shade500,
+                            color: AppTheme.textSecondary,
                             fontWeight: FontWeight.w400,
                           ),
                           maxLines: 1,
@@ -1184,7 +1200,7 @@ class _ProductCard extends StatelessWidget {
       width: 1,
       height: 14,
       margin: const EdgeInsets.symmetric(horizontal: 4),
-      color: Colors.grey.shade300,
+      color: AppTheme.dividerColor,
     );
   }
 }
@@ -1201,14 +1217,14 @@ class _DetailChip extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: TextStyle(fontSize: 9, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 1),
+          Text(label, style: TextStyle(fontSize: 9, color: AppTheme.textSecondary, fontWeight: FontWeight.w500)),
+          SizedBox(height: 1),
           Text(
             value,
             style: TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w600,
-              color: valueColor ?? const Color(0xFF1A1F36),
+              color: valueColor ?? AppTheme.textPrimary,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

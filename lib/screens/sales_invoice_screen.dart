@@ -390,13 +390,13 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
       appBar: AppBar(
         leading: widget.onBack != null
             ? IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: Icon(Icons.arrow_back),
                 onPressed: widget.onBack,
               )
             : null,
-        title: const Text('Sales Invoices'),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        title: Text('Sales Invoices'),
+        backgroundColor: AppTheme.cardColor,
+        surfaceTintColor: AppTheme.cardColor,
         actions: [
           IconButton(
             onPressed: _showFilterSortDialog,
@@ -451,7 +451,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(title, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              Text(title, style: TextStyle(color: Colors.white70, fontSize: 12)),
               if (onActionTap != null)
                 GestureDetector(
                   onTap: onActionTap,
@@ -480,7 +480,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
               children: [
                 Text(
                   formatCurrency(amount),
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -498,7 +498,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
             ),
           ),
           const SizedBox(height: 6),
-          Text(subtitle, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+          Text(subtitle, style: TextStyle(color: Colors.white70, fontSize: 11)),
         ],
       ),
     );
@@ -598,17 +598,17 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? activeColor : Colors.white,
+          color: isSelected ? activeColor : AppTheme.cardColor,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? activeColor : Colors.grey.shade300,
+            color: isSelected ? activeColor : AppTheme.dividerColor,
             width: 1,
           ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Colors.white : Colors.black87,
+            color: isSelected ? Colors.white : AppTheme.textPrimary,
             fontSize: 13,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
           ),
@@ -626,7 +626,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
             final activeColor = AppTheme.salesColor;
 
             return Dialog(
-              backgroundColor: Colors.white,
+              backgroundColor: AppTheme.cardColor,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -643,7 +643,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
+                          Text(
                             'Sort by',
                             style: TextStyle(
                               fontSize: 18,
@@ -655,7 +655,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
                             onTap: () => Navigator.pop(context),
                             child: Icon(
                               Icons.close_rounded,
-                              color: Colors.grey.shade600,
+                              color: AppTheme.textSecondary,
                               size: 20,
                             ),
                           ),
@@ -726,13 +726,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
       builder: (context, child) {
         return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: activeColor,
-              onPrimary: Colors.white,
-              onSurface: Colors.black87,
-            ),
-          ),
+          data: AppTheme.datePickerOverlayTheme(context, primary: activeColor),
           child: child!,
         );
       },
@@ -753,9 +747,9 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
       padding: const EdgeInsets.only(top: 16, bottom: 8),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Divider(
-              color: Color(0xFFE2E8F0),
+              color: AppTheme.dividerColor,
               thickness: 1,
             ),
           ),
@@ -768,7 +762,7 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
             ),
             child: Text(
               monthStr,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 color: AppTheme.salesColor,
@@ -776,9 +770,9 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
             ),
           ),
           const SizedBox(width: 8),
-          const Expanded(
+          Expanded(
             child: Divider(
-              color: Color(0xFFE2E8F0),
+              color: AppTheme.dividerColor,
               thickness: 1,
             ),
           ),
@@ -823,10 +817,10 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
             horizontal: customLabel != null ? 10 : 8,
           ),
           decoration: BoxDecoration(
-            color: isSelected ? activeColor : Colors.white,
+            color: isSelected ? activeColor : AppTheme.cardColor,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: isSelected ? activeColor : Colors.grey.shade400,
+              color: isSelected ? activeColor : AppTheme.dividerColor,
               width: 1,
             ),
           ),
@@ -838,13 +832,13 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
               Icon(
                 Icons.calendar_month_rounded,
                 size: 16,
-                color: isSelected ? Colors.white : Colors.black87,
+                color: isSelected ? Colors.white : AppTheme.textPrimary,
               ),
               if (customLabel != null) ...[
                 const SizedBox(width: 6),
                 Text(
                   customLabel,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: Colors.white,
@@ -878,9 +872,11 @@ class _SalesInvoiceScreenState extends State<SalesInvoiceScreen> {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: FilterChip(
-        label: Text(label, style: TextStyle(fontSize: 13, color: isSelected ? Colors.white : Colors.black87)),
+        label: Text(label, style: TextStyle(fontSize: 13, color: isSelected ? Colors.white : AppTheme.textPrimary)),
         selected: isSelected,
         selectedColor: AppTheme.salesColor,
+        backgroundColor: AppTheme.cardColor,
+        side: BorderSide(color: isSelected ? AppTheme.salesColor : AppTheme.dividerColor),
         checkmarkColor: Colors.white,
         onSelected: (selected) {
           if (selected) {
@@ -914,7 +910,11 @@ class _InvoiceCard extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.grey.shade200)),
+        decoration: BoxDecoration(
+          color: AppTheme.cardColor,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.dividerColor),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -923,22 +923,22 @@ class _InvoiceCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(color: AppTheme.salesColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-                  child: const Icon(Icons.receipt_long_rounded, color: AppTheme.salesColor, size: 20),
+                  child: Icon(Icons.receipt_long_rounded, color: AppTheme.salesColor, size: 20),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(invoice.customerName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36))),
+                    Text(invoice.customerName, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
                     const SizedBox(height: 2),
-                    Text('#${invoice.invoiceNumber}', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                    Text('#${invoice.invoiceNumber}', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                   ]),
                 ),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(formatCurrency(invoice.totalAmount), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.salesColor)),
+                    Text(formatCurrency(invoice.totalAmount), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.salesColor)),
                     if (invoice.invoiceDate != null)
-                      Padding(padding: const EdgeInsets.only(top: 2), child: Text(dateFormat.format(invoice.invoiceDate!), style: TextStyle(fontSize: 11, color: Colors.grey.shade500))),
+                      Padding(padding: const EdgeInsets.only(top: 2), child: Text(dateFormat.format(invoice.invoiceDate!), style: TextStyle(fontSize: 11, color: AppTheme.textSecondary))),
                   ],
                 ),
               ],
@@ -952,10 +952,10 @@ class _InvoiceCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(color: AppTheme.salesColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(6)),
-                    child: Text(invoice.type!, style: const TextStyle(fontSize: 11, color: AppTheme.salesColor, fontWeight: FontWeight.w600)),
+                    child: Text(invoice.type!, style: TextStyle(fontSize: 11, color: AppTheme.salesColor, fontWeight: FontWeight.w600)),
                   ),
                 const Spacer(),
-                Icon(invoice.syncedToTally ? Icons.cloud_done_rounded : Icons.cloud_off_rounded, size: 16, color: invoice.syncedToTally ? Colors.green : Colors.grey.shade400),
+                Icon(invoice.syncedToTally ? Icons.cloud_done_rounded : Icons.cloud_off_rounded, size: 16, color: invoice.syncedToTally ? Colors.green : AppTheme.textSecondary),
               ],
             ),
           ],

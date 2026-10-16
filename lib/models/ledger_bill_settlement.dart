@@ -56,4 +56,25 @@ class LedgerBillSettlement {
       'guid': guid,
     };
   }
+
+  static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  /// Invoice → cleared days. Prefers date math; falls back to sync column.
+  int? get resolvedDaysToClear {
+    if (clearedDate != null && billDate != null) {
+      return _dateOnly(clearedDate!).difference(_dateOnly(billDate!)).inDays;
+    }
+    return daysToClear;
+  }
+
+  /// Due → cleared days (negative = early). Prefers date math; falls back to sync.
+  int? get resolvedDaysFromDueDate {
+    if (clearedDate != null && dueDate != null) {
+      return _dateOnly(clearedDate!).difference(_dateOnly(dueDate!)).inDays;
+    }
+    return daysFromDueDate;
+  }
+
+  int? resolvedDelayDays({required bool useDueDate}) =>
+      useDueDate ? resolvedDaysFromDueDate : resolvedDaysToClear;
 }

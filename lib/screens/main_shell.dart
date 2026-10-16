@@ -454,7 +454,7 @@ class _MainShellState extends State<MainShell> with ActiveSessionGuard {
     state.clearCompany();
     state.clearUserCapabilities();
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      MaterialPageRoute(builder: (_) => LoginScreen()),
     );
   }
 
@@ -470,14 +470,14 @@ class _MainShellState extends State<MainShell> with ActiveSessionGuard {
         backgroundColor: AppTheme.surfaceColor,
         body: Center(
           child: _featureError == null
-              ? const CircularProgressIndicator(color: AppTheme.primaryColor)
+              ? CircularProgressIndicator(color: AppTheme.primaryColor)
               : Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
+                    Text(
                       'Unable to verify company access.',
                       style: TextStyle(
-                        color: Color(0xFF1A1F36),
+                        color: AppTheme.textPrimary,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -534,9 +534,6 @@ class _MainShellState extends State<MainShell> with ActiveSessionGuard {
 
     final showRec = companyState.isFeatureEnabled('out_receivables');
     final showPay = companyState.isFeatureEnabled('out_payables');
-    final outstandingLabel = (showRec && showPay)
-        ? 'Recv/Pay'
-        : (showRec ? 'Receivables' : 'Payables');
     final outstandingIcon = (showRec && showPay)
         ? Icons.swap_horiz_rounded
         : (showRec ? Icons.trending_up_rounded : Icons.trending_down_rounded);
@@ -631,74 +628,103 @@ class _MainShellState extends State<MainShell> with ActiveSessionGuard {
           ),
         ],
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 12,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _NavItem(
-                  icon: Icons.dashboard_rounded,
-                  label: 'Dashboard',
-                  isSelected: _currentIndex == 0,
-                  onTap: () => _onNavigate(0),
-                  color: AppTheme.primaryColor,
+      bottomNavigationBar: Builder(
+        builder: (context) {
+          final screenWidth = MediaQuery.sizeOf(context).width;
+          final compact = screenWidth < 400;
+          final dashLabel = compact ? 'Home' : 'Dashboard';
+          final stockLabel = 'Stock';
+          final ledgerLabel = compact ? 'Ledger' : 'Ledgers';
+          final outLabel = (showRec && showPay)
+              ? 'Recv/Pay'
+              : (showRec
+                  ? (compact ? 'Recv' : 'Receivables')
+                  : (compact ? 'Pay' : 'Payables'));
+          final salesLabel = 'Sales';
+          final purchaseLabel = compact ? 'Purchase' : 'Purchases';
+
+          return Container(
+            decoration: BoxDecoration(
+              color: AppTheme.cardColor,
+              border: Border(
+                top: BorderSide(color: AppTheme.dividerColor, width: 1),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: AppTheme.isDark ? 0.35 : 0.06),
+                  blurRadius: 12,
+                  offset: const Offset(0, -2),
                 ),
-                if (companyState.isFeatureEnabled('stock'))
-                  _NavItem(
-                    icon: Icons.inventory_2_rounded,
-                    label: 'Stock',
-                    isSelected: _currentIndex == 1,
-                    onTap: () => _onNavigate(1),
-                    color: AppTheme.stockColor,
-                  ),
-                if (companyState.isFeatureEnabled('ledgers'))
-                  _NavItem(
-                    icon: Icons.people_alt_rounded,
-                    label: 'Ledgers',
-                    isSelected: _currentIndex == 2,
-                    onTap: () => _onNavigate(2),
-                    color: AppTheme.primaryColor,
-                  ),
-                if (companyState.isFeatureEnabled('outstanding'))
-                  _NavItem(
-                    icon: outstandingIcon,
-                    label: outstandingLabel,
-                    isSelected: _currentIndex == 3,
-                    onTap: () => _onNavigate(3),
-                    color: AppTheme.receivableColor,
-                  ),
-                if (companyState.isFeatureEnabled('sales'))
-                  _NavItem(
-                    icon: Icons.receipt_long_rounded,
-                    label: 'Sales',
-                    isSelected: _currentIndex == 4,
-                    onTap: () => _onNavigate(4),
-                    color: AppTheme.salesColor,
-                  ),
-                if (companyState.isFeatureEnabled('purchases'))
-                  _NavItem(
-                    icon: Icons.shopping_cart_rounded,
-                    label: 'Purchases',
-                    isSelected: _currentIndex == 5,
-                    onTap: () => _onNavigate(5),
-                    color: AppTheme.purchaseColor,
-                  ),
               ],
             ),
-          ),
-        ),
+            child: SafeArea(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? 2 : 8,
+                  vertical: 6,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _NavItem(
+                      icon: Icons.dashboard_rounded,
+                      label: dashLabel,
+                      isSelected: _currentIndex == 0,
+                      onTap: () => _onNavigate(0),
+                      color: AppTheme.primaryColor,
+                      compact: compact,
+                    ),
+                    if (companyState.isFeatureEnabled('stock'))
+                      _NavItem(
+                        icon: Icons.inventory_2_rounded,
+                        label: stockLabel,
+                        isSelected: _currentIndex == 1,
+                        onTap: () => _onNavigate(1),
+                        color: AppTheme.stockColor,
+                        compact: compact,
+                      ),
+                    if (companyState.isFeatureEnabled('ledgers'))
+                      _NavItem(
+                        icon: Icons.people_alt_rounded,
+                        label: ledgerLabel,
+                        isSelected: _currentIndex == 2,
+                        onTap: () => _onNavigate(2),
+                        color: AppTheme.primaryColor,
+                        compact: compact,
+                      ),
+                    if (companyState.isFeatureEnabled('outstanding'))
+                      _NavItem(
+                        icon: outstandingIcon,
+                        label: outLabel,
+                        isSelected: _currentIndex == 3,
+                        onTap: () => _onNavigate(3),
+                        color: AppTheme.receivableColor,
+                        compact: compact,
+                      ),
+                    if (companyState.isFeatureEnabled('sales'))
+                      _NavItem(
+                        icon: Icons.receipt_long_rounded,
+                        label: salesLabel,
+                        isSelected: _currentIndex == 4,
+                        onTap: () => _onNavigate(4),
+                        color: AppTheme.salesColor,
+                        compact: compact,
+                      ),
+                    if (companyState.isFeatureEnabled('purchases'))
+                      _NavItem(
+                        icon: Icons.shopping_cart_rounded,
+                        label: purchaseLabel,
+                        isSelected: _currentIndex == 5,
+                        onTap: () => _onNavigate(5),
+                        color: AppTheme.purchaseColor,
+                        compact: compact,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -710,6 +736,7 @@ class _NavItem extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
   final Color color;
+  final bool compact;
 
   const _NavItem({
     required this.icon,
@@ -717,6 +744,7 @@ class _NavItem extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
     required this.color,
+    this.compact = false,
   });
 
   @override
@@ -727,8 +755,8 @@ class _NavItem extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 250),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 6,
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 2 : 6,
             vertical: 6,
           ),
           decoration: BoxDecoration(
@@ -741,18 +769,21 @@ class _NavItem extends StatelessWidget {
               Icon(
                 icon,
                 size: 20,
-                color: isSelected ? color : Colors.grey.shade400,
+                color: isSelected ? color : AppTheme.textSecondary,
               ),
               const SizedBox(height: 3),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                  color: isSelected ? color : Colors.grey.shade400,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: compact ? 9 : 10,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    color: isSelected ? color : AppTheme.textSecondary,
+                  ),
+                  maxLines: 1,
+                  softWrap: false,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
@@ -801,7 +832,7 @@ class _SubscriptionBanner extends StatelessWidget {
               Expanded(
                 child: Text(
                   message,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -864,7 +895,7 @@ class _CompanyBanner extends StatelessWidget {
                               ),
                               child: Text(
                                 title,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -875,7 +906,7 @@ class _CompanyBanner extends StatelessWidget {
                           )
                         : Text(
                             title,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.white,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -970,7 +1001,7 @@ class _CompanyBanner extends StatelessWidget {
                 fontSize: 10,
                 fontWeight: FontWeight.w500,
                 height: 1.25,
-                color: Colors.grey.shade600,
+                color: AppTheme.textSecondary,
               ),
             ),
           ),

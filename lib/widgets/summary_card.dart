@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../config/app_theme.dart';
 
 class SummaryCard extends StatelessWidget {
   final String title;
@@ -24,11 +25,11 @@ class SummaryCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppTheme.cardColor,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: AppTheme.dividerColor),
           boxShadow: [
             BoxShadow(
               color: color.withValues(alpha: 0.05),
@@ -43,6 +44,7 @@ class SummaryCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
                   padding: const EdgeInsets.all(5),
@@ -59,24 +61,26 @@ class SummaryCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600,
+                      color: AppTheme.textSecondary,
+                      height: 1.2,
                     ),
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                    softWrap: true,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: 4),
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
               child: Text(
                 value,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF1A1F36),
+                  color: AppTheme.textPrimary,
                   letterSpacing: -0.5,
                 ),
                 maxLines: 1,
@@ -88,7 +92,7 @@ class SummaryCard extends StatelessWidget {
                 subtitle!,
                 style: TextStyle(
                   fontSize: 10,
-                  color: Colors.grey.shade500,
+                  color: AppTheme.textSecondary,
                   fontWeight: FontWeight.w500,
                 ),
                 maxLines: 1,

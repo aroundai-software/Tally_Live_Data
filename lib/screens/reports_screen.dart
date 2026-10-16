@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../widgets/error_state_widget.dart';
 import 'package:flutter/material.dart';
 import '../utils/error_handler.dart';
@@ -8,24 +10,39 @@ import '../utils/company_scope.dart';
 import '../services/supabase_service.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/summary_card.dart';
+import '../config/app_theme.dart';
 
 // ---------------------------------------------------------------------------
-// Design tokens (mirrors the HTML demo palette)
+// Design tokens — adaptive for light / dark via AppTheme.bindBrightness
 // ---------------------------------------------------------------------------
 class _Palette {
-  static const ink900 = Color(0xFF0F1A2B);
-  static const ink700 = Color(0xFF3A4A63);
-  static const ink500 = Color(0xFF6B7A94);
-  static const line = Color(0xFFE4E9F1);
-  static const paper = Color(0xFFF5F7FB);
   static const blue = Color(0xFF2453FF);
-  static const blueSoft = Color(0xFFE9EEFF);
   static const teal = Color(0xFF0DA6A0);
-  static const tealSoft = Color(0xFFE1F5F3);
   static const amber = Color(0xFFB96A00);
-  static const amberSoft = Color(0xFFFBEEDC);
   static const red = Color(0xFFC2372A);
-  static const redSoft = Color(0xFFFBEAE8);
+
+  static Color get ink900 => AppTheme.textPrimary;
+  static Color get ink700 =>
+      AppTheme.isDark ? const Color(0xFFCBD5E1) : const Color(0xFF3A4A63);
+  static Color get ink500 => AppTheme.textSecondary;
+  static Color get line => AppTheme.dividerColor;
+  static Color get paper => AppTheme.surfaceColor;
+
+  static Color get blueSoft =>
+      AppTheme.isDark ? blue.withValues(alpha: 0.18) : const Color(0xFFE9EEFF);
+  static Color get tealSoft =>
+      AppTheme.isDark ? teal.withValues(alpha: 0.18) : const Color(0xFFE1F5F3);
+  static Color get amberSoft =>
+      AppTheme.isDark ? amber.withValues(alpha: 0.18) : const Color(0xFFFBEEDC);
+  static Color get redSoft =>
+      AppTheme.isDark ? red.withValues(alpha: 0.18) : const Color(0xFFFBEAE8);
+
+  static Color get chartTooltipBg => AppTheme.isDark
+      ? AppTheme.cardColor.withValues(alpha: 0.98)
+      : const Color(0xFF1E293B).withValues(alpha: 0.95);
+
+  static Color get chartTooltipLabel =>
+      AppTheme.isDark ? AppTheme.textPrimary : Colors.white70;
 }
 
 // Cutoff options available for the "unused" filters.
@@ -58,12 +75,15 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   int _overviewDays = 7;
   int _totalUnusedLedgersCount = 0;
   int _totalUnusedItemsCount = 0;
+  double _deadStockKpiValue = 0;
   bool _useLineChart = false;
 
   bool _velocityLoaded = false;
   bool _dormantLoaded = false;
+  bool _overviewKpisLoaded = false;
   bool _velocityLoading = false;
   bool _dormantLoading = false;
+  bool _overviewKpisLoading = false;
 
   // User-adjustable "no activity in X days" cutoffs — independent per section,
   // since a quiet customer and slow-moving equipment stock aren't the same
@@ -89,6 +109,10 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   void _ensureTabDataLoaded(int index) {
     if (index < 0 || index >= _visibleTabLabels.length) return;
     switch (_visibleTabLabels[index]) {
+      case 'Overview':
+        // Lightweight KPI RPC — not the full unused lists.
+        _loadOverviewKpisIfNeeded();
+        break;
       case 'Velocity':
         _loadVelocityIfNeeded();
         break;
@@ -153,7 +177,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
     return CompanyScope.isValid(state.selectedCompany);
   }
 
-  /// Entry / pull-to-refresh: Overview only. Velocity & Dormant load on tab open.
+  /// Entry / pull-to-refresh: Overview (+ dormant KPIs). Velocity loads on tab open.
   Future<void> _loadData({bool silent = false}) async {
     final generation = ++_loadGeneration;
     final state = CompanyProvider.of(context);
@@ -174,8 +198,10 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
       if (!silent) _isLoading = true;
       _velocityLoaded = false;
       _dormantLoaded = false;
+      _overviewKpisLoaded = false;
       _velocityLoading = false;
       _dormantLoading = false;
+      _overviewKpisLoading = false;
       _fastItems = [];
       _slowItems = [];
       _highValueItems = [];
@@ -183,6 +209,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
       _unusedItems = [];
       _totalUnusedLedgersCount = 0;
       _totalUnusedItemsCount = 0;
+      _deadStockKpiValue = 0;
     });
     try {
       final costs = state.isFeatureEnabled('stock_cost');
@@ -190,6 +217,9 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
       final isCombined = state.isCombinedMode;
       final company = state.selectedCompany;
       final companies = state.selectedCompanies;
+
+      // Start dormant KPIs immediately (independent of profit).
+      unawaited(_loadOverviewKpisIfNeeded(force: true));
 
       final profit = sales
           ? (isCombined
@@ -199,13 +229,14 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                   companyName: company, days: _overviewDays))
           : <Map<String, dynamic>>[];
       if (!_scopeStillActive(generation, scopeKey)) return;
+
       setState(() {
         _profitData = profit;
         _useLineChart = _overviewDays > 30;
         _isLoading = false;
       });
 
-      // If user already switched tabs during overview load, fetch that tab.
+      // Velocity / full dormant lists only if that tab is already active.
       _ensureTabDataLoaded(_tabController.index);
     } catch (e, st) {
       print('Error loading data: $e');
@@ -213,6 +244,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
       if (_scopeStillActive(generation, scopeKey)) {
         setState(() {
           _isLoading = false;
+          _overviewKpisLoading = false;
           _error = AppErrorHandler.getFriendlyError(e);
         });
       }
@@ -220,10 +252,11 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   }
 
   Future<void> _loadVelocityIfNeeded({bool force = false}) async {
-    if (_velocityLoading) return;
+    if (_velocityLoading && !force) return;
     if (_velocityLoaded && !force) return;
     final state = CompanyProvider.of(context);
-    if (!state.isFeatureEnabled('rep_purchases')) return;
+    // Velocity metrics are sales-based (not purchases).
+    if (!state.isFeatureEnabled('rep_sales')) return;
     if (!_hasValidScope(state)) return;
 
     final generation = _loadGeneration;
@@ -271,10 +304,21 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   }
 
   Future<void> _loadDormantIfNeeded({bool force = false}) async {
-    if (_dormantLoading) return;
+    if (_dormantLoading && !force) return;
     if (_dormantLoaded && !force) return;
     final state = CompanyProvider.of(context);
-    if (!state.isFeatureEnabled('rep_ledgers')) return;
+    if (!state.isFeatureEnabled('rep_ledgers')) {
+      if (!mounted) return;
+      setState(() {
+        _unusedLedgers = [];
+        _unusedItems = [];
+        _totalUnusedLedgersCount = 0;
+        _totalUnusedItemsCount = 0;
+        _dormantLoaded = true;
+        _dormantLoading = false;
+      });
+      return;
+    }
     if (!_hasValidScope(state)) return;
 
     final generation = _loadGeneration;
@@ -311,13 +355,21 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
             (a, b) => '${a['product_name']}'.compareTo('${b['product_name']}'));
       }
 
+      final dead = unusedItems.fold<double>(
+        0,
+        (s, d) =>
+            s + (double.tryParse(d['stock_value']?.toString() ?? '0') ?? 0),
+      );
       setState(() {
         _unusedLedgers = unusedLedgers;
         _unusedItems = unusedItems;
         _totalUnusedLedgersCount = unusedLedgers.length;
         _totalUnusedItemsCount = unusedItems.length;
+        _deadStockKpiValue = dead;
         _dormantLoaded = true;
         _dormantLoading = false;
+        _overviewKpisLoaded = true;
+        _overviewKpisLoading = false;
       });
     } catch (e) {
       if (_scopeStillActive(generation, scopeKey)) {
@@ -359,20 +411,22 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   }
 
   Future<void> _reloadLedgers(int cutoffDays) async {
-    _ledgerCutoffDays = cutoffDays;
-    _dormantLoaded = false;
+    if (cutoffDays == _ledgerCutoffDays && _dormantLoaded) return;
+    setState(() => _ledgerCutoffDays = cutoffDays);
+    // Keep prior rows visible while reloading (avoid full-tab spinner flash).
     await _loadDormantIfNeeded(force: true);
   }
 
   Future<void> _reloadItems(int cutoffDays) async {
-    _itemCutoffDays = cutoffDays;
-    _dormantLoaded = false;
+    if (cutoffDays == _itemCutoffDays && _dormantLoaded) return;
+    setState(() => _itemCutoffDays = cutoffDays);
     await _loadDormantIfNeeded(force: true);
   }
 
   Future<void> _reloadVelocity(int cutoffDays) async {
-    _velocityCutoffDays = cutoffDays;
-    _velocityLoaded = false;
+    if (cutoffDays == _velocityCutoffDays && _velocityLoaded) return;
+    setState(() => _velocityCutoffDays = cutoffDays);
+    // Do not clear _velocityLoaded — that replaced the whole tab with a spinner.
     await _loadVelocityIfNeeded(force: true);
   }
 
@@ -412,7 +466,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
             fontSize: 10,
             fontWeight: FontWeight.w500,
             height: 1.25,
-            color: Colors.grey.shade600,
+            color: AppTheme.textSecondary,
           ),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
@@ -430,8 +484,79 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   double get _totalProfit => _profitData.fold(
       0.0, (s, d) => s + (double.tryParse(d['estimated_profit']?.toString() ?? '0') ?? 0));
 
-  double get _deadStockValue => _unusedItems.fold(
-      0.0, (s, d) => s + (double.tryParse(d['stock_value']?.toString() ?? '0') ?? 0));
+  double get _deadStockValue {
+    if (_dormantLoaded) {
+      return _unusedItems.fold(
+        0.0,
+        (s, d) =>
+            s + (double.tryParse(d['stock_value']?.toString() ?? '0') ?? 0),
+      );
+    }
+    return _deadStockKpiValue;
+  }
+
+  Future<void> _loadOverviewKpisIfNeeded({bool force = false}) async {
+    if (_overviewKpisLoading && !force) return;
+    if (_overviewKpisLoaded && !force) return;
+    final state = CompanyProvider.of(context);
+    if (!state.isFeatureEnabled('rep_ledgers')) {
+      if (!mounted) return;
+      setState(() {
+        _totalUnusedLedgersCount = 0;
+        _totalUnusedItemsCount = 0;
+        _deadStockKpiValue = 0;
+        _overviewKpisLoaded = true;
+        _overviewKpisLoading = false;
+      });
+      return;
+    }
+    if (!_hasValidScope(state)) return;
+
+    final generation = _loadGeneration;
+    final scopeKey = state.scopeKey;
+    setState(() => _overviewKpisLoading = true);
+    try {
+      final kpis = state.isCombinedMode
+          ? await _service.getCombinedDormantOverviewKpis(
+              companyNames: state.selectedCompanies,
+              ledgerDays: _ledgerCutoffDays,
+              itemDays: _itemCutoffDays,
+            )
+          : await _service.getDormantOverviewKpis(
+              companyName: state.selectedCompany,
+              ledgerDays: _ledgerCutoffDays,
+              itemDays: _itemCutoffDays,
+            );
+      if (!_scopeStillActive(generation, scopeKey)) return;
+      setState(() {
+        _totalUnusedLedgersCount =
+            int.tryParse('${kpis['unused_ledgers_count']}') ?? 0;
+        _totalUnusedItemsCount =
+            int.tryParse('${kpis['unused_items_count']}') ?? 0;
+        _deadStockKpiValue =
+            double.tryParse('${kpis['dead_stock_value']}') ?? 0;
+        _overviewKpisLoaded = true;
+        _overviewKpisLoading = false;
+      });
+    } catch (e) {
+      if (_scopeStillActive(generation, scopeKey)) {
+        setState(() {
+          _overviewKpisLoading = false;
+          _error = AppErrorHandler.getFriendlyError(e);
+        });
+      }
+    }
+  }
+
+  /// True when [saleDate] is the user's local calendar today (not merely last chart point).
+  bool _isCalendarToday(String? saleDate) {
+    final parsed = DateTime.tryParse(saleDate ?? '');
+    if (parsed == null) return false;
+    final now = DateTime.now();
+    return parsed.year == now.year &&
+        parsed.month == now.month &&
+        parsed.day == now.day;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -439,7 +564,8 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
     final showCosts = companyState.isFeatureEnabled('stock_cost');
     if (!showCosts && _velocityFilter == 'value') _velocityFilter = 'fast';
     final showSales = companyState.isFeatureEnabled('rep_sales') && showCosts;
-    final showPurchases = companyState.isFeatureEnabled('rep_purchases');
+    // Velocity uses sales invoice movement (fast/slow) + optional high-value stock.
+    final showVelocity = companyState.isFeatureEnabled('rep_sales');
     final showLedgers = companyState.isFeatureEnabled('rep_ledgers');
 
     // Build visible tab labels
@@ -447,7 +573,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
 
     // We will fill the views after we know the tab data - use placeholders for now
     if (showSales) visibleTabLabels.add('Overview');
-    if (showPurchases) visibleTabLabels.add('Velocity');
+    if (showVelocity) visibleTabLabels.add('Velocity');
     if (showLedgers) visibleTabLabels.add('Dormant');
 
     _visibleTabLabels = visibleTabLabels;
@@ -463,23 +589,23 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
         backgroundColor: _Palette.paper,
         appBar: AppBar(
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
+            icon: Icon(Icons.arrow_back),
             onPressed: widget.onBack ?? () => Navigator.of(context).pop(),
           ),
           title: _analyticsTitle(showCombinedCompanies, combinedCompanies),
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.white,
+          backgroundColor: AppTheme.cardColor,
+          surfaceTintColor: AppTheme.cardColor,
         ),
-        body: const Center(
+        body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2453FF)),
-              SizedBox(height: 12),
-              Text('Feature Locked', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
-              SizedBox(height: 8),
+              const Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2453FF)),
+              const SizedBox(height: 12),
+              Text('Feature Locked', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.textPrimary)),
+              const SizedBox(height: 8),
               Text('Analytics & Reports are disabled for this company.', textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF6B7A94))),
+                  style: TextStyle(color: AppTheme.textSecondary)),
             ],
           ),
         ),
@@ -490,13 +616,13 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
       backgroundColor: _Palette.paper,
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: Icon(Icons.arrow_back),
           onPressed: widget.onBack ?? () => Navigator.of(context).pop(),
         ),
         title: _analyticsTitle(showCombinedCompanies, combinedCompanies),
         toolbarHeight: showCombinedCompanies ? 64 : kToolbarHeight,
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: AppTheme.cardColor,
+        surfaceTintColor: AppTheme.cardColor,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
@@ -533,7 +659,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text(
+                              Text(
                                 'Overview Analysis',
                                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _Palette.ink900),
                               ),
@@ -552,7 +678,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                     _reloadOverviewData(val);
                                   }
                                 },
-                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: _Palette.blue),
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: _Palette.blue),
                                 underline: const SizedBox.shrink(),
                               ),
                             ],
@@ -573,7 +699,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
             }
 
                 // TAB 2: VELOCITY
-                if (showPurchases) {
+                if (showVelocity) {
                   views.add(Column(
                   children: [
                     Padding(
@@ -596,7 +722,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                   fontWeight: FontWeight.w700,
                                   color: _velocityFilter == 'fast' ? Colors.white : _Palette.ink700,
                                 ),
-                                side: const BorderSide(color: _Palette.line),
+                                side: BorderSide(color: _Palette.line),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                               ),
                               ChoiceChip(
@@ -610,7 +736,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                   fontWeight: FontWeight.w700,
                                   color: _velocityFilter == 'slow' ? Colors.white : _Palette.ink700,
                                 ),
-                                side: const BorderSide(color: _Palette.line),
+                                side: BorderSide(color: _Palette.line),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                               ),
                               if (showCosts) ChoiceChip(
@@ -624,7 +750,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                   fontWeight: FontWeight.w700,
                                   color: _velocityFilter == 'value' ? Colors.white : _Palette.ink700,
                                 ),
-                                side: const BorderSide(color: _Palette.line),
+                                side: BorderSide(color: _Palette.line),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                               ),
                             ],
@@ -637,9 +763,12 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                       ),
                     ),
                     Expanded(
-                      child: _velocityLoading && !_velocityLoaded
-                          ? const Center(child: CircularProgressIndicator())
-                          : RefreshIndicator(
+                      child: Stack(
+                        children: [
+                          if (!_velocityLoaded && _velocityLoading)
+                            const Center(child: CircularProgressIndicator())
+                          else
+                            RefreshIndicator(
                         onRefresh: () => _loadVelocityIfNeeded(force: true),
                         color: _Palette.blue,
                         child: LayoutBuilder(
@@ -657,7 +786,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                               title = 'Slow Moving Distribution';
                               mainColor = _Palette.amber;
                               bgColor = _Palette.amberSoft;
-                              listTitle = 'All Slow Moving Items';
+                              listTitle = 'Slow movers (< 5 sold in period)';
                             } else if (_velocityFilter == 'value') {
                               title = 'High Value Inventory Distribution';
                               mainColor = _Palette.blue;
@@ -695,7 +824,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                       if (index == 0) {
                                         return Container(
                                           decoration: BoxDecoration(
-                                            color: Colors.white,
+                                            color: AppTheme.cardColor,
                                             borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
                                             border: Border(
                                               top: BorderSide(color: _Palette.line),
@@ -709,7 +838,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                               Row(
                                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                 children: [
-                                                  Expanded(child: Text(listTitle, style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: _Palette.ink900))),
+                                                  Expanded(child: Text(listTitle, style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: _Palette.ink900))),
                                                   _SectionTag(label: 'All filtered items', color: mainColor, bg: bgColor),
                                                 ],
                                               ),
@@ -717,12 +846,12 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                               if (currentList.isNotEmpty) ...[
                                                 Row(
                                                   children: [
-                                                    const Expanded(flex: 3, child: Text('Item', style: _headerStyle)),
+                                                    Expanded(flex: 3, child: Text('Item', style: _headerStyle)),
                                                     Expanded(flex: 1, child: Text(qtyHeader, textAlign: TextAlign.right, style: _headerStyle)),
                                                     if (isWide) const SizedBox(width: 80) else const SizedBox(width: 12),
                                                   ],
                                                 ),
-                                                const Divider(height: 18, color: _Palette.line),
+                                                Divider(height: 18, color: _Palette.line),
                                               ]
                                             ],
                                           ),
@@ -732,7 +861,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                         return Container(
                                           height: 16,
                                           decoration: BoxDecoration(
-                                            color: Colors.white,
+                                            color: AppTheme.cardColor,
                                             borderRadius: const BorderRadius.vertical(bottom: Radius.circular(14)),
                                             border: Border(
                                               bottom: BorderSide(color: _Palette.line),
@@ -741,15 +870,15 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                             ),
                                             boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 3))],
                                           ),
-                                          child: currentList.isEmpty ? Center(child: Text('No items found for this filter.', style: const TextStyle(color: _Palette.ink500, fontSize: 13))) : null,
+                                          child: currentList.isEmpty ? Center(child: Text('No items found for this filter.', style: TextStyle(color: _Palette.ink500, fontSize: 13))) : null,
                                         );
                                       }
                                       final item = currentList[index - 1];
                                       return Container(
-                                        color: Colors.white,
+                                        color: AppTheme.cardColor,
                                         padding: const EdgeInsets.symmetric(horizontal: 16),
                                         child: Container(
-                                          decoration: const BoxDecoration(
+                                          decoration: BoxDecoration(
                                             border: Border(left: BorderSide(color: _Palette.line), right: BorderSide(color: _Palette.line)),
                                           ),
                                           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -757,11 +886,35 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                             children: [
                                               Expanded(
                                                 flex: 3,
-                                                child: Text(item['product_name'] ?? '-', style: const TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink900, fontSize: 13)),
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      item['product_name'] ?? '-',
+                                                      style: TextStyle(
+                                                        fontWeight: FontWeight.w600,
+                                                        color: _Palette.ink900,
+                                                        fontSize: 13,
+                                                      ),
+                                                    ),
+                                                    if ((item['company_name'] ?? '')
+                                                        .toString()
+                                                        .trim()
+                                                        .isNotEmpty)
+                                                      Text(
+                                                        item['company_name'].toString(),
+                                                        style: TextStyle(
+                                                          fontSize: 11,
+                                                          color: _Palette.ink500,
+                                                          fontWeight: FontWeight.w500,
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
                                               ),
                                               Expanded(
                                                 flex: 1,
-                                                child: Text(_velocityFilter == 'value' ? formatCompactCurrency(double.tryParse(item['stock_value']?.toString() ?? '0') ?? 0) : '${item['total_sold']}', textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w700, color: _Palette.ink700, fontSize: 13)),
+                                                child: Text(_velocityFilter == 'value' ? formatCompactCurrency(double.tryParse(item['stock_value']?.toString() ?? '0') ?? 0) : '${item['total_sold']}', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.w700, color: _Palette.ink700, fontSize: 13)),
                                               ),
                                               if (isWide) const SizedBox(width: 80) else const SizedBox(width: 12),
                                             ],
@@ -776,6 +929,15 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                             );
                           },
                         ),
+                      ),
+                          if (_velocityLoading && _velocityLoaded)
+                            const Positioned(
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              child: LinearProgressIndicator(minHeight: 2),
+                            ),
+                        ],
                       ),
                     ),
                   ],
@@ -801,7 +963,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                               fontWeight: FontWeight.w700,
                               color: _dormantFilter == 'ledgers' ? Colors.white : _Palette.ink700,
                             ),
-                            side: const BorderSide(color: _Palette.line),
+                            side: BorderSide(color: _Palette.line),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                           ),
                           const SizedBox(width: 8),
@@ -816,46 +978,76 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                               fontWeight: FontWeight.w700,
                               color: _dormantFilter == 'items' ? Colors.white : _Palette.ink700,
                             ),
-                            side: const BorderSide(color: _Palette.line),
+                            side: BorderSide(color: _Palette.line),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                           ),
                         ],
                       ),
                       const SizedBox(height: 16),
                       Expanded(
-                        child: _dormantLoading && !_dormantLoaded
-                            ? const Center(child: CircularProgressIndicator())
-                            : AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 300),
-                          child: _dormantFilter == 'ledgers'
-                              ? _sectionCard(
-                                  key: ValueKey('dormant_ledgers_$_ledgerCutoffDays'),
-                                  title: 'Unused Ledgers ($_totalUnusedLedgersCount)',
-                                  tag: const _SectionTag(label: 'No activity', color: _Palette.blue, bg: _Palette.blueSoft),
-                                  expanded: true,
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      _cutoffChips(_ledgerCutoffDays, _reloadLedgers),
-                                      const SizedBox(height: 12),
-                                      Expanded(child: _buildLedgersTable()),
-                                    ],
-                                  ),
-                                )
-                              : _sectionCard(
-                                  key: ValueKey('dormant_items_$_itemCutoffDays'),
-                                  title: 'Unused Items ($_totalUnusedItemsCount)',
-                                  tag: const _SectionTag(label: 'In stock, no sale', color: _Palette.red, bg: _Palette.redSoft),
-                                  expanded: true,
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      _cutoffChips(_itemCutoffDays, _reloadItems),
-                                      const SizedBox(height: 12),
-                                      Expanded(child: _buildItemsTable()),
-                                    ],
-                                  ),
-                                ),
+                        child: Stack(
+                          children: [
+                            if (!_dormantLoaded && _dormantLoading)
+                              const Center(child: CircularProgressIndicator())
+                            else
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 300),
+                                child: _dormantFilter == 'ledgers'
+                                    ? _sectionCard(
+                                        key: const ValueKey('dormant_ledgers'),
+                                        title:
+                                            'Unused Ledgers ($_totalUnusedLedgersCount)',
+                                        tag: _SectionTag(
+                                          label: 'No activity',
+                                          color: _Palette.blue,
+                                          bg: _Palette.blueSoft,
+                                        ),
+                                        expanded: true,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            _cutoffChips(
+                                              _ledgerCutoffDays,
+                                              _reloadLedgers,
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Expanded(child: _buildLedgersTable()),
+                                          ],
+                                        ),
+                                      )
+                                    : _sectionCard(
+                                        key: const ValueKey('dormant_items'),
+                                        title:
+                                            'Unused Items ($_totalUnusedItemsCount)',
+                                        tag: _SectionTag(
+                                          label: 'In stock, no sale',
+                                          color: _Palette.red,
+                                          bg: _Palette.redSoft,
+                                        ),
+                                        expanded: true,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            _cutoffChips(
+                                              _itemCutoffDays,
+                                              _reloadItems,
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Expanded(child: _buildItemsTable()),
+                                          ],
+                                        ),
+                                      ),
+                              ),
+                            if (_dormantLoading && _dormantLoaded)
+                              const Positioned(
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                child: LinearProgressIndicator(minHeight: 2),
+                              ),
+                          ],
                         ),
                       ),
                     ],
@@ -875,9 +1067,9 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   // KPI row
   // ---------------------------------------------------------------------
   Widget _buildKpiRow(bool isWide) {
-    final dormantValue = _dormantLoaded
+    final dormantValue = (_overviewKpisLoaded || _dormantLoaded)
         ? null
-        : (_dormantLoading ? '…' : '—');
+        : ((_overviewKpisLoading || _dormantLoading) ? '…' : '—');
     final cards = [
       _KpiCard(label: 'Revenue ($_overviewDays d)', value: formatCompactCurrency(_totalRevenue)),
       _KpiCard(label: 'Profit ($_overviewDays d)', value: formatCompactCurrency(_totalProfit)),
@@ -909,7 +1101,11 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   // ---------------------------------------------------------------------
   // Sales & Profit Daily chart
   // ---------------------------------------------------------------------
-  Widget _buildLineChart(List<Map<String, dynamic>> chartData, double maxRev) {
+  Widget _buildLineChart(
+    List<Map<String, dynamic>> chartData,
+    double maxY, {
+    double minY = 0,
+  }) {
     final revenueSpots = <FlSpot>[];
     final profitSpots = <FlSpot>[];
     for (int i = 0; i < chartData.length; i++) {
@@ -924,7 +1120,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
-          getDrawingHorizontalLine: (value) => const FlLine(color: _Palette.line, strokeWidth: 1),
+          getDrawingHorizontalLine: (value) => FlLine(color: _Palette.line, strokeWidth: 1),
         ),
         titlesData: FlTitlesData(
           show: true,
@@ -955,12 +1151,13 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                     labelInterval = 2;
                   }
 
-                  final isToday = index == chartData.length - 1;
+                  final dateStr = chartData[index]['sale_date'].toString();
+                  final isToday = _isCalendarToday(dateStr);
                   final isIntervalMatch = index % labelInterval == 0;
-                  final isTooCloseToToday = (chartData.length - 1 - index) < (labelInterval / 2);
+                  final isLast = index == chartData.length - 1;
+                  final isTooCloseToEnd = (chartData.length - 1 - index) < (labelInterval / 2);
 
-                  if (index == 0 || isToday || (isIntervalMatch && !isTooCloseToToday)) {
-                    final dateStr = chartData[index]['sale_date'].toString();
+                  if (index == 0 || isToday || isLast || (isIntervalMatch && !isTooCloseToEnd)) {
                     final date = DateTime.tryParse(dateStr);
                     if (date != null) {
                       return Padding(
@@ -985,14 +1182,14 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 48,
-              interval: maxRev > 0 ? maxRev / 4 : 20,
+              interval: (maxY - minY).abs() > 0 ? (maxY - minY).abs() / 4 : 20,
               getTitlesWidget: (value, meta) {
                 if (value == 0) return const Text('');
                 return Padding(
                   padding: const EdgeInsets.only(right: 6.0),
                   child: Text(
                      NumberFormat.compactCurrency(locale: 'en_IN', symbol: '₹').format(value).replaceAll('T', 'K'),
-                     style: const TextStyle(fontSize: 10, color: _Palette.ink500),
+                     style: TextStyle(fontSize: 10, color: _Palette.ink500),
                      textAlign: TextAlign.right,
                   ),
                 );
@@ -1005,8 +1202,8 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
         borderData: FlBorderData(show: false),
         minX: 0,
         maxX: (chartData.length - 1).toDouble(),
-        minY: 0,
-        maxY: maxRev > 0 ? maxRev * 1.2 : 100,
+        minY: minY,
+        maxY: maxY > minY ? maxY : (minY + 100),
         lineBarsData: [
           LineChartBarData(
             spots: revenueSpots,
@@ -1053,7 +1250,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
           enabled: true,
           handleBuiltInTouches: true,
           touchTooltipData: LineTouchTooltipData(
-            getTooltipColor: (group) => const Color(0xFF1E293B).withOpacity(0.95),
+            getTooltipColor: (group) => _Palette.chartTooltipBg,
             tooltipPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             tooltipRoundedRadius: 12,
             tooltipMargin: 8,
@@ -1068,8 +1265,8 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                 
                 return LineTooltipItem(
                   isRev ? '$formattedDate\n' : '',
-                  const TextStyle(
-                    color: Colors.white70,
+                  TextStyle(
+                    color: _Palette.chartTooltipLabel,
                     fontWeight: FontWeight.w600,
                     fontSize: 11,
                   ),
@@ -1095,17 +1292,26 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
 
   Widget _buildProfitChart() {
     if (_profitData.isEmpty) {
-      return const SizedBox(
+      return SizedBox(
         height: 160,
         child: Center(child: Text('Not enough data to compute profit trend.', style: TextStyle(color: _Palette.ink500))),
       );
     }
     final chartData = _profitData.reversed.toList();
-    double maxRev = 0;
+    double maxY = 0;
+    double minY = 0;
     for (var d in chartData) {
       final rev = double.tryParse(d['total_revenue']?.toString() ?? '0') ?? 0;
-      if (rev > maxRev) maxRev = rev;
+      final prof = double.tryParse(d['estimated_profit']?.toString() ?? '0') ?? 0;
+      if (rev > maxY) maxY = rev;
+      if (prof > maxY) maxY = prof;
+      if (rev < minY) minY = rev;
+      if (prof < minY) minY = prof;
     }
+    if (minY < 0) {
+      minY = minY * 1.15;
+    }
+    maxY = maxY > 0 ? maxY * 1.2 : 100;
 
     double rodWidth = 8;
     if (chartData.length > 90) {
@@ -1121,16 +1327,21 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
     return Column(
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Wrap(
-              spacing: 12,
-              children: const [
-                _LegendItem(color: _Palette.blue, label: 'Gross revenue'),
-                _LegendItem(color: _Palette.teal, label: 'Est. gross profit'),
-              ],
+            Expanded(
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 6,
+                children: const [
+                  _LegendItem(color: _Palette.blue, label: 'Gross revenue'),
+                  _LegendItem(color: _Palette.teal, label: 'Est. profit (std cost)'),
+                ],
+              ),
             ),
+            const SizedBox(width: 8),
             Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 GestureDetector(
                   onTap: () => setState(() => _useLineChart = false),
@@ -1163,15 +1374,16 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
         SizedBox(
           height: 220,
           child: _useLineChart
-              ? _buildLineChart(chartData, maxRev)
+              ? _buildLineChart(chartData, maxY, minY: minY)
               : BarChart(
                   BarChartData(
                     alignment: BarChartAlignment.spaceAround,
-                    maxY: maxRev > 0 ? maxRev * 1.2 : 100,
+                    minY: minY,
+                    maxY: maxY,
                     barTouchData: BarTouchData(
                       enabled: true,
                       touchTooltipData: BarTouchTooltipData(
-                        getTooltipColor: (group) => const Color(0xFF1E293B),
+                        getTooltipColor: (group) => _Palette.chartTooltipBg,
                         tooltipPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         tooltipMargin: 8,
                         getTooltipItem: (group, groupIndex, rod, rodIndex) {
@@ -1183,7 +1395,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                           
                           return BarTooltipItem(
                             'Rev : ${currency.format(rev)} \n',
-                            const TextStyle(
+                            TextStyle(
                               color: _Palette.blue,
                               fontWeight: FontWeight.w800,
                               fontSize: 13,
@@ -1191,7 +1403,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                             children: [
                               TextSpan(
                                 text: 'Profit : ${currency.format(prof)}',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: _Palette.teal,
                                   fontWeight: FontWeight.w800,
                                   fontSize: 13,
@@ -1221,12 +1433,13 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                                 labelInterval = 2;
                               }
 
-                              final isToday = index == chartData.length - 1;
+                              final dateStr = chartData[index]['sale_date'].toString();
+                              final isToday = _isCalendarToday(dateStr);
                               final isIntervalMatch = index % labelInterval == 0;
-                              final isTooCloseToToday = (chartData.length - 1 - index) < (labelInterval / 2);
+                              final isLast = index == chartData.length - 1;
+                              final isTooCloseToEnd = (chartData.length - 1 - index) < (labelInterval / 2);
 
-                              if (index == 0 || isToday || (isIntervalMatch && !isTooCloseToToday)) {
-                                final dateStr = chartData[index]['sale_date'].toString();
+                              if (index == 0 || isToday || isLast || (isIntervalMatch && !isTooCloseToEnd)) {
                                 final date = DateTime.tryParse(dateStr);
                                 if (date != null) {
                                   return Padding(
@@ -1251,14 +1464,14 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                         sideTitles: SideTitles(
                           showTitles: true,
                           reservedSize: 48,
-                          interval: maxRev > 0 ? maxRev / 4 : 20,
+                          interval: (maxY - minY).abs() > 0 ? (maxY - minY).abs() / 4 : 20,
                           getTitlesWidget: (value, meta) {
                             if (value == 0) return const Text('');
                             return Padding(
                               padding: const EdgeInsets.only(right: 6.0),
                               child: Text(
                                 NumberFormat.compactCurrency(locale: 'en_IN', symbol: '₹').format(value),
-                                style: const TextStyle(fontSize: 10, color: _Palette.ink500),
+                                style: TextStyle(fontSize: 10, color: _Palette.ink500),
                                 textAlign: TextAlign.right,
                               ),
                             );
@@ -1271,7 +1484,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                     gridData: FlGridData(
                       show: true,
                       drawVerticalLine: false,
-                      getDrawingHorizontalLine: (value) => const FlLine(color: _Palette.line, strokeWidth: 1),
+                      getDrawingHorizontalLine: (value) => FlLine(color: _Palette.line, strokeWidth: 1),
                     ),
                     borderData: FlBorderData(show: false),
                     barGroups: List.generate(chartData.length, (i) {
@@ -1307,8 +1520,8 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   Widget _buildVelocityChart(bool isWide, String filter) {
     final list = filter == 'fast' ? _fastItems : (filter == 'slow' ? _slowItems : _highValueItems);
     if (list.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
+      return Padding(
+        padding: const EdgeInsets.all(24),
         child: Center(child: Text('No data recorded in this period.', style: TextStyle(color: _Palette.ink500))),
       );
     }
@@ -1339,8 +1552,8 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(filter == 'value' ? formatCompactCurrency(total) : total.toStringAsFixed(0),
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20, color: _Palette.ink900)),
-              Text(filter == 'value' ? 'stock value' : 'units sold', style: const TextStyle(fontSize: 11, color: _Palette.ink500)),
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20, color: _Palette.ink900)),
+              Text(filter == 'value' ? 'stock value' : 'units sold', style: TextStyle(fontSize: 11, color: _Palette.ink500)),
             ],
           ),
         ],
@@ -1358,11 +1571,11 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                   decoration: BoxDecoration(color: colors[i % colors.length], shape: BoxShape.circle)),
               Expanded(
                 child: Text(top7[i]['product_name'] ?? 'Unknown',
-                    style: const TextStyle(fontSize: 13, color: _Palette.ink900, fontWeight: FontWeight.w600),
+                    style: TextStyle(fontSize: 13, color: _Palette.ink900, fontWeight: FontWeight.w600),
                     maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
               Text(filter == 'value' ? formatCompactCurrency(double.tryParse(top7[i][valueKey]?.toString() ?? '0') ?? 0) : '${top7[i][valueKey]}',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _Palette.ink900)),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _Palette.ink900)),
               if (isWide) const SizedBox(width: 80) else const SizedBox(width: 12),
             ],
           ),
@@ -1401,12 +1614,12 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
       children: [
         Row(
           children: [
-            const Expanded(flex: 3, child: Text('Item', style: _headerStyle)),
+            Expanded(flex: 3, child: Text('Item', style: _headerStyle)),
             Expanded(flex: 1, child: Text(valueLabel, textAlign: TextAlign.right, style: _headerStyle)),
             if (isWide) const SizedBox(width: 80) else const SizedBox(width: 12),
           ],
         ),
-        const Divider(height: 18, color: _Palette.line),
+        Divider(height: 18, color: _Palette.line),
         ...data.map((item) {
           return RepaintBoundary(
             child: Padding(
@@ -1416,13 +1629,13 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                   Expanded(
                     flex: 3,
                     child: Text(item['product_name'] ?? '-',
-                        style: const TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink900, fontSize: 13)),
+                        style: TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink900, fontSize: 13)),
                   ),
                   Expanded(
                     flex: 1,
                     child: Text('${item[valueKey]}',
                         textAlign: TextAlign.right,
-                        style: const TextStyle(fontWeight: FontWeight.w700, color: _Palette.ink700, fontSize: 13)),
+                        style: TextStyle(fontWeight: FontWeight.w700, color: _Palette.ink700, fontSize: 13)),
                   ),
                   if (isWide) const SizedBox(width: 80) else const SizedBox(width: 12),
                 ],
@@ -1444,12 +1657,12 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
     return Column(
       children: [
         Row(
-          children: const [
+          children: [
             Expanded(flex: 2, child: Text('Customer', style: _headerStyle)),
             Expanded(flex: 1, child: Text('Phone', textAlign: TextAlign.right, style: _headerStyle)),
           ],
         ),
-        const Divider(height: 18, color: _Palette.line),
+        Divider(height: 18, color: _Palette.line),
         Expanded(
           child: RefreshIndicator(
             onRefresh: () => _loadDormantIfNeeded(force: true),
@@ -1470,10 +1683,10 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(item['customer_name'] ?? '-',
-                              style: const TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink900, fontSize: 13)),
+                              style: TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink900, fontSize: 13)),
                           if (company.isNotEmpty)
                             Text(company,
-                                style: const TextStyle(fontWeight: FontWeight.w500, color: _Palette.ink500, fontSize: 10),
+                                style: TextStyle(fontWeight: FontWeight.w500, color: _Palette.ink500, fontSize: 10),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis),
                         ],
@@ -1483,7 +1696,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                       flex: 1,
                       child: Text(item['mobile_number']?.toString() ?? item['phone']?.toString() ?? '-',
                           textAlign: TextAlign.right,
-                          style: const TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink500, fontSize: 13)),
+                          style: TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink500, fontSize: 13)),
                     ),
                   ],
                 ),
@@ -1507,13 +1720,13 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
     return Column(
       children: [
         Row(
-          children: const [
+          children: [
             Expanded(flex: 3, child: Text('Product', style: _headerStyle)),
             Expanded(flex: 1, child: Text('Qty', textAlign: TextAlign.right, style: _headerStyle)),
             Expanded(flex: 2, child: Text('Stock value', textAlign: TextAlign.right, style: _headerStyle)),
           ],
         ),
-        const Divider(height: 18, color: _Palette.line),
+        Divider(height: 18, color: _Palette.line),
         Expanded(
           child: RefreshIndicator(
             onRefresh: () => _loadDormantIfNeeded(force: true),
@@ -1535,10 +1748,10 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(item['product_name'] ?? '-',
-                              style: const TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink900, fontSize: 13)),
+                              style: TextStyle(fontWeight: FontWeight.w600, color: _Palette.ink900, fontSize: 13)),
                           if (company.isNotEmpty)
                             Text(company,
-                                style: const TextStyle(fontWeight: FontWeight.w500, color: _Palette.ink500, fontSize: 10),
+                                style: TextStyle(fontWeight: FontWeight.w500, color: _Palette.ink500, fontSize: 10),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis),
                         ],
@@ -1546,13 +1759,13 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                     ),
                     Expanded(
                       flex: 1,
-                      child: Text('${item['quantity']}', textAlign: TextAlign.right, style: const TextStyle(color: _Palette.ink500, fontSize: 13)),
+                      child: Text('${item['quantity']}', textAlign: TextAlign.right, style: TextStyle(color: _Palette.ink500, fontSize: 13)),
                     ),
                     Expanded(
                       flex: 2,
                       child: Text(CompanyProvider.of(context).isFeatureEnabled('stock_cost') ? currency.format(val) : '—',
                           textAlign: TextAlign.right,
-                          style: const TextStyle(fontWeight: FontWeight.w700, color: _Palette.red, fontSize: 13)),
+                          style: TextStyle(fontWeight: FontWeight.w700, color: _Palette.red, fontSize: 13)),
                     ),
                   ],
                 ),
@@ -1576,7 +1789,10 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
         return ChoiceChip(
           label: Text('${d}d'),
           selected: isSelected,
-          onSelected: (_) => onSelect(d),
+          onSelected: (sel) {
+            if (!sel || d == selected) return;
+            onSelect(d);
+          },
           labelStyle: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w700,
@@ -1584,7 +1800,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
           ),
           selectedColor: _Palette.blue,
           backgroundColor: _Palette.paper,
-          side: const BorderSide(color: _Palette.line),
+          side: BorderSide(color: _Palette.line),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         );
       }).toList(),
@@ -1595,7 +1811,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Center(
-        child: Text(message, style: const TextStyle(color: _Palette.ink500, fontSize: 13), textAlign: TextAlign.center),
+        child: Text(message, style: TextStyle(color: _Palette.ink500, fontSize: 13), textAlign: TextAlign.center),
       ),
     );
   }
@@ -1608,7 +1824,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Expanded(
-              child: Text(title, style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: _Palette.ink900)),
+              child: Text(title, style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: _Palette.ink900)),
             ),
             tag,
           ],
@@ -1622,9 +1838,9 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
       child: Container(
         key: key,
         width: double.infinity,
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppTheme.cardColor,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: _Palette.line),
           boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 3))],
@@ -1635,7 +1851,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   }
 }
 
-const TextStyle _headerStyle = TextStyle(
+TextStyle get _headerStyle => TextStyle(
   fontSize: 11,
   fontWeight: FontWeight.w700,
   color: _Palette.ink500,
@@ -1653,9 +1869,9 @@ class _KpiCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: _Palette.line),
       ),
@@ -1664,12 +1880,12 @@ class _KpiCard extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(label.toUpperCase(),
-              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: _Palette.ink500, letterSpacing: 0.3)),
+              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: _Palette.ink500, letterSpacing: 0.3)),
           const SizedBox(height: 6),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: _Palette.ink900)),
+            child: Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: _Palette.ink900)),
           ),
         ],
       ),
@@ -1721,7 +1937,7 @@ class _LegendItem extends StatelessWidget {
       children: [
         Container(width: 10, height: 10, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
         const SizedBox(width: 6),
-        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _Palette.ink900)),
+        Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _Palette.ink900)),
       ],
     );
   }

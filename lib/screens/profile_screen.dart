@@ -266,7 +266,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('Save'),
+                      : Text('Save'),
                 ),
               ],
             );
@@ -281,11 +281,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Account Info',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: AppTheme.cardColor,
         elevation: 0,
         actions: [
           IconButton(
@@ -344,7 +344,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           BoxShadow(
             color: AppTheme.primaryColor.withValues(alpha: 0.25),
             blurRadius: 12,
-            offset: const Offset(0, 4),
+            offset: Offset(0, 4),
           ),
         ],
       ),
@@ -352,13 +352,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           CircleAvatar(
             radius: 36,
-            backgroundColor: Colors.white.withValues(alpha: 0.2),
+            backgroundColor: AppTheme.cardColor.withValues(alpha: 0.2),
             child: CircleAvatar(
               radius: 32,
-              backgroundColor: Colors.white,
+              backgroundColor: AppTheme.cardColor,
               child: Text(
                 initials,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w800,
                   color: AppTheme.primaryColor,
@@ -369,7 +369,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 12),
           Text(
             _fullName,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w800,
               color: Colors.white,
@@ -390,7 +390,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Flexible(
                   child: Text(
                     selectedCompany,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                       color: Colors.white,
@@ -406,44 +406,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildInfoSection() {
-    return Material(
-      color: Colors.white,
+    return Material(color: AppTheme.cardColor,
       borderRadius: BorderRadius.circular(16),
       clipBehavior: Clip.antiAlias,
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: AppTheme.dividerColor),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Padding(
+            Padding(
               padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Text(
                 'Account Information',
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF1A1F36),
+                  color: AppTheme.textPrimary,
                 ),
               ),
             ),
-            const Divider(height: 1, color: AppTheme.dividerColor),
+            Divider(height: 1, color: AppTheme.dividerColor),
             _buildListTile(
               icon: Icons.person_outline_rounded,
               title: 'Full Name',
               subtitle: _fullName,
               onTap: _showEditNameDialog,
             ),
-            const Divider(height: 1, indent: 54, color: AppTheme.dividerColor),
+            Divider(height: 1, indent: 54, color: AppTheme.dividerColor),
             _buildListTile(
               icon: Icons.phone_android_rounded,
               title: 'Phone Number',
               subtitle: _phone,
               onTap: _showEditPhoneDialog,
             ),
-            const Divider(height: 1, indent: 54, color: AppTheme.dividerColor),
+            Divider(height: 1, indent: 54, color: AppTheme.dividerColor),
             Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -470,18 +469,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           'Assigned Companies',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey.shade600,
+                            color: AppTheme.textSecondary,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
-                        const SizedBox(height: 6),
+                        SizedBox(height: 6),
                         if (_assignedCompanies.isEmpty)
                           Text(
                             _companyName,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFF1A1F36),
+                              color: AppTheme.textPrimary,
                             ),
                           )
                         else
@@ -499,14 +498,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 decoration: BoxDecoration(
                                   color: isSelected
                                       ? AppTheme.primaryColor
-                                          .withValues(alpha: 0.12)
-                                      : Colors.grey.shade100,
+                                          .withValues(alpha: 0.18)
+                                      : (AppTheme.isDark
+                                          ? const Color(0xFF243044)
+                                          : Colors.grey.shade100),
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(
                                     color: isSelected
                                         ? AppTheme.primaryColor
-                                            .withValues(alpha: 0.4)
-                                        : Colors.grey.shade300,
+                                            .withValues(alpha: 0.45)
+                                        : AppTheme.dividerColor,
                                   ),
                                 ),
                                 child: Row(
@@ -531,7 +532,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                               : FontWeight.w500,
                                           color: isSelected
                                               ? AppTheme.primaryColor
-                                              : const Color(0xFF1A1F36),
+                                              : AppTheme.textPrimary,
                                         ),
                                       ),
                                     ),
@@ -572,20 +573,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title,
         style: TextStyle(
           fontSize: 12,
-          color: Colors.grey.shade600,
+          color: AppTheme.textSecondary,
           fontWeight: FontWeight.w500,
         ),
       ),
       subtitle: Text(
         subtitle,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w600,
-          color: Color(0xFF1A1F36),
+          color: AppTheme.textPrimary,
         ),
       ),
       trailing: onTap != null
-          ? Icon(Icons.edit_outlined, size: 18, color: Colors.grey.shade400)
+          ? Icon(Icons.edit_outlined, size: 18, color: AppTheme.textSecondary)
           : null,
     );
   }

@@ -73,11 +73,11 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Devices & Login',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: AppTheme.cardColor,
         elevation: 0,
         actions: [
           IconButton(
@@ -98,18 +98,18 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Padding(
+                          Padding(
                             padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
                             child: Text(
                               'Current device',
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700,
-                                color: Color(0xFF1A1F36),
+                                color: AppTheme.textPrimary,
                               ),
                             ),
                           ),
-                          const Divider(height: 1, color: AppTheme.dividerColor),
+                          Divider(height: 1, color: AppTheme.dividerColor),
                           ListTile(
                             leading: Container(
                               padding: const EdgeInsets.all(8),
@@ -127,16 +127,16 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                               'Logged in now',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: Colors.grey.shade600,
+                                color: AppTheme.textSecondary,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
                             subtitle: Text(
                               _currentDeviceLine,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
-                                color: Color(0xFF1A1F36),
+                                color: AppTheme.textPrimary,
                               ),
                             ),
                           ),
@@ -148,18 +148,18 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Padding(
+                          Padding(
                             padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
                             child: Text(
                               'Recent login history',
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700,
-                                color: Color(0xFF1A1F36),
+                                color: AppTheme.textPrimary,
                               ),
                             ),
                           ),
-                          const Divider(height: 1, color: AppTheme.dividerColor),
+                          Divider(height: 1, color: AppTheme.dividerColor),
                           if (_deviceHistoryLines.isEmpty)
                             Padding(
                               padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
@@ -167,7 +167,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                                 'No previous devices yet. History appears after you sign in on another device or sign out.',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey.shade600,
+                                  color: AppTheme.textSecondary,
                                   height: 1.4,
                                 ),
                               ),
@@ -184,7 +184,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                                           .withValues(alpha: 0.1),
                                       child: Text(
                                         '${i + 1}',
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w800,
                                           color: AppTheme.primaryColor,
@@ -193,15 +193,15 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                                     ),
                                     title: Text(
                                       entry.value,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
-                                        color: Color(0xFF1A1F36),
+                                        color: AppTheme.textPrimary,
                                       ),
                                     ),
                                   ),
                                   if (i < _deviceHistoryLines.length - 1)
-                                    const Divider(
+                                    Divider(
                                       height: 1,
                                       indent: 68,
                                       color: AppTheme.dividerColor,
@@ -220,14 +220,13 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
   }
 
   Widget _card({required Widget child}) {
-    return Material(
-      color: Colors.white,
+    return Material(color: AppTheme.cardColor,
       borderRadius: BorderRadius.circular(16),
       clipBehavior: Clip.antiAlias,
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: AppTheme.dividerColor),
         ),
         child: child,
       ),

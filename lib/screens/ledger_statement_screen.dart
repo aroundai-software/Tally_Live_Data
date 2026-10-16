@@ -230,14 +230,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
           : DateTimeRange(start: month.start, end: month.end),
       builder: (context, child) {
         return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: AppTheme.primaryColor,
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
+          data: AppTheme.datePickerOverlayTheme(context),
           child: child!,
         );
       },
@@ -417,10 +410,10 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: numeric ? MainAxisAlignment.end : MainAxisAlignment.start,
             children: [
-              Flexible(child: Text(text, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87))),
+              Flexible(child: Text(text, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.textPrimary))),
               if (isSortable) ...[
                 const SizedBox(width: 4),
-                Icon(_sortAscending ? Icons.arrow_downward : Icons.arrow_upward, size: 14, color: Colors.grey),
+                Icon(_sortAscending ? Icons.arrow_downward : Icons.arrow_upward, size: 14, color: AppTheme.textSecondary),
               ],
             ],
           ),
@@ -440,7 +433,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
           style: TextStyle(
             fontSize: 13,
             fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-            color: textColor ?? Colors.black87,
+            color: textColor ?? AppTheme.textPrimary,
           ),
         ),
       ),
@@ -468,7 +461,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
           else if (_error != null)
             Expanded(child: Center(child: Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Text(_error!, style: const TextStyle(color: AppTheme.errorColor)),
+              child: Text(_error!, style: TextStyle(color: AppTheme.errorColor)),
             )))
           else
             Expanded(
@@ -511,8 +504,14 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                                   delegate: _StickyHeaderDelegate(
                                     child: Container(
                                       decoration: BoxDecoration(
-                                        color: Colors.grey.shade100,
-                                        border: Border(bottom: BorderSide(color: Colors.grey.shade300))
+                                        color: AppTheme.isDark
+                                            ? AppTheme.darkCard
+                                            : Colors.grey.shade100,
+                                        border: Border(
+                                          bottom: BorderSide(
+                                            color: AppTheme.dividerColor,
+                                          ),
+                                        ),
                                       ),
                                       child: Row(
                                         children: [
@@ -531,13 +530,12 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                                   delegate: SliverChildBuilderDelegate(
                                     (context, index) {
                                       final entry = displayTransactions[index];
-                                      return Material(
-                                        color: Colors.white,
+                                      return Material(color: AppTheme.cardColor,
                                         child: InkWell(
                                           onTap: () => _openVoucherDetail(entry),
                                           child: Container(
                                             decoration: BoxDecoration(
-                                              border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+                                              border: Border(bottom: BorderSide(color: AppTheme.dividerColor)),
                                             ),
                                             child: Row(
                                               children: [
@@ -570,7 +568,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
     }
 
     if (showPerformance) {
-      tabs.add(const Tab(text: 'Performance'));
+      tabs.add(Tab(text: 'Performance'));
       tabViews.add(LedgerPerformanceTab(
         ledgerName: widget.ledger.name,
         companyName: _statementCompany ?? '',
@@ -583,22 +581,24 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
           title: Text(widget.ledger.name,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               maxLines: 1, overflow: TextOverflow.ellipsis),
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.white,
+          backgroundColor: AppTheme.cardColor,
+          surfaceTintColor: AppTheme.cardColor,
         ),
-        body: const Center(
+        body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2453FF)),
-              SizedBox(height: 12),
-              Text('Feature Locked', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
-              SizedBox(height: 8),
+              const Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2453FF)),
+              const SizedBox(height: 12),
+              Text('Feature Locked',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.textPrimary)),
+              const SizedBox(height: 8),
               Text('All tabs are disabled for this company.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF6B7A94))),
+                  style: TextStyle(color: AppTheme.textSecondary)),
             ],
           ),
         ),
@@ -611,10 +611,10 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
           title: Text(widget.ledger.name,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               maxLines: 1, overflow: TextOverflow.ellipsis),
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.white,
+          backgroundColor: AppTheme.cardColor,
+          surfaceTintColor: AppTheme.cardColor,
           actions: [
             IconButton(
               icon: const Icon(
@@ -651,7 +651,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                 if (showTransactions) PopupMenuItem<String>(value: 'sort', child: Row(children: [const Icon(Icons.swap_vert, size: 20), const SizedBox(width: 12), Text(_sortAscending ? 'Sort Newest First' : 'Sort Oldest First')])),
                 const PopupMenuDivider(),
                 if (showTransactions) const PopupMenuItem<String>(value: 'share', child: Row(children: [Icon(Icons.share, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Share via...')])),
-                if (showTransactions) const PopupMenuItem<String>(value: 'download', child: Row(children: [Icon(Icons.download, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Save / Print')])),
+                if (showTransactions) PopupMenuItem<String>(value: 'download', child: Row(children: [Icon(Icons.download, size: 20, color: AppTheme.primaryColor), SizedBox(width: 12), Text('Save / Print')])),
               ],
             ),
           ],
@@ -667,12 +667,12 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
         appBar: AppBar(
         title: Text(
           widget.ledger.name, 
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: AppTheme.cardColor,
+        surfaceTintColor: AppTheme.cardColor,
         actions: [
           IconButton(
             icon: const Icon(
@@ -728,9 +728,10 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   }
 
   Widget _buildContactDetails() {
+    final detailStyle = TextStyle(fontSize: 12, color: AppTheme.textSecondary);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Colors.white,
+      color: AppTheme.cardColor,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -739,15 +740,22 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
             runSpacing: 4,
             children: [
               if (widget.ledger.gstNumber != null && widget.ledger.gstNumber!.isNotEmpty)
-                Text('GSTIN: ${widget.ledger.gstNumber}', style: const TextStyle(fontSize: 12)),
+                Text('GSTIN: ${widget.ledger.gstNumber}', style: detailStyle),
               if (widget.ledger.phone != null && widget.ledger.phone!.isNotEmpty)
-                Text('Mob: ${widget.ledger.phone}', style: const TextStyle(fontSize: 12)),
+                Text('Mob: ${widget.ledger.phone}', style: detailStyle),
               if (widget.ledger.email != null && widget.ledger.email!.isNotEmpty)
-                Text('Email: ${widget.ledger.email}', style: const TextStyle(fontSize: 12)),
+                Text('Email: ${widget.ledger.email}', style: detailStyle),
             ],
           ),
           if (widget.ledger.fullAddress.isNotEmpty)
-            Padding(padding: const EdgeInsets.only(top: 4), child: Text('Addr: ${widget.ledger.fullAddress}', style: const TextStyle(fontSize: 12, overflow: TextOverflow.ellipsis), maxLines: 1)),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Addr: ${widget.ledger.fullAddress}',
+                style: detailStyle.copyWith(overflow: TextOverflow.ellipsis),
+                maxLines: 1,
+              ),
+            ),
         ],
       ),
     );
@@ -776,14 +784,17 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Colors.white,
+      color: AppTheme.cardColor,
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
         children: [
           if (dateText.isNotEmpty)
             InputChip(
-              label: Text(dateText, style: const TextStyle(fontSize: 12)),
+              label: Text(
+                dateText,
+                style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+              ),
               onPressed: _selectDateRange,
               onDeleted: isCustomDate
                   ? () {
@@ -802,7 +813,10 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
             ),
           if (_selectedVoucherType != null)
             InputChip(
-              label: Text(_selectedVoucherType!, style: const TextStyle(fontSize: 12)),
+              label: Text(
+                _selectedVoucherType!,
+                style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+              ),
               onDeleted: () {
                 setState(() => _selectedVoucherType = null);
                 _loadData();
@@ -833,11 +847,11 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
 
   Widget _buildListCard(DaybookEntry entry) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: AppTheme.dividerColor),
       ),
       child: Material(
         color: Colors.transparent,
@@ -854,7 +868,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                   children: [
                     Text(
                       entry.date != null ? DateFormat('dd-MMM-yy').format(entry.date!) : '',
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                      style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -864,7 +878,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                       ),
                       child: Text(
                         entry.voucherType,
-                        style: const TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
+                        style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
                       ),
                     )
                   ],
@@ -872,12 +886,19 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                 const SizedBox(height: 8),
                 Text(
                   entry.particulars ?? entry.ledgerName,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: AppTheme.textPrimary,
+                  ),
                 ),
                 if (entry.voucherNumber != null && entry.voucherNumber!.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
-                    child: Text('Ref: ${entry.voucherNumber}', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                    child: Text(
+                      'Ref: ${entry.voucherNumber}',
+                      style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                    ),
                   ),
                 const SizedBox(height: 8),
                 Row(
@@ -911,11 +932,11 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
 
   Widget _buildMobileFooter() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.shade300)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), offset: const Offset(0, -4), blurRadius: 4)],
+        color: AppTheme.cardColor,
+        border: Border(top: BorderSide(color: AppTheme.dividerColor)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(AppTheme.isDark ? 0.35 : 0.05), offset: const Offset(0, -4), blurRadius: 4)],
       ),
       child: SafeArea(
         top: false,
@@ -924,15 +945,15 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Opening Balance', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-                Text(_formatAmount(_openingBalance), style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text('Opening Balance', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
+                Text(_formatAmount(_openingBalance), style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
               ],
             ),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Current Total', style: TextStyle(fontWeight: FontWeight.bold)),
+                Text('Current Total', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
                 Row(
                   children: [
                     Text('Dr ${_formatAmount(_totalDebits)}', style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold, fontSize: 12)),
@@ -942,12 +963,12 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
                 ),
               ],
             ),
-            const Divider(height: 16),
+            Divider(height: 16, color: AppTheme.dividerColor),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Closing Balance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                Text(_formatAmount(_closingBalance), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Text('Closing Balance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.textPrimary)),
+                Text(_formatAmount(_closingBalance), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.textPrimary)),
               ],
             ),
           ],
@@ -959,21 +980,21 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
   Widget _buildTableFooter() {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white, 
-        border: Border(top: BorderSide(color: Colors.grey.shade300)),
+        color: AppTheme.cardColor,
+        border: Border(top: BorderSide(color: AppTheme.dividerColor)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), offset: const Offset(0, -4), blurRadius: 4)
+          BoxShadow(color: Colors.black.withOpacity(AppTheme.isDark ? 0.35 : 0.05), offset: const Offset(0, -4), blurRadius: 4)
         ]
       ),
       child: Column(
         children: [
           // Opening Balance Row
           Container(
-            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: AppTheme.dividerColor))),
             child: Row(
               children: [
                 _buildDataCell('', flex: 2, verticalPadding: 6),
-                _buildDataCell('Opening Balance', flex: 4, isBold: true, textColor: Colors.grey, verticalPadding: 6),
+                _buildDataCell('Opening Balance', flex: 4, isBold: true, textColor: AppTheme.textSecondary, verticalPadding: 6),
                 _buildDataCell('', flex: 2, verticalPadding: 6),
                 _buildDataCell('', flex: 2, verticalPadding: 6),
                 _buildDataCell(_openingBalance > 0.001 ? _formatAmount(_openingBalance) : '', flex: 2, numeric: true, isBold: true, verticalPadding: 6),
@@ -983,7 +1004,10 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
           ),
           // Current Total Row
           Container(
-            decoration: BoxDecoration(color: Colors.grey.shade50, border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceColor,
+              border: Border(bottom: BorderSide(color: AppTheme.dividerColor)),
+            ),
             child: Row(
               children: [
                 _buildDataCell('', flex: 2, verticalPadding: 6),
@@ -997,7 +1021,7 @@ class _LedgerStatementScreenState extends State<LedgerStatementScreen> {
           ),
           // Closing Balance Row
           Container(
-            decoration: const BoxDecoration(color: Colors.white),
+            decoration: BoxDecoration(color: AppTheme.cardColor),
             child: Row(
               children: [
                 _buildDataCell('', flex: 2, verticalPadding: 6),

@@ -825,6 +825,7 @@ class SupabaseService {
     } catch (e) {
       _notifyIfSessionReplaced(e);
       if (isDeviceSessionReplacedError(e)) {
+        await UserPreferencesService.markSignedOutByOtherDevice();
         await signOut();
         return false;
       }
@@ -845,6 +846,7 @@ class SupabaseService {
       }
       return true;
     }
+    await UserPreferencesService.markSignedOutByOtherDevice();
     await signOut();
     return false;
   }
@@ -2895,12 +2897,11 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getFastMovingItems({String? companyName, int days = 30}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      // Single round-trip — these RPCs already order/limit in SQL.
-      final response = await _client.rpc('get_fast_moving_items', params: {
+      final response = await _readPages(() => _client.rpc('get_fast_moving_items', params: {
         'p_company_name': companyName,
         'p_days': days,
-      });
-      return List<Map<String, dynamic>>.from(response as List);
+      }).order('total_sold', ascending: false).order('product_name', ascending: true));
+      return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       print('Error in getFastMovingItems: $e');
       rethrow;
@@ -2910,11 +2911,11 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getSlowMovingItems({String? companyName, int days = 30}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _client.rpc('get_slow_moving_items', params: {
+      final response = await _readPages(() => _client.rpc('get_slow_moving_items', params: {
         'p_company_name': companyName,
         'p_days': days,
-      });
-      return List<Map<String, dynamic>>.from(response as List);
+      }).order('total_sold', ascending: true).order('product_name', ascending: true));
+      return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       rethrow;
     }
@@ -2923,12 +2924,102 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getHighValueItems({String? companyName}) async {
     if (companyName == null || companyName.isEmpty || companyName == 'No Company Linked') return [];
     try {
-      final response = await _client.rpc('get_high_value_items', params: {
+      final response = await _readPages(() => _client.rpc('get_high_value_items', params: {
         'p_company_name': companyName,
-      });
-      return List<Map<String, dynamic>>.from(response as List);
+      }).order('stock_value', ascending: false).order('product_name', ascending: true));
+      return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       rethrow;
+    }
+  }
+
+  /// Fast Overview KPIs: counts + dead-stock sum (no full unused list pages).
+  Future<Map<String, dynamic>> getDormantOverviewKpis({
+    String? companyName,
+    int ledgerDays = 180,
+    int itemDays = 180,
+  }) async {
+    if (companyName == null ||
+        companyName.isEmpty ||
+        companyName == 'No Company Linked') {
+      return {
+        'unused_ledgers_count': 0,
+        'unused_items_count': 0,
+        'dead_stock_value': 0.0,
+      };
+    }
+    final raw = await _client.rpc(
+      'get_dormant_overview_kpis',
+      params: {
+        'p_company_name': companyName,
+        'p_ledger_days': ledgerDays,
+        'p_item_days': itemDays,
+      },
+    );
+    final row = raw is List && raw.isNotEmpty
+        ? Map<String, dynamic>.from(raw.first as Map)
+        : (raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{});
+    return {
+      'unused_ledgers_count': _toInt(row['unused_ledgers_count']),
+      'unused_items_count': _toInt(row['unused_items_count']),
+      'dead_stock_value': _toDouble(row['dead_stock_value']),
+    };
+  }
+
+  Future<Map<String, dynamic>> getCombinedDormantOverviewKpis({
+    required List<String> companyNames,
+    int ledgerDays = 180,
+    int itemDays = 180,
+  }) async {
+    final companies = await _resolveCombinedCompanies(companyNames);
+    if (!CombinedCompanySelection.isReady(companies)) {
+      return {
+        'unused_ledgers_count': 0,
+        'unused_items_count': 0,
+        'dead_stock_value': 0.0,
+      };
+    }
+    try {
+      final raw = await _client.rpc(
+        'get_combined_dormant_overview_kpis',
+        params: {
+          'p_company_names': companies,
+          'p_ledger_days': ledgerDays,
+          'p_item_days': itemDays,
+        },
+      );
+      final row = raw is List && raw.isNotEmpty
+          ? Map<String, dynamic>.from(raw.first as Map)
+          : (raw is Map
+              ? Map<String, dynamic>.from(raw)
+              : <String, dynamic>{});
+      return {
+        'unused_ledgers_count': _toInt(row['unused_ledgers_count']),
+        'unused_items_count': _toInt(row['unused_items_count']),
+        'dead_stock_value': _toDouble(row['dead_stock_value']),
+      };
+    } catch (_) {
+      // Fallback: sum single-company KPI RPCs.
+      var ledgers = 0;
+      var items = 0;
+      var dead = 0.0;
+      for (final c in companies) {
+        try {
+          final k = await getDormantOverviewKpis(
+            companyName: c,
+            ledgerDays: ledgerDays,
+            itemDays: itemDays,
+          );
+          ledgers += _toInt(k['unused_ledgers_count']);
+          items += _toInt(k['unused_items_count']);
+          dead += _toDouble(k['dead_stock_value']);
+        } catch (_) {}
+      }
+      return {
+        'unused_ledgers_count': ledgers,
+        'unused_items_count': items,
+        'dead_stock_value': dead,
+      };
     }
   }
 
@@ -3097,10 +3188,14 @@ class SupabaseService {
     if (!CombinedCompanySelection.isReady(companies)) return [];
 
     try {
-      return await _rpcMapRows('get_combined_fast_moving_items', {
-        'p_company_names': companies,
-        'p_days': days,
-      });
+      return await _rpcMapRows(
+        'get_combined_fast_moving_items',
+        {
+          'p_company_names': companies,
+          'p_days': days,
+        },
+        paged: true,
+      );
     } catch (_) {
       // Fallback: fan-out single-company RPCs
     }
@@ -3131,31 +3226,59 @@ class SupabaseService {
     if (!CombinedCompanySelection.isReady(companies)) return [];
 
     try {
-      return await _rpcMapRows('get_combined_slow_moving_items', {
-        'p_company_names': companies,
-        'p_days': days,
-      });
+      return await _rpcMapRows(
+        'get_combined_slow_moving_items',
+        {
+          'p_company_names': companies,
+          'p_days': days,
+        },
+        paged: true,
+      );
     } catch (_) {
-      // Fallback: fan-out single-company RPCs
+      // Fallback: match combined RPC — sum sold across companies for each
+      // stock product name, then keep totals under 5 (not per-company slow lists).
     }
 
-    final rows = await _fanOutAnalyticsRows(
+    final soldRows = await _fanOutAnalyticsRows(
       companies,
-      (c) => getSlowMovingItems(companyName: c, days: days),
+      (c) => getFastMovingItems(companyName: c, days: days),
       tagCompany: false,
     );
-    final merged = _mergeAnalyticsByKey(
-      rows,
-      keyField: 'product_name',
-      sumFields: const ['total_sold'],
-      compare: (a, b) {
-        final bySold =
-            _toDouble(a['total_sold']).compareTo(_toDouble(b['total_sold']));
-        if (bySold != 0) return bySold;
-        return '${a['product_name']}'.compareTo('${b['product_name']}');
-      },
+    final soldByName = <String, double>{};
+    for (final row in soldRows) {
+      final name = (row['product_name'] ?? '').toString();
+      if (name.isEmpty) continue;
+      soldByName[name] =
+          (soldByName[name] ?? 0) + _toDouble(row['total_sold']);
+    }
+
+    final stockRows = await _fanOutAnalyticsRows(
+      companies,
+      (c) => getHighValueItems(companyName: c),
+      tagCompany: false,
     );
-    return merged.where((r) => _toDouble(r['total_sold']) < 5).toList();
+    final names = <String>{};
+    for (final row in stockRows) {
+      final name = (row['product_name'] ?? '').toString();
+      if (name.isNotEmpty) names.add(name);
+    }
+    // Also include sold-only names (qty may be 0 / not in high-value).
+    names.addAll(soldByName.keys);
+
+    final out = <Map<String, dynamic>>[];
+    for (final name in names) {
+      final sold = soldByName[name] ?? 0;
+      if (sold < 5) {
+        out.add({'product_name': name, 'total_sold': sold});
+      }
+    }
+    out.sort((a, b) {
+      final bySold =
+          _toDouble(a['total_sold']).compareTo(_toDouble(b['total_sold']));
+      if (bySold != 0) return bySold;
+      return '${a['product_name']}'.compareTo('${b['product_name']}');
+    });
+    return out;
   }
 
   Future<List<Map<String, dynamic>>> getCombinedHighValueItems({
@@ -3396,6 +3519,24 @@ class SupabaseService {
     return allData.map((json) => LedgerBillSettlement.fromJson(json)).toList();
   }
 
+  /// Customer (receivable) ledger names for Cash Flow — excludes payables.
+  Future<Set<String>> getSundryDebtorNames(String companyName) async {
+    try {
+      final rows = await _readPages(() => _client
+          .from('customers')
+          .select('customer_name')
+          .eq('company_name', companyName)
+          .ilike('ledger_type', '%Sundry Debtor%')
+          .order('id', ascending: true));
+      return rows
+          .map((r) => (r['customer_name'] as String? ?? '').trim().toLowerCase())
+          .where((n) => n.isNotEmpty)
+          .toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
   Future<List<Ledger>> getLedgersByName({required String companyName, required String ledgerName}) async {
     try {
       final response = await _client
@@ -3484,6 +3625,13 @@ class SupabaseService {
     if (val is double) return val;
     if (val is int) return val.toDouble();
     return double.tryParse(val.toString()) ?? 0;
+  }
+
+  static int _toInt(dynamic val) {
+    if (val == null) return 0;
+    if (val is int) return val;
+    if (val is num) return val.toInt();
+    return int.tryParse(val.toString()) ?? 0;
   }
 
   // ─── Sync Machines & Licensing (script_control) ───────────────────

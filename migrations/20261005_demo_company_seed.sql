@@ -626,12 +626,12 @@ SELECT
   'TallyLive Demo Company',
   'Demo Customer ' || lpad((((i - 1) % 40) + 1)::text, 2, '0'),
   'BILL-REF-' || lpad(i::text, 4, '0'),
-  (CURRENT_DATE - (30 + i))::date,
+  (CURRENT_DATE - (30 + i))::date AS bill_date,
   round((3500 + i * 210)::numeric, 2),
-  (CURRENT_DATE - (10 + i))::date,
-  (CURRENT_DATE - (5 + (i % 8)))::date,
-  10 + (i % 25),
-  CASE WHEN i % 4 = 0 THEN -3 ELSE (i % 12) END,
+  (CURRENT_DATE - (10 + i))::date AS due_date,
+  (CURRENT_DATE - (5 + (i % 8)))::date AS cleared_date,
+  ((CURRENT_DATE - (5 + (i % 8))) - (CURRENT_DATE - (30 + i)))::int AS days_to_clear,
+  ((CURRENT_DATE - (5 + (i % 8))) - (CURRENT_DATE - (10 + i)))::int AS days_from_due_date,
   'demo-settle-' || lpad(i::text, 4, '0'),
   i
 FROM generate_series(1, 20) AS i;

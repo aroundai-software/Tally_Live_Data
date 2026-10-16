@@ -25,6 +25,8 @@ class UserPreferencesService {
   static const _kOutstandingSortDate   = 'pref_outstanding_sort_date';
   static const _kLastLoginEmailDomain  = 'pref_last_login_email_domain';
   static const _kActiveSessionId       = 'pref_active_session_id';
+  static const _kSignedOutByOtherDevice = 'pref_signed_out_by_other_device';
+  static const _kThemeMode             = 'pref_theme_mode';
 
   // ─── Company ────────────────────────────────────────────────────────────────
   static Future<void> saveLastCompany(String company) async {
@@ -84,6 +86,33 @@ class UserPreferencesService {
   static Future<void> clearActiveSessionId() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kActiveSessionId);
+  }
+
+  /// Set when this device is kicked because the same account signed in elsewhere.
+  static Future<void> markSignedOutByOtherDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kSignedOutByOtherDevice, true);
+  }
+
+  /// Returns true once, then clears the flag (so the login notice shows only once).
+  static Future<bool> consumeSignedOutByOtherDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    final flagged = prefs.getBool(_kSignedOutByOtherDevice) ?? false;
+    if (flagged) {
+      await prefs.remove(_kSignedOutByOtherDevice);
+    }
+    return flagged;
+  }
+
+  // ─── Theme (system | light | dark) ──────────────────────────────────────────
+  static Future<void> saveThemeMode(String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kThemeMode, mode);
+  }
+
+  static Future<String?> loadThemeMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kThemeMode);
   }
 
   // ─── Sales Invoice ──────────────────────────────────────────────────────────

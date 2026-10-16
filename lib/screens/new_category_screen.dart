@@ -111,14 +111,20 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
     final bool isLowStock = item.quantity >= 1 && item.quantity <= 5;
 
     final Color borderColor = isOutOfStock
-        ? const Color(0xFFEF4444)
-        : (isLowStock ? const Color(0xFFF59E0B) : const Color(0xFFF1F5F9));
+        ? AppTheme.errorColor
+        : (isLowStock ? const Color(0xFFF59E0B) : AppTheme.dividerColor);
 
     final double borderWidth = (isOutOfStock || isLowStock) ? 1.5 : 1.0;
 
     final Color cardBg = isOutOfStock
-        ? const Color(0xFFFFFBFB)
-        : (isLowStock ? const Color(0xFFFFFDF5) : Colors.white);
+        ? (AppTheme.isDark
+            ? AppTheme.errorColor.withValues(alpha: 0.12)
+            : const Color(0xFFFFFBFB))
+        : (isLowStock
+            ? (AppTheme.isDark
+                ? const Color(0xFFF59E0B).withValues(alpha: 0.12)
+                : const Color(0xFFFFFDF5))
+            : AppTheme.cardColor);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -133,9 +139,12 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
         boxShadow: [
           BoxShadow(
             color: (isOutOfStock
-                ? const Color(0xFFEF4444)
+                ? AppTheme.errorColor
                 : (isLowStock ? const Color(0xFFF59E0B) : Colors.black))
-                .withValues(alpha: (isOutOfStock || isLowStock) ? 0.05 : 0.02),
+                .withValues(
+                    alpha: (isOutOfStock || isLowStock)
+                        ? 0.05
+                        : (AppTheme.isDark ? 0.25 : 0.02)),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -153,10 +162,10 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
                   children: [
                     Text(
                       item.name,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 15,
-                        color: Color(0xFF1E293B),
+                        color: AppTheme.textPrimary,
                       ),
                     ),
                     if (CompanyProvider.of(context).isCombinedMode &&
@@ -173,11 +182,15 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
                   margin: const EdgeInsets.only(right: 6),
                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                   decoration: BoxDecoration(
-                    color: isOutOfStock ? const Color(0xFFFEE2E2) : const Color(0xFFFEF3C7),
+                    color: isOutOfStock
+                        ? AppTheme.errorColor.withValues(alpha: 0.1)
+                        : (AppTheme.isDark
+                            ? const Color(0xFFF59E0B).withValues(alpha: 0.12)
+                            : const Color(0xFFFEF3C7)),
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(
                       color: isOutOfStock
-                          ? const Color(0xFFEF4444).withValues(alpha: 0.4)
+                          ? AppTheme.errorColor.withValues(alpha: 0.4)
                           : const Color(0xFFF59E0B).withValues(alpha: 0.5),
                     ),
                   ),
@@ -186,7 +199,9 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
-                      color: isOutOfStock ? const Color(0xFFDC2626) : const Color(0xFFD97706),
+                      color: isOutOfStock
+                          ? AppTheme.errorColor
+                          : const Color(0xFFD97706),
                     ),
                   ),
                 ),
@@ -194,15 +209,15 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
+                  color: AppTheme.surfaceColor,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
                   item.parent ?? 'Unknown',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
-                    color: Color(0xFF64748B),
+                    color: AppTheme.textSecondary,
                   ),
                 ),
               ),
@@ -215,7 +230,7 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Current Stock', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                  Text('Current Stock', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                   const SizedBox(height: 4),
                   Text(
                     '${item.quantity} ${item.unit ?? ''}',
@@ -223,8 +238,8 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
                       fontWeight: FontWeight.w700,
                       fontSize: 14,
                       color: isOutOfStock
-                          ? Colors.red
-                          : (isLowStock ? const Color(0xFFD97706) : const Color(0xFF334155)),
+                          ? AppTheme.errorColor
+                          : (isLowStock ? const Color(0xFFD97706) : AppTheme.textPrimary),
                     ),
                   ),
                 ],
@@ -232,14 +247,14 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
               if (CompanyProvider.of(context).isFeatureEnabled('stock_cost')) Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  const Text('Stock Value', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                  Text('Stock Value', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                   const SizedBox(height: 4),
                   Text(
                     formatCurrency(item.stockValue),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 14,
-                      color: Color(0xFF334155),
+                      color: AppTheme.textPrimary,
                     ),
                   ),
                 ],
@@ -256,9 +271,9 @@ class _NewCategoryScreenState extends State<NewCategoryScreen> {
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: Text(widget.screenTitle ?? 'New Arrivals', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        title: Text(widget.screenTitle ?? 'New Arrivals', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+        backgroundColor: AppTheme.cardColor,
+        surfaceTintColor: AppTheme.cardColor,
       ),
       body: Column(
         children: [

@@ -267,13 +267,7 @@ class _DaybookScreenState extends State<DaybookScreen> {
       lastDate: DateTime(2101),
       builder: (context, child) {
         return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: AppTheme.primaryColor,
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
+          data: AppTheme.datePickerOverlayTheme(context),
           child: child!,
         );
       },
@@ -293,16 +287,16 @@ class _DaybookScreenState extends State<DaybookScreen> {
       appBar: AppBar(
         leading: widget.onBack != null
             ? IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: Icon(Icons.arrow_back),
                 onPressed: widget.onBack,
               )
             : IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: Icon(Icons.arrow_back),
                 onPressed: () => Navigator.of(context).pop(),
               ),
-        title: const Text('Daybook'),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        title: Text('Daybook'),
+        backgroundColor: AppTheme.cardColor,
+        surfaceTintColor: AppTheme.cardColor,
         actions: [
           IconButton(
             onPressed: () => _selectDate(context),
@@ -321,16 +315,17 @@ class _DaybookScreenState extends State<DaybookScreen> {
           children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              color: Colors.white,
+              color: AppTheme.cardColor,
               child: Row(
                 children: [
-                  const Icon(Icons.today_rounded, color: AppTheme.primaryColor, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
-                    DateFormat('EEEE, MMM d, yyyy').format(_selectedDate),
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)),
+                  Icon(Icons.today_rounded, color: AppTheme.primaryColor, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      DateFormat('EEEE, MMM d, yyyy').format(_selectedDate),
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                    ),
                   ),
-                  const Spacer(),
                   TextButton(
                     onPressed: () {
                       setState(() => _selectedDate = DateTime.now());
@@ -379,11 +374,12 @@ class _DaybookScreenState extends State<DaybookScreen> {
               },
               selectedColor: AppTheme.primaryColor,
               labelStyle: TextStyle(
-                color: selected ? Colors.white : Colors.grey.shade700,
+                color: selected ? Colors.white : AppTheme.textPrimary,
                 fontWeight: selected ? FontWeight.bold : FontWeight.normal,
                 fontSize: 13,
               ),
-              backgroundColor: Colors.white,
+              backgroundColor: AppTheme.cardColor,
+              side: BorderSide(color: selected ? AppTheme.primaryColor : AppTheme.dividerColor),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             ),
           );
@@ -437,11 +433,11 @@ class _DaybookCard extends StatelessWidget {
     final IconData icon = isDebit ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: AppTheme.dividerColor),
       ),
       child: Material(
         color: Colors.transparent,
@@ -461,14 +457,14 @@ class _DaybookCard extends StatelessWidget {
                   ),
                   child: Icon(icon, color: color, size: 20),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         entry.ledgerName,
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1A1F36)),
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                       ),
                       const SizedBox(height: 2),
                       Wrap(
@@ -479,17 +475,19 @@ class _DaybookCard extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
+                              color: AppTheme.isDark
+                                  ? const Color(0xFF243044)
+                                  : Colors.grey.shade100,
                               borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: Colors.grey.shade300),
+                              border: Border.all(color: AppTheme.dividerColor),
                             ),
                             child: Text(
                               entry.voucherType,
-                              style: TextStyle(fontSize: 10, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                              style: TextStyle(fontSize: 10, color: AppTheme.textSecondary, fontWeight: FontWeight.w600),
                             ),
                           ),
                           if (entry.voucherNumber != null && entry.voucherNumber!.isNotEmpty)
-                            Text('#${entry.voucherNumber}', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                            Text('#${entry.voucherNumber}', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                         ],
                       ),
                       if (entry.companyName != null && entry.companyName!.isNotEmpty) ...[
@@ -500,12 +498,12 @@ class _DaybookCard extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           entry.particulars!,
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
+                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
                         ),
                       ],
                       if (entry.narration != null && entry.narration!.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        Text(entry.narration!, style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontStyle: FontStyle.italic)),
+                        Text(entry.narration!, style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontStyle: FontStyle.italic)),
                       ],
                     ],
                   ),
@@ -543,8 +541,8 @@ class _DetailsBottomSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: const EdgeInsets.only(top: 12, bottom: 24, left: 24, right: 24),
@@ -559,7 +557,7 @@ class _DetailsBottomSheet extends StatelessWidget {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: AppTheme.dividerColor,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -583,10 +581,10 @@ class _DetailsBottomSheet extends StatelessWidget {
                     children: [
                       Text(
                         entry.ledgerName,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF1A1F36),
+                          color: AppTheme.textPrimary,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -594,7 +592,7 @@ class _DetailsBottomSheet extends StatelessWidget {
                         entry.date != null ? DateFormat('EEEE, MMM d, yyyy').format(entry.date!) : 'N/A',
                         style: TextStyle(
                           fontSize: 14,
-                          color: Colors.grey.shade600,
+                          color: AppTheme.textSecondary,
                         ),
                       ),
                     ],
@@ -603,7 +601,7 @@ class _DetailsBottomSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 24),
-            const Divider(),
+            Divider(color: AppTheme.dividerColor),
             const SizedBox(height: 16),
             // Details Row: Amount, Voucher Type, Voucher Number
             _buildDetailRow('Amount', NumberFormat.currency(locale: 'en_IN', symbol: '\u20B9').format(entry.amount), valueColor: color),
@@ -619,22 +617,22 @@ class _DetailsBottomSheet extends StatelessWidget {
             ],
             if (entry.narration != null && entry.narration!.isNotEmpty) ...[
               const SizedBox(height: 16),
-              const Divider(),
+              Divider(color: AppTheme.dividerColor),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Narration',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: Colors.grey,
+                  color: AppTheme.textSecondary,
                 ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Text(
                 entry.narration!,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
-                  color: Color(0xFF1A1F36),
+                  color: AppTheme.textPrimary,
                   height: 1.4,
                 ),
               ),
@@ -652,10 +650,10 @@ class _DetailsBottomSheet extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w500,
-            color: Colors.grey,
+            color: AppTheme.textSecondary,
           ),
         ),
         Text(
@@ -663,7 +661,7 @@ class _DetailsBottomSheet extends StatelessWidget {
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w600,
-            color: valueColor ?? const Color(0xFF1A1F36),
+            color: valueColor ?? AppTheme.textPrimary,
           ),
         ),
       ],

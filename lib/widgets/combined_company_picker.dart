@@ -62,14 +62,14 @@ class CombinedCompanyPickerBody extends StatelessWidget {
                       'Select the companies to combine, then tap OK.',
                   style: TextStyle(
                     fontSize: 13,
-                    color: Colors.grey.shade600,
+                    color: AppTheme.textSecondary,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Row(
                   children: [
-                    const Text(
+                    Text(
                       'Companies',
                       style: TextStyle(
                         fontSize: 15,
@@ -88,7 +88,7 @@ class CombinedCompanyPickerBody extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 if (allowed.isEmpty)
                   _infoBox('No linked companies found for this user.')
                 else if (allowed.length < CombinedCompanySelection.minCompanies)
@@ -97,13 +97,13 @@ class CombinedCompanyPickerBody extends StatelessWidget {
                   )
                 else
                   Material(
-                    color: Colors.white,
+                    color: AppTheme.cardColor,
                     borderRadius: BorderRadius.circular(12),
                     clipBehavior: Clip.antiAlias,
                     child: Container(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade200),
+                        border: Border.all(color: AppTheme.dividerColor),
                       ),
                       child: Column(
                         children: [
@@ -111,24 +111,28 @@ class CombinedCompanyPickerBody extends StatelessWidget {
                             CheckboxListTile(
                               value: draftSelected.contains(allowed[i]),
                               onChanged: (_) => onToggle(allowed[i]),
+                              activeColor: AppTheme.primaryColor,
+                              checkColor: Colors.white,
+                              side: BorderSide(color: AppTheme.dividerColor),
                               title: Text(
                                 allowed[i],
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontWeight: FontWeight.w600,
                                   fontSize: 14,
+                                  color: AppTheme.textPrimary,
                                 ),
                               ),
                               controlAffinity: ListTileControlAffinity.leading,
                               dense: true,
                             ),
                             if (i < allowed.length - 1)
-                              Divider(height: 1, color: Colors.grey.shade200),
+                              Divider(height: 1, color: AppTheme.dividerColor),
                           ],
                         ],
                       ),
                     ),
                   ),
-                const SizedBox(height: 10),
+                SizedBox(height: 10),
                 Text(
                   _draftReady
                       ? '${_draftValidated.length} companies selected'
@@ -145,26 +149,33 @@ class CombinedCompanyPickerBody extends StatelessWidget {
             ),
           ),
         ),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-            child: SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: _draftReady ? onConfirm : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: Colors.grey.shade300,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+        Container(
+          width: double.infinity,
+          color: AppTheme.cardColor,
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: _draftReady ? onConfirm : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: AppTheme.isDark
+                        ? const Color(0xFF243044)
+                        : Colors.grey.shade300,
+                    disabledForegroundColor: AppTheme.textSecondary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                ),
-                child: const Text(
-                  'OK',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                  child: const Text(
+                    'OK',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                  ),
                 ),
               ),
             ),
@@ -176,13 +187,13 @@ class CombinedCompanyPickerBody extends StatelessWidget {
 
   Widget _infoBox(String text) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: AppTheme.dividerColor),
       ),
-      child: Text(text, style: const TextStyle(color: AppTheme.textSecondary)),
+      child: Text(text, style: TextStyle(color: AppTheme.textSecondary)),
     );
   }
 }

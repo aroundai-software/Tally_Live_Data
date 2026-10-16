@@ -106,7 +106,7 @@ class _SplashScreenState extends State<SplashScreen> {
       if (_service.currentSession != null) {
         return const CompanySelectionScreen();
       }
-      return const LoginScreen();
+      return LoginScreen();
     }
   }
 
@@ -115,11 +115,13 @@ class _SplashScreenState extends State<SplashScreen> {
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFFE8F2FF), Colors.white],
+            colors: AppTheme.isDark
+                ? [AppTheme.surfaceColor, AppTheme.cardColor]
+                : [Color(0xFFE8F2FF), Colors.white],
           ),
         ),
         child: Center(
@@ -138,9 +140,9 @@ class _SplashScreenState extends State<SplashScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(24),
+                  padding: EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppTheme.cardColor,
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
@@ -165,14 +167,14 @@ class _SplashScreenState extends State<SplashScreen> {
                           return const SizedBox(width: 110, height: 110);
                         },
                       ),
-                      const SizedBox(height: 14),
+                      SizedBox(height: 14),
                       Text(
                         'TallyLive',
                         style: AppTheme.brandTitle(
                           fontSize: 28,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0.5,
-                          color: const Color(0xFF1A1F36),
+                          color: AppTheme.textPrimary,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -181,7 +183,7 @@ class _SplashScreenState extends State<SplashScreen> {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade500,
+                          color: AppTheme.textSecondary,
                         ),
                       ),
                     ],

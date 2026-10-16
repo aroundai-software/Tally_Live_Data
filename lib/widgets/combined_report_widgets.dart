@@ -85,7 +85,7 @@ class CombinedSummaryCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w500,
-                      color: Colors.grey.shade600,
+                      color: AppTheme.textSecondary,
                     ),
                   ),
               ],
@@ -123,7 +123,7 @@ class CombinedReportBreakdown extends StatelessWidget {
       ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
 
     // Slightly different tint from grand total so the two cards are distinct.
-    final cardColor = Color.lerp(accent, const Color(0xFF1A1F36), 0.18)!;
+    final cardColor = Color.lerp(accent, AppTheme.textPrimary, 0.18)!;
 
     return Container(
       width: double.infinity,
@@ -158,7 +158,7 @@ class CombinedReportBreakdown extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w500,
-                        color: Colors.grey.shade800,
+                        color: AppTheme.textPrimary,
                       ),
                     ),
                   ),
@@ -214,7 +214,7 @@ class CombinedDateFilterPills extends StatelessWidget {
         children: options.map((key) {
           final active = selected == key;
           return Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding: EdgeInsets.only(right: 8),
             child: ChoiceChip(
               label: Text(_label(key)),
               selected: active,
@@ -226,7 +226,7 @@ class CombinedDateFilterPills extends StatelessWidget {
                 color: active ? AppTheme.primaryColor : AppTheme.textSecondary,
               ),
               side: BorderSide(
-                color: active ? AppTheme.primaryColor : Colors.grey.shade300,
+                color: active ? AppTheme.primaryColor : AppTheme.dividerColor,
               ),
             ),
           );

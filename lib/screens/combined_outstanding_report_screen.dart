@@ -177,27 +177,27 @@ class _CombinedOutstandingReportScreenState
                             _companies.join(' • '),
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.grey.shade600,
+                              color: AppTheme.textSecondary,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                          const SizedBox(height: 10),
+                          SizedBox(height: 10),
                         ],
                         TextField(
                           decoration: InputDecoration(
                             hintText: 'Search party, bill, company',
-                            prefixIcon: const Icon(Icons.search),
+                            prefixIcon: Icon(Icons.search),
                             filled: true,
-                            fillColor: Colors.white,
+                            fillColor: AppTheme.cardColor,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide:
-                                  BorderSide(color: Colors.grey.shade200),
+                                  BorderSide(color: AppTheme.dividerColor),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide:
-                                  BorderSide(color: Colors.grey.shade200),
+                                  BorderSide(color: AppTheme.dividerColor),
                             ),
                           ),
                           onChanged: (v) => setState(() => _search = v),
@@ -236,7 +236,7 @@ class _CombinedOutstandingReportScreenState
         color: AppTheme.surfaceColor,
         child: Column(
           children: [
-            Material(color: Colors.white, child: tabBar),
+            Material(color: AppTheme.cardColor, child: tabBar),
             Expanded(child: content),
           ],
         ),
@@ -246,7 +246,7 @@ class _CombinedOutstandingReportScreenState
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Combined Outstanding',
           style: TextStyle(
             fontWeight: FontWeight.w700,
@@ -255,8 +255,8 @@ class _CombinedOutstandingReportScreenState
           ),
         ),
         elevation: 0,
-        backgroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: AppTheme.textPrimary),
+        backgroundColor: AppTheme.cardColor,
+        iconTheme: IconThemeData(color: AppTheme.textPrimary),
         bottom: tabBar,
       ),
       body: content,
@@ -288,23 +288,22 @@ class _CombinedOutstandingReportScreenState
             totalsByCompany: totalsByCompany,
             accent: accent,
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           if (rows.isEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 40),
+              padding: EdgeInsets.symmetric(vertical: 40),
               child: Center(
                 child: Text(
                   emptyLabel,
-                  style: const TextStyle(color: AppTheme.textSecondary),
+                  style: TextStyle(color: AppTheme.textSecondary),
                 ),
               ),
             )
           else
             ...rows.map((r) {
               return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Material(
-                  color: Colors.white,
+                padding: EdgeInsets.only(bottom: 8),
+                child: Material(color: AppTheme.cardColor,
                   borderRadius: BorderRadius.circular(12),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
@@ -317,7 +316,7 @@ class _CombinedOutstandingReportScreenState
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade200),
+                        border: Border.all(color: AppTheme.dividerColor),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -327,7 +326,7 @@ class _CombinedOutstandingReportScreenState
                               Expanded(
                                 child: Text(
                                   r.customerName,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: 14,
                                   ),
@@ -348,7 +347,7 @@ class _CombinedOutstandingReportScreenState
                               'Bill ${r.invoiceNumber}',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: Colors.grey.shade700,
+                                color: AppTheme.textPrimary,
                               ),
                             ),
                           ],
@@ -366,7 +365,7 @@ class _CombinedOutstandingReportScreenState
                               if (r.isOverdue)
                                 Text(
                                   'Overdue ${r.overdueDays}d',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
                                     color: AppTheme.errorColor,
@@ -377,7 +376,7 @@ class _CombinedOutstandingReportScreenState
                                   'Due ${_dateFormat.format(r.dueDate!)}',
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: Colors.grey.shade500,
+                                    color: AppTheme.textSecondary,
                                   ),
                                 ),
                             ],

@@ -78,26 +78,11 @@ mixin ActiveSessionGuard<T extends StatefulWidget> on State<T> {
         CompanyProvider.of(context).clearCompany();
         CompanyProvider.of(context).clearUserCapabilities();
       } catch (_) {}
+      await UserPreferencesService.markSignedOutByOtherDevice();
       await SupabaseService().signOut();
       await UserPreferencesService.clearActiveSessionId();
       if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Signed out'),
-          content: const Text(
-            'You were logged out because your account was signed in on another device.',
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-      if (!mounted) return;
+      // LoginScreen shows the "signed in elsewhere" notice once via prefs.
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (_) => false,

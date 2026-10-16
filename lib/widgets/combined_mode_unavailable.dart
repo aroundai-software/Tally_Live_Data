@@ -5,7 +5,7 @@ import '../config/app_theme.dart';
 class CombinedModeUnavailable extends StatelessWidget {
   final String featureName;
 
-  const CombinedModeUnavailable({super.key, required this.featureName});
+  CombinedModeUnavailable({super.key, required this.featureName});
 
   @override
   Widget build(BuildContext context) {
@@ -14,15 +14,15 @@ class CombinedModeUnavailable extends StatelessWidget {
       appBar: AppBar(
         title: Text(
           featureName,
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w700,
             color: AppTheme.textPrimary,
             fontSize: 16,
           ),
         ),
         elevation: 0,
-        backgroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: AppTheme.textPrimary),
+        backgroundColor: AppTheme.cardColor,
+        iconTheme: IconThemeData(color: AppTheme.textPrimary),
       ),
       body: Center(
         child: Padding(
@@ -30,12 +30,12 @@ class CombinedModeUnavailable extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.block_rounded, size: 48, color: Colors.grey.shade400),
-              const SizedBox(height: 16),
+              Icon(Icons.block_rounded, size: 48, color: AppTheme.textSecondary),
+              SizedBox(height: 16),
               Text(
                 '$featureName is not available in Combined mode',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: AppTheme.textPrimary,
@@ -45,7 +45,7 @@ class CombinedModeUnavailable extends StatelessWidget {
               Text(
                 'Switch to a single company to view this report.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
               ),
               const SizedBox(height: 20),
               TextButton(

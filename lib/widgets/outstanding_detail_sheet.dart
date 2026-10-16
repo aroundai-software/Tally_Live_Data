@@ -44,9 +44,9 @@ Future<void> showOutstandingDetailSheet({
         minChildSize: 0.45,
         builder: (context, scrollController) {
           return Container(
-            margin: const EdgeInsets.only(bottom: 24, left: 16, right: 16),
+            margin: EdgeInsets.only(bottom: 24, left: 16, right: 16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppTheme.cardColor,
               borderRadius: BorderRadius.circular(20),
             ),
             clipBehavior: Clip.antiAlias,
@@ -57,7 +57,7 @@ Future<void> showOutstandingDetailSheet({
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: AppTheme.dividerColor,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -89,10 +89,10 @@ Future<void> showOutstandingDetailSheet({
                               children: [
                                 Text(
                                   record.customerName,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w700,
-                                    color: Color(0xFF1A1F36),
+                                    color: AppTheme.textPrimary,
                                   ),
                                 ),
                                 if (record.invoiceNumber.isNotEmpty)
@@ -100,7 +100,7 @@ Future<void> showOutstandingDetailSheet({
                                     'Bill ${record.invoiceNumber}',
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: Colors.grey.shade500,
+                                      color: AppTheme.textSecondary,
                                     ),
                                   ),
                               ],
@@ -127,7 +127,7 @@ Future<void> showOutstandingDetailSheet({
                           ),
                           IconButton(
                             icon: const Icon(Icons.close_rounded),
-                            color: Colors.grey.shade700,
+                            color: AppTheme.textSecondary,
                             tooltip: 'Close',
                             onPressed: () => Navigator.pop(context),
                           ),
@@ -228,20 +228,21 @@ Future<void> showOutstandingDetailSheet({
 
 Widget _detailSection(String title, List<Widget> children) {
   return Container(
-    padding: const EdgeInsets.all(16),
+    padding: EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: const Color(0xFFF8F9FE),
+      color: AppTheme.surfaceColor,
       borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: AppTheme.dividerColor),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF1A1F36),
+            color: AppTheme.textPrimary,
           ),
         ),
         const SizedBox(height: 10),
@@ -263,7 +264,7 @@ Widget _detailItem(
     style: TextStyle(
       fontSize: 14,
       fontWeight: FontWeight.w600,
-      color: valueColor ?? const Color(0xFF1A1F36),
+      color: valueColor ?? AppTheme.textPrimary,
     ),
   );
 
@@ -276,7 +277,7 @@ Widget _detailItem(
           flex: 2,
           child: Text(
             label,
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
           ),
         ),
         const SizedBox(width: 8),
