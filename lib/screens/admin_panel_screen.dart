@@ -2957,7 +2957,7 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                               _buildActionItem(
                                 icon: Icons.person_outline_rounded,
                                 title: 'Account Info',
-                                subtitle: 'Name, phone, and assigned companies',
+                                subtitle: 'Name and phone',
                                 color: AppTheme.primaryColor,
                                 onTap: () {
                                   Navigator.of(context).push(

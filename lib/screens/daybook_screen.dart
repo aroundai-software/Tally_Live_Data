@@ -11,6 +11,8 @@ import '../widgets/search_bar_widget.dart';
 import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/combined_report_widgets.dart';
+import '../widgets/sales_invoice_detail_sheet.dart';
+import '../widgets/purchase_invoice_detail_sheet.dart';
 
 class DaybookScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -413,24 +415,111 @@ class _DaybookScreenState extends State<DaybookScreen> {
   }
 }
 
-class _DaybookCard extends StatelessWidget {
+class _DaybookCard extends StatefulWidget {
   final DaybookEntry entry;
   const _DaybookCard({required this.entry});
+
+  @override
+  State<_DaybookCard> createState() => _DaybookCardState();
+}
+
+class _DaybookCardState extends State<_DaybookCard> {
+  bool _openingLinked = false;
+
+  DaybookEntry get entry => widget.entry;
+
+  bool get _looksLikeSales {
+    final vt = entry.voucherType.toLowerCase();
+    return vt.contains('sales') || vt.contains('sale');
+  }
+
+  bool get _looksLikePurchase {
+    final vt = entry.voucherType.toLowerCase();
+    return vt.contains('purchase');
+  }
 
   void _showEntryDetails(BuildContext context, Color color, IconData icon) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _DetailsBottomSheet(entry: entry, color: color, icon: icon),
+      builder: (context) =>
+          _DetailsBottomSheet(entry: entry, color: color, icon: icon),
     );
+  }
+
+  Future<void> _onTap(BuildContext context, Color color, IconData icon) async {
+    if (_openingLinked) return;
+
+    final number = entry.voucherNumber?.trim() ?? '';
+    final companyFromEntry = (entry.companyName ?? '').trim();
+    final companyFromProvider =
+        (CompanyProvider.of(context).selectedCompany ?? '').trim();
+    final company =
+        companyFromEntry.isNotEmpty ? companyFromEntry : companyFromProvider;
+
+    final canLinkInvoice = (_looksLikeSales || _looksLikePurchase) &&
+        number.isNotEmpty &&
+        company.isNotEmpty;
+
+    if (!canLinkInvoice) {
+      _showEntryDetails(context, color, icon);
+      return;
+    }
+
+    setState(() => _openingLinked = true);
+    try {
+      final service = SupabaseService();
+      if (_looksLikeSales) {
+        final invoice = await service.findSalesInvoiceByNumber(
+          companyName: company,
+          invoiceNumber: number,
+          partyName: entry.ledgerName,
+        );
+        if (!mounted) return;
+        if (invoice != null) {
+          setState(() => _openingLinked = false);
+          // Don't await — sheet stays open; spinner should stop once lookup is done.
+          showSalesInvoiceDetailSheet(
+            context: context,
+            invoice: invoice,
+            service: service,
+          );
+          return;
+        }
+      } else if (_looksLikePurchase) {
+        final invoice = await service.findPurchaseInvoiceByNumber(
+          companyName: company,
+          invoiceNumber: number,
+          partyName: entry.ledgerName,
+        );
+        if (!mounted) return;
+        if (invoice != null) {
+          setState(() => _openingLinked = false);
+          showPurchaseInvoiceDetailSheet(
+            context: context,
+            invoice: invoice,
+            service: service,
+          );
+          return;
+        }
+      }
+    } catch (_) {
+      // Fall back to daybook detail below.
+    } finally {
+      if (mounted && _openingLinked) setState(() => _openingLinked = false);
+    }
+
+    if (!mounted) return;
+    _showEntryDetails(context, color, icon);
   }
 
   @override
   Widget build(BuildContext context) {
     final bool isDebit = entry.isDebit;
     final Color color = isDebit ? Colors.green.shade600 : Colors.red.shade600;
-    final IconData icon = isDebit ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded;
+    final IconData icon =
+        isDebit ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded;
 
     return Container(
       margin: EdgeInsets.only(bottom: 10),
@@ -443,7 +532,7 @@ class _DaybookCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: () => _showEntryDetails(context, color, icon),
+          onTap: () => _onTap(context, color, icon),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -455,7 +544,16 @@ class _DaybookCard extends StatelessWidget {
                     color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(icon, color: color, size: 20),
+                  child: _openingLinked
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: color,
+                          ),
+                        )
+                      : Icon(icon, color: color, size: 20),
                 ),
                 SizedBox(width: 12),
                 Expanded(
@@ -464,7 +562,10 @@ class _DaybookCard extends StatelessWidget {
                     children: [
                       Text(
                         entry.ledgerName,
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.textPrimary),
                       ),
                       const SizedBox(height: 2),
                       Wrap(
@@ -473,7 +574,8 @@ class _DaybookCard extends StatelessWidget {
                         runSpacing: 4,
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: AppTheme.isDark
                                   ? const Color(0xFF243044)
@@ -483,27 +585,45 @@ class _DaybookCard extends StatelessWidget {
                             ),
                             child: Text(
                               entry.voucherType,
-                              style: TextStyle(fontSize: 10, color: AppTheme.textSecondary, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  color: AppTheme.textSecondary,
+                                  fontWeight: FontWeight.w600),
                             ),
                           ),
-                          if (entry.voucherNumber != null && entry.voucherNumber!.isNotEmpty)
-                            Text('#${entry.voucherNumber}', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                          if (entry.voucherNumber != null &&
+                              entry.voucherNumber!.isNotEmpty)
+                            Text('#${entry.voucherNumber}',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppTheme.textSecondary)),
                         ],
                       ),
-                      if (entry.companyName != null && entry.companyName!.isNotEmpty) ...[
+                      if (entry.companyName != null &&
+                          entry.companyName!.isNotEmpty) ...[
                         const SizedBox(height: 4),
                         CombinedCompanyChip(companyName: entry.companyName!),
                       ],
-                      if (entry.particulars != null && entry.particulars!.isNotEmpty && entry.particulars != entry.ledgerName) ...[
+                      if (entry.particulars != null &&
+                          entry.particulars!.isNotEmpty &&
+                          entry.particulars != entry.ledgerName) ...[
                         const SizedBox(height: 4),
                         Text(
                           entry.particulars!,
-                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary,
+                              fontWeight: FontWeight.w500),
                         ),
                       ],
-                      if (entry.narration != null && entry.narration!.isNotEmpty) ...[
+                      if (entry.narration != null &&
+                          entry.narration!.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        Text(entry.narration!, style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontStyle: FontStyle.italic)),
+                        Text(entry.narration!,
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.textSecondary,
+                                fontStyle: FontStyle.italic)),
                       ],
                     ],
                   ),
@@ -513,8 +633,12 @@ class _DaybookCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      NumberFormat.currency(locale: 'en_IN', symbol: '\u20B9').format(entry.amount),
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: color),
+                      NumberFormat.currency(locale: 'en_IN', symbol: '\u20B9')
+                          .format(entry.amount),
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: color),
                     ),
                   ],
                 ),

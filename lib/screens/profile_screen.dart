@@ -4,7 +4,7 @@ import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
 import '../widgets/shimmer_loading.dart';
 
-/// Account info only (name, phone, companies). Opened from Settings.
+/// Account info only (name, phone). Opened from Settings / Admin.
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -17,7 +17,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = true;
 
   String _fullName = '';
-  List<String> _assignedCompanies = [];
   String _phone = '';
   String _companyName = '';
   String? _userId;
@@ -35,8 +34,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (user != null) {
         _userId = user.id;
         final profile = await _service.getUserProfile(user.id);
-        final assigned = await _service.getUserCompanies(user.id);
-        _assignedCompanies = assigned;
         String rawPhone = '';
         if (profile != null) {
           _fullName = profile['full_name']?.toString() ?? 'Business Owner';
@@ -441,111 +438,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               title: 'Phone Number',
               subtitle: _phone,
               onTap: _showEditPhoneDialog,
-            ),
-            Divider(height: 1, indent: 54, color: AppTheme.dividerColor),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primaryColor.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.business_rounded,
-                      color: AppTheme.primaryColor,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Assigned Companies',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.textSecondary,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        SizedBox(height: 6),
-                        if (_assignedCompanies.isEmpty)
-                          Text(
-                            _companyName,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.textPrimary,
-                            ),
-                          )
-                        else
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: _assignedCompanies.map((comp) {
-                              final isSelected = comp ==
-                                  CompanyProvider.of(context).selectedCompany;
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? AppTheme.primaryColor
-                                          .withValues(alpha: 0.18)
-                                      : (AppTheme.isDark
-                                          ? const Color(0xFF243044)
-                                          : Colors.grey.shade100),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? AppTheme.primaryColor
-                                            .withValues(alpha: 0.45)
-                                        : AppTheme.dividerColor,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (isSelected)
-                                      const Padding(
-                                        padding: EdgeInsets.only(right: 4),
-                                        child: Icon(
-                                          Icons.check_circle_rounded,
-                                          color: AppTheme.primaryColor,
-                                          size: 13,
-                                        ),
-                                      ),
-                                    Flexible(
-                                      child: Text(
-                                        comp,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: isSelected
-                                              ? FontWeight.w700
-                                              : FontWeight.w500,
-                                          color: isSelected
-                                              ? AppTheme.primaryColor
-                                              : AppTheme.textPrimary,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
             ),
           ],
         ),

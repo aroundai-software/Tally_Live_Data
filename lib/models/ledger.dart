@@ -90,9 +90,33 @@ class Ledger {
     return !g.startsWith('00000000-0000-0000-0000-000000000000');
   }
 
+  static final RegExp _contactLinePrefix = RegExp(
+    r'^\s*(ph|phone|mob|mobile|tel|telephone|email|e-mail)\s*[:.\-]?\s*',
+    caseSensitive: false,
+  );
+
+  /// Street / mailing lines only — strips embedded phone/email rows that Tally
+  /// often stores inside the address field, and avoids re-appending city/state/
+  /// pincode when they are already present in the address text.
   String get fullAddress {
-    final parts = [address, city, state, pincode].where((p) => p != null && p.isNotEmpty);
-    return parts.join(', ');
+    final streetLines = (address ?? '')
+        .split(RegExp(r'[\r\n]+'))
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .where((l) => !_contactLinePrefix.hasMatch(l))
+        .toList();
+    final base = streetLines.join('\n');
+    final extras = <String>[];
+    for (final part in [city, state, pincode]) {
+      final t = part?.trim() ?? '';
+      if (t.isEmpty) continue;
+      final haystack = ('$base ${extras.join(' ')}').toLowerCase();
+      if (haystack.contains(t.toLowerCase())) continue;
+      extras.add(t);
+    }
+    if (base.isEmpty) return extras.join(', ');
+    if (extras.isEmpty) return base;
+    return '$base\n${extras.join(', ')}';
   }
 
   /// Combined ledger group text from type and category (Tally may populate either).

@@ -243,7 +243,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _menuTile(
                         icon: Icons.person_outline_rounded,
                         title: 'Account Info',
-                        subtitle: 'Name, phone, and assigned companies',
+                        subtitle: 'Name and phone',
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(builder: (_) => const ProfileScreen()),

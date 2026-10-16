@@ -369,6 +369,16 @@ class PdfService {
     final title = isReceivable ? 'RECEIVABLE STATEMENT' : 'PAYABLE STATEMENT';
     final partyLabel = isReceivable ? 'Customer' : 'Supplier';
 
+    final ledger = await _resolvePartyLedger(
+      companyName: record.companyName,
+      partyName: record.customerName,
+    );
+    final address = (ledger?.fullAddress ?? '').trim();
+    final phone = (ledger?.phone ?? '').trim().isNotEmpty
+        ? ledger!.phone!.trim()
+        : (record.mobile ?? '').trim();
+    final email = (ledger?.email ?? '').trim();
+
     final meta = <MapEntry<String, String>>[
       if (record.invoiceNumber.trim().isNotEmpty)
         MapEntry('Bill No.', record.invoiceNumber.trim()),
@@ -412,14 +422,12 @@ class PdfService {
                 child: _partyCard(
                   label: partyLabel,
                   name: record.customerName,
-                  address: null,
+                  address: address.isNotEmpty ? address : null,
                   regular: fonts.regular,
                   bold: fonts.bold,
                   extraLines: [
-                    if ((record.groupName ?? '').trim().isNotEmpty)
-                      'Group: ${record.groupName!.trim()}',
-                    if ((record.mobile ?? '').trim().isNotEmpty)
-                      'Phone: ${record.mobile!.trim()}',
+                    if (phone.isNotEmpty) 'Phone: $phone',
+                    if (email.isNotEmpty) 'Email: $email',
                   ],
                 ),
               ),
