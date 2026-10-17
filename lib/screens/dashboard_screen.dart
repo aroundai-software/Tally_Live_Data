@@ -16,6 +16,7 @@ import '../models/ledger.dart';
 import 'daybook_screen.dart';
 import 'reports_screen.dart';
 import 'money_flow_screen.dart';
+import 'cash_flow_screen.dart';
 import 'balance_sheet_screen.dart';
 import 'profit_loss_screen.dart';
 
@@ -472,6 +473,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (featureKey == 'analytics') featureName = 'Analytics & Reports';
     if (featureKey == 'balance_sheet') featureName = 'Balance Sheet';
     if (featureKey == 'profit_loss') featureName = 'Profit & Loss';
+    if (featureKey == 'tally_cash_flow') featureName = 'Cash Flow';
 
     showDialog(
       context: context,
@@ -513,7 +515,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       (companyState.isFeatureEnabled('analytics') && companyState.isFeatureEnabled('db_qa_reports')) ||
       (!hideFinancialQa && companyState.isFeatureEnabled('cash_flow')) ||
       (!hideFinancialQa && companyState.isFeatureEnabled('balance_sheet') && companyState.isFeatureEnabled('db_qa_balance_sheet')) ||
-      (!hideFinancialQa && companyState.isFeatureEnabled('profit_loss') && companyState.isFeatureEnabled('db_qa_profit_loss'))
+      (!hideFinancialQa && companyState.isFeatureEnabled('profit_loss') && companyState.isFeatureEnabled('db_qa_profit_loss')) ||
+      (!hideFinancialQa && companyState.isFeatureEnabled('tally_cash_flow') && companyState.isFeatureEnabled('db_qa_tally_cash_flow'))
     );
 
     return Padding(
@@ -787,8 +790,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         {'icon': Icons.account_balance_outlined, 'label': 'Balance Sheet', 'color': const Color(0xFF0F766E), 'feature': 'balance_sheet', 'index': 96},
       if (!companyState.isCombinedMode && companyState.isFeatureEnabled('profit_loss') && companyState.isFeatureEnabled('db_qa_profit_loss'))
         {'icon': Icons.trending_up_rounded, 'label': 'P&L', 'color': const Color(0xFFB45309), 'feature': 'profit_loss', 'index': 97},
+      if (!companyState.isCombinedMode && companyState.isFeatureEnabled('tally_cash_flow') && companyState.isFeatureEnabled('db_qa_tally_cash_flow'))
+        {'icon': Icons.waterfall_chart_rounded, 'label': 'Cash Flow', 'color': const Color(0xFF0369A1), 'feature': 'tally_cash_flow', 'index': 95},
       if (!companyState.isCombinedMode && companyState.isFeatureEnabled('cash_flow'))
-        {'icon': Icons.account_balance_wallet_rounded, 'label': 'Cash Flow', 'color': Colors.green.shade600, 'feature': 'cash_flow', 'index': 98},
+        {'icon': Icons.account_balance_wallet_rounded, 'label': 'Payment Speed', 'color': Colors.green.shade600, 'feature': 'cash_flow', 'index': 98},
       if (companyState.isFeatureEnabled('analytics') && companyState.isFeatureEnabled('db_qa_reports'))
         {'icon': Icons.analytics_rounded, 'label': 'Reports', 'color': Colors.purple.shade500, 'feature': 'analytics', 'index': 99},
     ];
@@ -829,6 +834,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     } else if (index == 96) {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const BalanceSheetScreen()),
+                      );
+                    } else if (index == 95) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const CashFlowScreen()),
                       );
                     } else {
                       widget.onNavigate(index);

@@ -87,6 +87,7 @@ class CompanyState extends ChangeNotifier {
       'db_qa_reports': ['analytics'],
       'db_qa_balance_sheet': ['balance_sheet'],
       'db_qa_profit_loss': ['profit_loss'],
+      'db_qa_tally_cash_flow': ['tally_cash_flow'],
     };
     return (dependencies[feature] ?? const <String>[]).every(enabled);
   }

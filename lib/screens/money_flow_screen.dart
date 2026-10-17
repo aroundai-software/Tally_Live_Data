@@ -36,6 +36,10 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
   int _totalBills = 0;
   double _totalAmount = 0;
   bool _hasAnalyticsData = false;
+  /// Tally Ratio Analysis: Recv. Turnover in days (FY start → sync day).
+  double? _tallyRecvTurnoverDays;
+  DateTime? _tallyRatioFrom;
+  DateTime? _tallyRatioTo;
   List<Map<String, dynamic>> _fastestCustomers = [];
   List<Map<String, dynamic>> _slowestCustomers = [];
   List<Map<String, dynamic>> _allFastestCustomers = [];
@@ -87,9 +91,11 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
       final results = await Future.wait([
         _service.getBillSettlements(companyName!),
         _service.getSundryDebtorNames(companyName),
+        _service.getTallyRatioAnalysis(companyName),
       ]);
       final raw = results[0] as List<LedgerBillSettlement>;
       final debtors = results[1] as Set<String>;
+      final tallyRatio = results[2] as Map<String, dynamic>?;
 
       // Prefer receivable (customer) settlements when ledger types are known.
       final data = debtors.isEmpty
@@ -106,6 +112,14 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
       setState(() {
         _allSettlements = data;
         _applyFilter(data, _selectedPeriod);
+        final daysRaw = tallyRatio?['recv_turnover_days'];
+        _tallyRecvTurnoverDays = daysRaw == null
+            ? null
+            : (daysRaw is num
+                ? daysRaw.toDouble()
+                : double.tryParse(daysRaw.toString()));
+        _tallyRatioFrom = _parseDateOnly(tallyRatio?['from_date']);
+        _tallyRatioTo = _parseDateOnly(tallyRatio?['to_date']);
         _isLoading = false;
       });
     } catch (e) {
@@ -115,6 +129,16 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
         setState(() { _error = e.toString(); _isLoading = false; });
       }
     }
+  }
+
+  static DateTime? _parseDateOnly(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) {
+      return DateTime(value.year, value.month, value.day);
+    }
+    final s = value.toString();
+    if (s.length < 10) return null;
+    return DateTime.tryParse(s.substring(0, 10));
   }
 
   /// Safe calendar-month subtraction that clamps the day (avoids May 31 − 3 → Mar 2/3).
@@ -385,7 +409,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
   Widget build(BuildContext context) {
     final companyState = CompanyProvider.of(context);
     if (companyState.isCombinedMode) {
-      return CombinedModeUnavailable(featureName: 'Cash Flow');
+      return CombinedModeUnavailable(featureName: 'Payment Speed');
     }
     final isEnabled = companyState.isFeatureEnabled('cash_flow');
 
@@ -393,7 +417,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
       return Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          title: Text('Cash Flow Insights',
+          title: Text('Payment Speed',
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.textPrimary)),
           backgroundColor: AppTheme.cardColor,
           elevation: 0,
@@ -410,7 +434,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                   style: TextStyle(
                       fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.textPrimary)),
               const SizedBox(height: 8),
-              Text('Cash Flow Insights is disabled for this company.',
+              Text('Payment Speed is disabled for this company.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppTheme.textSecondary)),
             ],
@@ -422,7 +446,7 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
-        title: Text('Cash Flow Insights',
+        title: Text('Payment Speed',
             style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.textPrimary)),
         backgroundColor: AppTheme.cardColor,
         elevation: 0,
@@ -498,6 +522,10 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
           _buildPeriodFilter(),
+          if (_tallyRecvTurnoverDays != null) ...[
+            const SizedBox(height: 16),
+            _buildTallyRecvTurnoverCard(),
+          ],
           if (!_hasAnalyticsData) ...[
             const SizedBox(height: 24),
             const EmptyState(
@@ -684,6 +712,56 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTallyRecvTurnoverCard() {
+    final days = _tallyRecvTurnoverDays!;
+    final periodLabel = (_tallyRatioFrom != null && _tallyRatioTo != null)
+        ? '${DateFormat('d MMM yyyy').format(_tallyRatioFrom!)} – ${DateFormat('d MMM yyyy').format(_tallyRatioTo!)}'
+        : 'Financial year → today';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 18),
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.dividerColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Recv. Turnover in days (Tally)',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${days.toStringAsFixed(2)} Days',
+            style: TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            periodLabel,
+            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
           ),
         ],
       ),

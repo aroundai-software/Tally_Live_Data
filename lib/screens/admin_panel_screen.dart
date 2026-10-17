@@ -3529,6 +3529,8 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           _features['db_qa_balance_sheet'] = false;
         } else if (featureKey == 'profit_loss') {
           _features['db_qa_profit_loss'] = false;
+        } else if (featureKey == 'tally_cash_flow') {
+          _features['db_qa_tally_cash_flow'] = false;
         } else if (featureKey == 'dashboard') {
           _features['db_net_position'] = false;
           _features['db_summary_cards'] = false;
@@ -3568,6 +3570,8 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
           _features['db_qa_balance_sheet'] = true;
         } else if (featureKey == 'profit_loss') {
           _features['db_qa_profit_loss'] = true;
+        } else if (featureKey == 'tally_cash_flow') {
+          _features['db_qa_tally_cash_flow'] = true;
         } else if (featureKey == 'dashboard') {
           _features['db_net_position'] = true;
           _features['db_summary_cards'] = true;
@@ -3690,7 +3694,7 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
                   ),
                   Divider(color: AppTheme.dividerColor, height: 1, indent: 36),
                   _buildNavCategoryItem(
-                    'Cash Flow Insights',
+                    'Payment Speed',
                     'cash_flow',
                     'Overview & Charts',
                     Icons.waterfall_chart_outlined,
@@ -3728,10 +3732,12 @@ class _CompanyFeaturesScreenState extends State<CompanyFeaturesScreen> {
   Widget _buildFinancialStatementsNavItem() {
     final bsOn = _features['balance_sheet'] ?? true;
     final plOn = _features['profit_loss'] ?? true;
-    final isEnabled = bsOn || plOn;
+    final cfOn = _features['tally_cash_flow'] ?? true;
+    final isEnabled = bsOn || plOn || cfOn;
     final detail = [
       if (bsOn) 'Balance Sheet',
       if (plOn) 'Profit & Loss',
+      if (cfOn) 'Cash Flow',
     ].join(' • ');
     return ListTile(
       contentPadding: EdgeInsets.zero,
@@ -4240,6 +4246,12 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
         'label': 'P&L',
         'icon': Icons.trending_up_rounded,
         'color': const Color(0xFFB45309),
+      },
+      {
+        'key': 'db_qa_tally_cash_flow',
+        'label': 'Cash Flow',
+        'icon': Icons.waterfall_chart_rounded,
+        'color': const Color(0xFF0369A1),
       },
     ];
 
@@ -5193,7 +5205,7 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
   }
 }
 
-// ─── Sub-features: Cash Flow Insights ─────────────────────────
+// ─── Sub-features: Payment Speed (feature key: cash_flow) ─────
 class CashFlowFeaturesScreen extends StatefulWidget {
   final String companyName;
   final Map<String, bool> initialFeatures;
@@ -5299,7 +5311,7 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
       child: Scaffold(
         backgroundColor: AppTheme.surfaceColor,
         appBar: AppBar(
-          title: Text('Cash Flow Settings',
+          title: Text('Payment Speed Settings',
               style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary, fontSize: 16)),
           elevation: 0,
           backgroundColor: AppTheme.cardColor,
@@ -5325,9 +5337,9 @@ class _CashFlowFeaturesScreenState extends State<CashFlowFeaturesScreen> {
               elevation: 0,
               color: AppTheme.cardColor,
               child: ListTile(
-                title: Text('Cash Flow Insights Screen',
+                title: Text('Payment Speed Screen',
                     style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-                subtitle: const Text('Enable or disable the entire Cash Flow screen'),
+                subtitle: const Text('Enable or disable the entire Payment Speed screen'),
                 trailing: Switch.adaptive(
                   value: isCashFlowEnabled,
                   activeColor: AppTheme.primaryColor,
@@ -5714,10 +5726,14 @@ class _FinancialReportsFeaturesScreenState
         _features['db_qa_balance_sheet'] = updatedValue;
       } else if (featureKey == 'profit_loss') {
         _features['db_qa_profit_loss'] = updatedValue;
+      } else if (featureKey == 'tally_cash_flow') {
+        _features['db_qa_tally_cash_flow'] = updatedValue;
       } else if (featureKey == 'db_qa_balance_sheet' && updatedValue) {
         _features['balance_sheet'] = true;
       } else if (featureKey == 'db_qa_profit_loss' && updatedValue) {
         _features['profit_loss'] = true;
+      } else if (featureKey == 'db_qa_tally_cash_flow' && updatedValue) {
+        _features['tally_cash_flow'] = true;
       }
     });
 
@@ -5748,6 +5764,7 @@ class _FinancialReportsFeaturesScreenState
   Widget build(BuildContext context) {
     final isBsEnabled = _features['balance_sheet'] ?? true;
     final isPlEnabled = _features['profit_loss'] ?? true;
+    final isCfEnabled = _features['tally_cash_flow'] ?? true;
 
     return PopScope(
       canPop: false,
@@ -5882,6 +5899,59 @@ class _FinancialReportsFeaturesScreenState
                     child: _buildSubToggleItem(
                       'Dashboard Quick Action',
                       'db_qa_profit_loss',
+                      Icons.flash_on_rounded,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'CASH FLOW',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: AppTheme.dividerColor),
+              ),
+              elevation: 0,
+              color: AppTheme.cardColor,
+              child: ListTile(
+                title: Text(
+                  'Cash Flow Screen',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+                ),
+                subtitle: const Text('Monthly Inflow / Outflow from Tally Cash Flow'),
+                trailing: Switch.adaptive(
+                  value: isCfEnabled,
+                  activeColor: AppTheme.primaryColor,
+                  onChanged: (_) => _toggleFeature('tally_cash_flow', isCfEnabled),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            IgnorePointer(
+              ignoring: !isCfEnabled,
+              child: Opacity(
+                opacity: isCfEnabled ? 1.0 : 0.5,
+                child: Card(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: AppTheme.dividerColor),
+                  ),
+                  elevation: 0,
+                  color: AppTheme.cardColor,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
+                    child: _buildSubToggleItem(
+                      'Dashboard Quick Action',
+                      'db_qa_tally_cash_flow',
                       Icons.flash_on_rounded,
                     ),
                   ),

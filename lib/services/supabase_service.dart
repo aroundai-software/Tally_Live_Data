@@ -1054,6 +1054,7 @@ class SupabaseService {
           'rep_purchases': features['rep_purchases'] ?? true,
           'rep_ledgers': features['rep_ledgers'] ?? true,
           'cash_flow': features['cash_flow'] ?? true,
+          'tally_cash_flow': features['tally_cash_flow'] ?? true,
           'cf_summary': features['cf_summary'] ?? true,
           'cf_overview': features['cf_overview'] ?? true,
           'cf_pie_chart': features['cf_pie_chart'] ?? true,
@@ -1089,6 +1090,7 @@ class SupabaseService {
             'reports': features['db_qa_reports'] ?? true,
             'balance_sheet': features['db_qa_balance_sheet'] ?? true,
             'profit_loss': features['db_qa_profit_loss'] ?? true,
+            'tally_cash_flow': features['db_qa_tally_cash_flow'] ?? true,
             'combined_reports': features['db_qa_combined_reports'] ?? false,
           },
           'net_position': {
@@ -1189,6 +1191,7 @@ class SupabaseService {
       'rep_purchases': dashCfg['rep_purchases'] as bool? ?? true,
       'rep_ledgers': dashCfg['rep_ledgers'] as bool? ?? true,
       'cash_flow': dashCfg['cash_flow'] as bool? ?? true,
+      'tally_cash_flow': dashCfg['tally_cash_flow'] as bool? ?? true,
       'balance_sheet': dashCfg['balance_sheet'] as bool? ?? true,
       'profit_loss': dashCfg['profit_loss'] as bool? ?? true,
       'combined_reports': dashCfg['combined_reports'] as bool? ?? false,
@@ -1224,6 +1227,7 @@ class SupabaseService {
       'db_qa_reports': qa['reports'] as bool? ?? true,
       'db_qa_balance_sheet': qa['balance_sheet'] as bool? ?? true,
       'db_qa_profit_loss': qa['profit_loss'] as bool? ?? true,
+      'db_qa_tally_cash_flow': qa['tally_cash_flow'] as bool? ?? true,
       'db_qa_combined_reports': qa['combined_reports'] as bool? ?? false,
       // Dashboard JSONB — Net Position detail rows
       'db_np_stock':       netPos['stock']       as bool? ?? true,
@@ -1256,6 +1260,7 @@ class SupabaseService {
       'rep_purchases': true,
       'rep_ledgers': true,
       'cash_flow': true,
+      'tally_cash_flow': true,
       'balance_sheet': true,
       'profit_loss': true,
       'combined_reports': false,
@@ -1290,6 +1295,7 @@ class SupabaseService {
       'db_qa_reports': true,
       'db_qa_balance_sheet': true,
       'db_qa_profit_loss': true,
+      'db_qa_tally_cash_flow': true,
       'db_qa_combined_reports': false,
       // Dashboard JSONB — Net Position detail rows
       'db_np_stock': true,
@@ -3519,7 +3525,44 @@ class SupabaseService {
     return allData.map((json) => LedgerBillSettlement.fromJson(json)).toList();
   }
 
-  /// Customer (receivable) ledger names for Cash Flow — excludes payables.
+  /// Latest Tally Ratio Analysis snapshot (FY start → sync day).
+  /// Returns null if the table is missing or no row for the company.
+  Future<Map<String, dynamic>?> getTallyRatioAnalysis(String companyName) async {
+    try {
+      final rows = await _client
+          .from('tally_ratio_analysis')
+          .select('recv_turnover_days, from_date, to_date, synced_at')
+          .eq('company_name', companyName)
+          .order('synced_at', ascending: false)
+          .limit(1);
+      if (rows is! List || rows.isEmpty) return null;
+      return Map<String, dynamic>.from(rows.first as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Latest Tally Cash Flow monthly snapshot (FY start → sync day).
+  /// Returns null if the table is missing or no row for the company.
+  Future<Map<String, dynamic>?> getTallyCashFlow(String companyName) async {
+    try {
+      // Prefer newest snapshot; avoid maybeSingle (fails if duplicate company rows).
+      final rows = await _client
+          .from('tally_cash_flow')
+          .select(
+            'from_date, to_date, months, total_inflow, total_outflow, total_nett, synced_at',
+          )
+          .eq('company_name', companyName)
+          .order('synced_at', ascending: false)
+          .limit(1);
+      if (rows is! List || rows.isEmpty) return null;
+      return Map<String, dynamic>.from(rows.first as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Customer (receivable) ledger names for Payment Speed — excludes payables.
   Future<Set<String>> getSundryDebtorNames(String companyName) async {
     try {
       final rows = await _readPages(() => _client

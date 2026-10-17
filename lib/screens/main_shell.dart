@@ -25,8 +25,10 @@ const _kCombinedHiddenFeatures = {
   'balance_sheet',
   'profit_loss',
   'cash_flow',
+  'tally_cash_flow',
   'db_qa_balance_sheet',
   'db_qa_profit_loss',
+  'db_qa_tally_cash_flow',
 };
 
 class MainShell extends StatefulWidget {
