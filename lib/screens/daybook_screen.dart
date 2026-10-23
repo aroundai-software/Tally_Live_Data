@@ -79,8 +79,7 @@ class _DaybookScreenState extends State<DaybookScreen> {
   }
 
   void _onSearchChanged() {
-    // Basic debounce logic can go here, but for now just reload
-    _loadData();
+    _applyFilter();
   }
 
   bool _initialized = false;
@@ -114,30 +113,43 @@ class _DaybookScreenState extends State<DaybookScreen> {
     }
   }
 
-  void _applyFilter() {
-    if (_selectedCategory == 'All') {
-      setState(() => _entries = List.from(_allEntries));
-      return;
+  bool _matchesCategory(DaybookEntry entry) {
+    if (_selectedCategory == 'All') return true;
+    final type = entry.voucherType.toLowerCase();
+    switch (_selectedCategory) {
+      case 'Sales':
+        return type.contains('sales') || type.contains('invoice');
+      case 'Purchases':
+        return type.contains('purchase') || type.contains('bill');
+      case 'Receipts':
+        return type.contains('receipt');
+      case 'Payments':
+        return type.contains('payment');
+      case 'Journals & Contras':
+        return type.contains('journal') || type.contains('contra');
+      default:
+        return true;
     }
-    
+  }
+
+  bool _matchesSearch(DaybookEntry entry) {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    bool has(String? value) =>
+        value != null && value.toLowerCase().contains(query);
+    return has(entry.ledgerName) ||
+        has(entry.voucherNumber) ||
+        has(entry.voucherType) ||
+        has(entry.particulars) ||
+        has(entry.narration) ||
+        has(entry.companyName);
+  }
+
+  void _applyFilter() {
     setState(() {
-      _entries = _allEntries.where((entry) {
-        final type = entry.voucherType.toLowerCase();
-        switch (_selectedCategory) {
-          case 'Sales':
-            return type.contains('sales') || type.contains('invoice');
-          case 'Purchases':
-            return type.contains('purchase') || type.contains('bill');
-          case 'Receipts':
-            return type.contains('receipt');
-          case 'Payments':
-            return type.contains('payment');
-          case 'Journals & Contras':
-            return type.contains('journal') || type.contains('contra');
-          default:
-            return true;
-        }
-      }).toList();
+      _entries = _allEntries
+          .where((entry) => _matchesCategory(entry) && _matchesSearch(entry))
+          .toList();
     });
   }
 
@@ -186,17 +198,14 @@ class _DaybookScreenState extends State<DaybookScreen> {
     }
     setState(() { _isLoading = true; _error = null; });
     try {
-      final query = _searchController.text.toLowerCase();
       final items = isCombined
           ? await _service.getCombinedDaybookEntries(
               companyNames: companyState.selectedCompanies,
               date: _selectedDate,
-              searchQuery: query.isNotEmpty ? query : null,
             )
           : await _service.getDaybookEntries(
               companyName: company,
               date: _selectedDate,
-              searchQuery: query.isNotEmpty ? query : null,
             );
       if (!mounted ||
           generation != _loadGeneration ||
@@ -229,17 +238,14 @@ class _DaybookScreenState extends State<DaybookScreen> {
       final company = companyState.selectedCompany;
       if (!isCombined && !CompanyScope.isValid(company)) return;
       if (isCombined && !CompanyScope.hasActiveScope(companyState)) return;
-      final query = _searchController.text.toLowerCase();
       final items = isCombined
           ? await _service.getCombinedDaybookEntries(
               companyNames: companyState.selectedCompanies,
               date: _selectedDate,
-              searchQuery: query.isNotEmpty ? query : null,
             )
           : await _service.getDaybookEntries(
               companyName: company,
               date: _selectedDate,
-              searchQuery: query.isNotEmpty ? query : null,
             );
       if (!mounted ||
           generation != _loadGeneration ||
@@ -599,7 +605,8 @@ class _DaybookCardState extends State<_DaybookCard> {
                                     color: AppTheme.textSecondary)),
                         ],
                       ),
-                      if (entry.companyName != null &&
+                      if (CompanyProvider.of(context).isCombinedMode &&
+                          entry.companyName != null &&
                           entry.companyName!.isNotEmpty) ...[
                         const SizedBox(height: 4),
                         CombinedCompanyChip(companyName: entry.companyName!),

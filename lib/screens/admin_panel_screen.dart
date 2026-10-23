@@ -1934,9 +1934,9 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
     }
 
     String query = '';
-    String? selected;
+    final selected = <String>{};
 
-    final linked = await showDialog<String>(
+    final linked = await showDialog<List<String>>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
@@ -1947,6 +1947,8 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                     .where((c) =>
                         c.toLowerCase().contains(query.trim().toLowerCase()))
                     .toList();
+            final allFilteredSelected = filtered.isNotEmpty &&
+                filtered.every((c) => selected.contains(c));
             return Dialog(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -1955,14 +1957,14 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
               child: SizedBox(
                 width: 420,
-                height: 480,
+                height: 520,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Link company to $userName',
+                        'Link companies to $userName',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
@@ -1970,7 +1972,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Select a Tally company. No mobile verification required.',
+                        'Select one or more Tally companies. Existing links are kept. No mobile verification required.',
                         style: TextStyle(
                           fontSize: 12,
                           color: AppTheme.textSecondary,
@@ -1990,7 +1992,36 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                         ),
                         onChanged: (v) => setDialogState(() => query = v),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: filtered.isEmpty
+                                ? null
+                                : () => setDialogState(() {
+                                      if (allFilteredSelected) {
+                                        selected.removeAll(filtered);
+                                      } else {
+                                        selected.addAll(filtered);
+                                      }
+                                    }),
+                            child: Text(
+                              allFilteredSelected
+                                  ? 'Clear shown'
+                                  : 'Select shown',
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '${selected.length} selected',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                       Expanded(
                         child: filtered.isEmpty
                             ? Center(
@@ -2003,9 +2034,13 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                 itemCount: filtered.length,
                                 itemBuilder: (_, i) {
                                   final name = filtered[i];
-                                  final isSel = selected == name;
-                                  return ListTile(
+                                  final isSel = selected.contains(name);
+                                  return CheckboxListTile(
                                     dense: true,
+                                    value: isSel,
+                                    activeColor: AppTheme.primaryColor,
+                                    controlAffinity:
+                                        ListTileControlAffinity.trailing,
                                     selected: isSel,
                                     selectedTileColor: AppTheme.primaryColor
                                         .withValues(alpha: 0.08),
@@ -2018,15 +2053,13 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                                             : FontWeight.w500,
                                       ),
                                     ),
-                                    trailing: isSel
-                                        ? const Icon(
-                                            Icons.check_circle_rounded,
-                                            color: AppTheme.primaryColor,
-                                            size: 20,
-                                          )
-                                        : null,
-                                    onTap: () =>
-                                        setDialogState(() => selected = name),
+                                    onChanged: (_) => setDialogState(() {
+                                      if (isSel) {
+                                        selected.remove(name);
+                                      } else {
+                                        selected.add(name);
+                                      }
+                                    }),
                                   );
                                 },
                               ),
@@ -2041,14 +2074,18 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                           ),
                           const SizedBox(width: 8),
                           ElevatedButton(
-                            onPressed: selected == null
+                            onPressed: selected.isEmpty
                                 ? null
-                                : () => Navigator.of(ctx).pop(selected),
+                                : () => Navigator.of(ctx).pop(selected.toList()),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppTheme.primaryColor,
                               foregroundColor: AppTheme.cardColor,
                             ),
-                            child: const Text('Link'),
+                            child: Text(
+                              selected.length <= 1
+                                  ? 'Link'
+                                  : 'Link ${selected.length}',
+                            ),
                           ),
                         ],
                       ),
@@ -2064,28 +2101,51 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
 
     if (linked == null || linked.isEmpty || !mounted) return;
 
-    try {
-      final name = await _service.adminLinkCompanyToUser(
-        userId: userId,
-        companyName: linked,
-      );
-      await _refreshUserCompanies(userId);
-      if (!mounted) return;
+    final linkedNames = <String>[];
+    final failed = <String>[];
+    for (final company in linked) {
+      try {
+        final name = await _service.adminLinkCompanyToUser(
+          userId: userId,
+          companyName: company,
+        );
+        linkedNames.add(name);
+      } catch (e) {
+        final reason = e.toString().replaceAll('Exception:', '').trim();
+        failed.add('$company ($reason)');
+      }
+    }
+
+    await _refreshUserCompanies(userId);
+    if (!mounted) return;
+
+    if (linkedNames.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Linked “$name”'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceAll('Exception:', '').trim()),
+          content: Text(
+            failed.length == 1
+                ? 'Could not link ${failed.first}'
+                : 'Could not link ${failed.length} companies.',
+          ),
           backgroundColor: AppTheme.errorColor,
         ),
       );
+      return;
     }
+
+    final summary = linkedNames.length == 1
+        ? 'Linked “${linkedNames.first}”'
+        : 'Linked ${linkedNames.length} companies';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          failed.isEmpty
+              ? summary
+              : '$summary. ${failed.length} failed.',
+        ),
+        backgroundColor: failed.isEmpty ? Colors.green : AppTheme.accentColor,
+      ),
+    );
   }
 
   Future<void> _unlinkCompany({

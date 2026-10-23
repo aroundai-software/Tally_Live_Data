@@ -441,11 +441,10 @@ class SupabaseService {
     required String mobileNumber,
   }) async {
     final cleanName = companyName.trim();
-    final cleanMobile = mobileNumber.replaceAll(RegExp(r'[^0-9]'), '');
-    final tenDigits = cleanMobile.length >= 10 ? cleanMobile.substring(cleanMobile.length - 10) : cleanMobile;
+    final tenDigits = _last10Digits(mobileNumber);
 
     if (cleanName.isEmpty) throw 'Please enter the exact company name.';
-    if (tenDigits.isEmpty) throw 'Please enter a valid mobile number.';
+    if (tenDigits == null) throw 'Please enter a valid 10-digit mobile number.';
 
     // 1. Fetch matching company from tally_companies where company_name ILIKE cleanName
     final response = await _client
@@ -458,12 +457,14 @@ class SupabaseService {
       throw 'No active company found with name "$cleanName".';
     }
 
-    // 2. Verify mobile number match
+    // 2. Last 10 digits must be identical. A short stored value such as "91" does not match.
     Map<String, dynamic>? matchedRow;
     for (final item in response) {
       final row = item as Map<String, dynamic>;
-      final dbMobile = (row['mobile_number'] ?? row['phone_number'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
-      if (dbMobile.contains(tenDigits) || tenDigits.contains(dbMobile) && dbMobile.isNotEmpty) {
+      final stored = _last10Digits(
+        (row['mobile_number'] ?? row['phone_number'] ?? '').toString(),
+      );
+      if (stored != null && stored == tenDigits) {
         matchedRow = row;
         break;
       }
@@ -568,6 +569,13 @@ class SupabaseService {
     return matchedCompanyName;
   }
 
+  /// Last 10 digits, or null when fewer than 10 digits are present.
+  String? _last10Digits(String? raw) {
+    final digits = (raw ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length < 10) return null;
+    return digits.substring(digits.length - 10);
+  }
+
   /// Inserts one user↔company row. Does not remove other companies.
   /// Prefer the secured RPC; [mobileNumber] is required for self-link phone proof.
   Future<void> _addUserCompanyLink({
@@ -592,6 +600,13 @@ class SupabaseService {
       return;
     } catch (e) {
       final msg = e.toString().toLowerCase();
+      final rpcMissing = msg.contains('pgrst202') ||
+          msg.contains('could not find the function') ||
+          (msg.contains('function') && msg.contains('does not exist'));
+      // A self-link proved a mobile number. Never skip that check via a direct insert.
+      if (mobile.length >= 10 && !rpcMissing) {
+        rethrow;
+      }
       // Do not fall back when the server rejected authorization / phone proof.
       if (msg.contains('not allowed') ||
           msg.contains('42501') ||

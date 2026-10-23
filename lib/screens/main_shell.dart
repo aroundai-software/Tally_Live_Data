@@ -38,7 +38,8 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> with ActiveSessionGuard {
+class _MainShellState extends State<MainShell>
+    with ActiveSessionGuard, WidgetsBindingObserver {
   int _currentIndex = 0;
   final Set<int> _activatedTabs = {0};
   bool _stockScreenShowSales = false;
@@ -58,15 +59,31 @@ class _MainShellState extends State<MainShell> with ActiveSessionGuard {
   bool _subscriptionExpired = false;
   int? _subscriptionDaysLeft;
   String? _subscriptionWarnedCompany;
+  /// Hidden until the app process starts again. Not written to disk.
+  bool _subscriptionBannerDismissed = false;
 
   static const _warnDialogDays = 15;
-  static const _warnBannerDays = 30;
+  static const _warnBannerDays = 3;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _listenToUserProfile();
     startActiveSessionGuard();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    final companyState = CompanyProvider.maybeOf(context);
+    final company = companyState?.selectedCompany;
+    if (companyState == null ||
+        companyState.isCombinedMode ||
+        !CompanyScope.isValid(company)) {
+      return;
+    }
+    _checkSubscriptionExpiry(company!);
   }
 
   void _listenToUserProfile() {
@@ -264,6 +281,7 @@ class _MainShellState extends State<MainShell> with ActiveSessionGuard {
   }
 
   bool get _showSubscriptionBanner {
+    if (_subscriptionBannerDismissed) return false;
     final state = CompanyProvider.maybeOf(context);
     if (state != null && state.isCombinedMode) return false;
     if (_subscriptionExpiresAt == null || _subscriptionDaysLeft == null) {
@@ -275,6 +293,7 @@ class _MainShellState extends State<MainShell> with ActiveSessionGuard {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     stopActiveSessionGuard();
     _cancelFeatureAndSync();
     _userProfileSubscription?.cancel();
@@ -617,6 +636,7 @@ class _MainShellState extends State<MainShell> with ActiveSessionGuard {
               daysLeft: _subscriptionDaysLeft ?? 0,
               expiryDate: _formatExpiryDate(_subscriptionExpiresAt!),
               onTap: _showSubscriptionDialog,
+              onClose: () => setState(() => _subscriptionBannerDismissed = true),
             ),
           Expanded(
             child: MediaQuery.removePadding(
@@ -800,12 +820,14 @@ class _SubscriptionBanner extends StatelessWidget {
   final int daysLeft;
   final String expiryDate;
   final VoidCallback onTap;
+  final VoidCallback onClose;
 
   const _SubscriptionBanner({
     required this.expired,
     required this.daysLeft,
     required this.expiryDate,
     required this.onTap,
+    required this.onClose,
   });
 
   @override
@@ -819,31 +841,41 @@ class _SubscriptionBanner extends StatelessWidget {
 
     return Material(
       color: bg,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          child: Row(
-            children: [
-              Icon(
-                expired ? Icons.error_outline_rounded : Icons.timelapse_rounded,
-                color: Colors.white,
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  message,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 14, right: 4, top: 2, bottom: 2),
+        child: Row(
+          children: [
+            Icon(
+              expired ? Icons.error_outline_rounded : Icons.timelapse_rounded,
+              color: Colors.white,
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: InkWell(
+                onTap: onTap,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    message,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: Colors.white70, size: 18),
-            ],
-          ),
+            ),
+            IconButton(
+              onPressed: onClose,
+              tooltip: 'Hide until next open',
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+            ),
+          ],
         ),
       ),
     );

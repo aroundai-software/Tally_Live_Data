@@ -17,9 +17,9 @@ void main() {
       expect(ledger.isCreditor, isTrue);
     });
 
-    test('missing type defaults to debtor for customer ledgers', () {
-      final ledger = _ledger({'customer_name': 'GMA PINNACLE AUTOMOTIVES PRIVATE LIMITED'});
-      expect(ledger.isDebtor, isTrue);
+    test('missing group is not a debtor or creditor', () {
+      final ledger = _ledger({'customer_name': 'Office Rent'});
+      expect(ledger.isDebtor, isFalse);
       expect(ledger.isCreditor, isFalse);
     });
 

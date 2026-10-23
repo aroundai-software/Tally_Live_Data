@@ -28,12 +28,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadUserProfile() async {
+    if (!mounted) return;
+    final selectedCompany = CompanyProvider.of(context).selectedCompany ?? '';
     setState(() => _isLoading = true);
     try {
       final user = _service.currentUser;
       if (user != null) {
         _userId = user.id;
         final profile = await _service.getUserProfile(user.id);
+        if (!mounted) return;
         String rawPhone = '';
         if (profile != null) {
           _fullName = profile['full_name']?.toString() ?? 'Business Owner';
@@ -41,12 +44,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               user.phone ??
               user.email?.split('@').first ??
               '';
-          _companyName = profile['company_name']?.toString() ??
-              CompanyProvider.of(context).selectedCompany ??
-              '';
+          _companyName = profile['company_name']?.toString() ?? selectedCompany;
         } else {
           rawPhone = user.phone ?? user.email?.split('@').first ?? '';
-          _companyName = CompanyProvider.of(context).selectedCompany ?? '';
+          _companyName = selectedCompany;
         }
 
         if (rawPhone.startsWith('+91')) {
@@ -127,7 +128,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 newPhone,
                               );
                             }
-                            if (!mounted) return;
+                            if (!ctx.mounted || !mounted) return;
                             Navigator.of(ctx).pop();
                             await _loadUserProfile();
                             if (!mounted) return;
@@ -138,7 +139,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                             );
                           } catch (e) {
-                            setDialogState(() => isSaving = false);
+                            if (ctx.mounted) {
+                              setDialogState(() => isSaving = false);
+                            }
+                            if (!mounted) return;
                             ScaffoldMessenger.of(this.context).showSnackBar(
                               SnackBar(
                                 content: Text('Failed to update phone: $e'),
@@ -230,7 +234,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 newName,
                               );
                             }
-                            if (!mounted) return;
+                            if (!ctx.mounted || !mounted) return;
                             Navigator.of(ctx).pop();
                             await _loadUserProfile();
                             if (!mounted) return;
@@ -241,7 +245,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                             );
                           } catch (e) {
-                            setDialogState(() => isSaving = false);
+                            if (ctx.mounted) {
+                              setDialogState(() => isSaving = false);
+                            }
+                            if (!mounted) return;
                             ScaffoldMessenger.of(this.context).showSnackBar(
                               SnackBar(
                                 content: Text('Failed to update name: $e'),

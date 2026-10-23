@@ -205,10 +205,8 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
 
     bool passesFilter(OutstandingRecord o) {
       if (_selectedGroup != 'All Items') {
-        final g = (o.groupName != null && o.groupName!.trim().isNotEmpty)
-            ? o.groupName!.trim()
-            : (_isReceivablesTab ? 'Sundry Debtors' : 'Sundry Creditors');
-        if (g != _selectedGroup) return false;
+        final g = (o.groupName ?? '').trim();
+        if (g.isEmpty || g != _selectedGroup) return false;
       }
       if (_selectedLedger != null && _selectedLedger!.isNotEmpty) {
         if (o.customerName.trim() != _selectedLedger!.trim()) return false;
@@ -346,10 +344,8 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
 
     for (var o in _allReceivables) {
       if (_selectedGroup != 'All Items') {
-        final g = (o.groupName != null && o.groupName!.trim().isNotEmpty)
-            ? o.groupName!.trim()
-            : 'Sundry Debtors';
-        if (g != _selectedGroup) continue;
+        final g = (o.groupName ?? '').trim();
+        if (g.isEmpty || g != _selectedGroup) continue;
       }
       if (_selectedLedger != null && _selectedLedger!.isNotEmpty) {
         if (o.customerName.trim() != _selectedLedger!.trim()) continue;
@@ -382,10 +378,8 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
 
     for (var o in _allPayables) {
       if (_selectedGroup != 'All Items') {
-        final g = (o.groupName != null && o.groupName!.trim().isNotEmpty)
-            ? o.groupName!.trim()
-            : 'Sundry Creditors';
-        if (g != _selectedGroup) continue;
+        final g = (o.groupName ?? '').trim();
+        if (g.isEmpty || g != _selectedGroup) continue;
       }
       if (_selectedLedger != null && _selectedLedger!.isNotEmpty) {
         if (o.customerName.trim() != _selectedLedger!.trim()) continue;
@@ -928,9 +922,8 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
 
     final Map<String, int> groupCounts = {};
     for (var r in allRecords) {
-      final g = (r.groupName != null && r.groupName!.trim().isNotEmpty)
-          ? r.groupName!.trim()
-          : (isReceivablesTab ? 'Sundry Debtors' : 'Sundry Creditors');
+      final g = (r.groupName ?? '').trim();
+      if (g.isEmpty) continue;
       groupCounts[g] = (groupCounts[g] ?? 0) + 1;
     }
 
@@ -1094,10 +1087,8 @@ class _ReceivablesPayablesScreenState extends State<ReceivablesPayablesScreen>
     final scopedRecords = _selectedGroup == 'All Items'
         ? allRecords
         : allRecords.where((r) {
-            final g = (r.groupName != null && r.groupName!.trim().isNotEmpty)
-                ? r.groupName!.trim()
-                : (isReceivablesTab ? 'Sundry Debtors' : 'Sundry Creditors');
-            return g == _selectedGroup;
+            final g = (r.groupName ?? '').trim();
+            return g.isNotEmpty && g == _selectedGroup;
           }).toList();
 
     final Map<String, (int, double)> ledgerData = {};

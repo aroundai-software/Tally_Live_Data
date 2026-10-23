@@ -150,14 +150,12 @@ class Ledger {
         ledgerName == 'closing balance';
   }
 
-  /// True for sundry debtors and unclassified customer ledgers (excludes bank/cash/creditors).
+  /// True only when the ledger group is a debtor group.
   bool get isDebtor {
     final group = _groupText;
     if (group.contains('creditor')) return false;
     if (group.contains('debtor')) return true;
-    if (_isCashOrBank || _isSystemLedger) return false;
-    // Missing group in sync — treat as debtor unless clearly another ledger class.
-    return true;
+    return false;
   }
 
   /// True only for ledgers explicitly tagged as creditors.
