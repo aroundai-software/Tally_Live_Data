@@ -5,6 +5,7 @@ import '../config/app_theme.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
 import '../utils/company_scope.dart';
+import '../utils/report_period.dart';
 import '../widgets/combined_mode_unavailable.dart';
 import '../widgets/empty_state.dart';
 import 'cash_flow_summary_screen.dart';
@@ -107,10 +108,49 @@ class _CashFlowScreenState extends State<CashFlowScreen> {
   List<Map<String, dynamic>> get _months {
     final raw = _snapshot?['months'];
     if (raw is! List) return const [];
-    return raw
+    final reportFrom = _parseDate(_snapshot?['from_date']);
+    final reportTo = _parseDate(_snapshot?['to_date']);
+    final months = raw
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
+    if (reportFrom == null || reportTo == null) return months;
+
+    // Prefer months that fall inside the company FY. Older 1.2.5 syncs often
+    // attached the wrong calendar year to every month summary — if filtering
+    // would hide everything, keep the raw months so the screen is not blank.
+    final inFy = <Map<String, dynamic>>[];
+    for (final m in months) {
+      final label = m['period']?.toString() ?? '';
+      final remapped = monthRangeInReportFy(label, reportFrom, reportTo);
+      if (remapped == null) continue;
+      DateTime? monthFrom;
+      DateTime? monthTo;
+      final summary = m['summary'];
+      if (summary is Map) {
+        monthFrom = _parseDate(summary['from_date']);
+        monthTo = _parseDate(summary['to_date']);
+      }
+      final copy = Map<String, dynamic>.from(m);
+      if (monthFrom == null ||
+          monthTo == null ||
+          !monthWithinReportPeriod(
+            reportFrom: reportFrom,
+            reportTo: reportTo,
+            monthFrom: monthFrom,
+            monthTo: monthTo,
+          )) {
+        // Fix display dates only; amounts still need a 1.2.6 re-sync.
+        final s = summary is Map
+            ? Map<String, dynamic>.from(summary)
+            : <String, dynamic>{};
+        s['from_date'] = remapped.$1.toIso8601String().substring(0, 10);
+        s['to_date'] = remapped.$2.toIso8601String().substring(0, 10);
+        copy['summary'] = s;
+      }
+      inFy.add(copy);
+    }
+    return inFy.isNotEmpty ? inFy : months;
   }
 
   double _num(dynamic v) {
@@ -271,13 +311,18 @@ class _CashFlowScreenState extends State<CashFlowScreen> {
     }
 
     final from = _parseDate(_snapshot!['from_date']);
-    final to = _parseDate(_snapshot!['to_date']);
+    final rawTo = _parseDate(_snapshot!['to_date']);
+    final to = (from != null && rawTo != null)
+        ? clampReportToDate(from, rawTo)
+        : rawTo;
     final periodLabel = (from != null && to != null)
-        ? '${_dateFmt.format(from)} to ${_dateFmt.format(to)}'
+        ? 'Period ${_dateFmt.format(from)} to ${_dateFmt.format(to)}'
         : '';
-    final totalIn = _num(_snapshot!['total_inflow']);
-    final totalOut = _num(_snapshot!['total_outflow']);
-    final totalNett = _num(_snapshot!['total_nett']);
+    // Prefer totals from visible months so old snapshots that spanned past FY
+    // end do not keep inflated grand totals after month filtering.
+    final totalIn = months.fold<double>(0, (s, m) => s + _num(m['inflow']));
+    final totalOut = months.fold<double>(0, (s, m) => s + _num(m['outflow']));
+    final totalNett = totalIn - totalOut;
 
     return RefreshIndicator(
       onRefresh: () => _loadData(showLoading: false),

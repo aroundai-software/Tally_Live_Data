@@ -4,6 +4,7 @@ import '../models/financial_report.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
 import '../utils/company_scope.dart';
+import '../utils/report_period.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/error_state_widget.dart';
 import '../widgets/shimmer_loading.dart';
@@ -258,7 +259,7 @@ class _ProfitLossScreenState extends State<ProfitLossScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            '${_dateFmt.format(report.fromDate)}  →  ${_dateFmt.format(report.toDate)}',
+            'Period ${_dateFmt.format(report.fromDate)}  →  ${_dateFmt.format(clampReportToDate(report.fromDate, report.toDate))}',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,

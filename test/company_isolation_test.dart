@@ -1,9 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tallylive/providers/company_provider.dart';
 import 'package:tallylive/utils/company_scope.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
+
   group('CompanyScope', () {
     test('isValid rejects null, blank, and placeholder', () {
       expect(CompanyScope.isValid(null), isFalse);

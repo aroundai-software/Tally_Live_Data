@@ -3480,15 +3480,23 @@ class SupabaseService {
   }) async {
     final rows = <dynamic>[];
     var notifiedFirst = false;
+    var pages = 0;
+    // Keep requesting until an empty page. Stopping on `page.length < pageSize`
+    // is wrong when the server silently caps below our requested size (e.g. 250
+    // while we asked for 1000) — totals would under-count. It also skips a
+    // follow-up page that may fail and must surface the error instead of a
+    // partial sum.
     while (true) {
-      final page = await query().range(rows.length, rows.length + pageSize - 1) as List;
+      final page =
+          await query().range(rows.length, rows.length + pageSize - 1) as List;
       if (page.isEmpty) return rows;
       rows.addAll(page);
       if (!notifiedFirst && onFirstPage != null) {
         notifiedFirst = true;
         onFirstPage(List<dynamic>.from(rows));
       }
-      if (page.length < pageSize) return rows;
+      pages++;
+      if (pages > 10000) return rows;
     }
   }
 

@@ -4,6 +4,7 @@ import '../models/financial_report.dart';
 import '../providers/company_provider.dart';
 import '../services/supabase_service.dart';
 import '../utils/company_scope.dart';
+import '../utils/report_period.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/error_state_widget.dart';
 import '../widgets/shimmer_loading.dart';
@@ -251,7 +252,7 @@ class _BalanceSheetScreenState extends State<BalanceSheetScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            'As on ${_dateFmt.format(report.asOnDate)}',
+            'As on ${_dateFmt.format(clampReportToDate(report.fromDate, report.asOnDate))}',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,

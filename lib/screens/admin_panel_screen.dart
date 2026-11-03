@@ -103,42 +103,6 @@ class _AdminPageHeader extends StatelessWidget {
   }
 }
 
-/// Compact status chip (Online / Offline / Active / Expired).
-class _AdminStatusPill extends StatelessWidget {
-  final String label;
-  final bool isPositive;
-
-  const _AdminStatusPill({
-    required this.label,
-    required this.isPositive,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final fg = isPositive ? const Color(0xFF15803D) : AppTheme.textSecondary;
-    final bg = isPositive
-        ? (AppTheme.isDark
-            ? const Color(0xFF15803D).withValues(alpha: 0.22)
-            : const Color(0xFFDCFCE7))
-        : (AppTheme.isDark ? AppTheme.dividerColor : const Color(0xFFF3F4F6));
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: fg,
-        ),
-      ),
-    );
-  }
-}
-
 /// Sidebar nav row for wide admin shell.
 class _AdminSidebarItem extends StatelessWidget {
   final IconData icon;
@@ -365,9 +329,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
   @override
   Widget build(BuildContext context) {
     if (!_verified) {
+      // Static placeholder (no indeterminate spinner) so access checks and
+      // widget tests can settle; _verifyAccess redirects when denied.
       return Scaffold(
         backgroundColor: AppTheme.surfaceColor,
-        body: Center(child: CircularProgressIndicator(color: AppTheme.primaryColor)),
+        body: Center(
+          child: Icon(
+            Icons.admin_panel_settings_outlined,
+            size: 40,
+            color: AppTheme.textSecondary.withValues(alpha: 0.5),
+          ),
+        ),
       );
     }
     final tabs = [
@@ -550,44 +522,6 @@ class _AdminCompaniesTabState extends State<AdminCompaniesTab> {
         SnackBar(content: Text('Error loading companies: $e')),
       );
     }
-  }
-
-  Widget _buildAnalyticsHeader() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      color: AppTheme.cardColor,
-      child: Row(
-        children: [
-          Expanded(child: _buildStatCard('Total Companies', _companiesFeatures.length.toString(), Icons.business)),
-          const SizedBox(width: 12),
-          Expanded(child: _buildStatCard('Active Now', _companiesFeatures.length.toString(), Icons.check_circle_outline)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatCard(String title, String count, IconData icon) {
-    return Container(
-      padding: EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.dividerColor),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: AppTheme.primaryColor, size: 20),
-          SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontWeight: FontWeight.w500)),
-              Text(count, style: TextStyle(fontSize: 18, color: AppTheme.textPrimary, fontWeight: FontWeight.w700)),
-            ],
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -1139,6 +1073,12 @@ class _AdminSyncLicensesTabState extends State<AdminSyncLicensesTab> {
                     initialDate: initial.isBefore(today) ? today : initial,
                     firstDate: today,
                     lastDate: today.add(const Duration(days: 365 * 5)),
+                    builder: (context, child) {
+                      return Theme(
+                        data: AppTheme.datePickerOverlayTheme(context),
+                        child: child!,
+                      );
+                    },
                   );
                   if (picked != null) {
                     Navigator.pop(sheetCtx);
@@ -3295,8 +3235,11 @@ class _AdminProfileTabState extends State<AdminProfileTab> {
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         validator: (v) {
-                          if (v!.trim().length < 6) return 'Minimum 6 characters';
-                          if (v!.trim() != passwordCtrl.text.trim()) return 'Passwords do not match';
+                          final value = (v ?? '').trim();
+                          if (value.length < 6) return 'Minimum 6 characters';
+                          if (value != passwordCtrl.text.trim()) {
+                            return 'Passwords do not match';
+                          }
                           return null;
                         },
                       ),
@@ -4107,8 +4050,6 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
   }
 
   Widget _buildVisualCardGrid() {
-    final width = MediaQuery.of(context).size.width;
-
     final cardItems = [
       {
         'key': 'db_card_cash_bank',
@@ -4407,8 +4348,6 @@ class _DashboardFeaturesScreenState extends State<DashboardFeaturesScreen> {
   }
 
   Widget _buildNetPositionDetailsConfig() {
-    final width = MediaQuery.of(context).size.width;
-
     final netPositionItems = [
       {
         'key': 'db_np_cash',
@@ -5241,28 +5180,6 @@ class _ReportsFeaturesScreenState extends State<ReportsFeaturesScreen> {
     );
   }
 
-  Widget _buildNavSubItem(String title, String featureKey, String subtitleText, IconData icon, Widget targetScreen) {
-    final isEnabled = _features[featureKey] ?? true;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, size: 20, color: AppTheme.textSecondary),
-      title: Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
-      subtitle: Text(
-        isEnabled ? 'Enabled • $subtitleText' : 'Disabled',
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: isEnabled ? AppTheme.primaryColor : AppTheme.textSecondary),
-      ),
-      trailing: Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.textSecondary),
-      onTap: () async {
-        if (_savingFeature) return;
-        final updatedFeatures = await Navigator.of(context).push<Map<String, bool>>(
-          MaterialPageRoute(builder: (_) => targetScreen),
-        );
-        if (updatedFeatures != null) {
-          setState(() { _features = updatedFeatures; });
-        }
-      },
-    );
-  }
 }
 
 // ─── Sub-features: Payment Speed (feature key: cash_flow) ─────

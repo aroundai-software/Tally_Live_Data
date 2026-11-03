@@ -61,6 +61,7 @@ class BalanceSheetReport {
   final String id;
   final String companyName;
   final String companyGuid;
+  final DateTime fromDate;
   final DateTime asOnDate;
   final String format;
   final double totalLiabilities;
@@ -72,6 +73,7 @@ class BalanceSheetReport {
     required this.id,
     required this.companyName,
     required this.companyGuid,
+    required this.fromDate,
     required this.asOnDate,
     this.format = 'condensed',
     this.totalLiabilities = 0,
@@ -84,12 +86,16 @@ class BalanceSheetReport {
     Map<String, dynamic> json, {
     List<FinancialReportLine> lines = const [],
   }) {
+    final asOn = DateTime.tryParse(json['as_on_date']?.toString() ?? '') ??
+        DateTime.tryParse(json['to_date']?.toString() ?? '') ??
+        DateTime.now();
+    final from = DateTime.tryParse(json['from_date']?.toString() ?? '') ?? asOn;
     return BalanceSheetReport(
       id: json['id']?.toString() ?? '',
       companyName: (json['company_name'] ?? '').toString(),
       companyGuid: (json['company_guid'] ?? '').toString(),
-      asOnDate: DateTime.tryParse(json['as_on_date']?.toString() ?? '') ??
-          DateTime.now(),
+      fromDate: from,
+      asOnDate: asOn,
       format: (json['format'] ?? 'condensed').toString(),
       totalLiabilities: _toDouble(json['total_liabilities']),
       totalAssets: _toDouble(json['total_assets']),

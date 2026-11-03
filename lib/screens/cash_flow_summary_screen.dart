@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../config/app_theme.dart';
+import '../utils/report_period.dart';
 
 /// Tally-style Cash Flow Summary (Inflow | Outflow) for one month.
 class CashFlowSummaryScreen extends StatelessWidget {
@@ -52,10 +53,13 @@ class CashFlowSummaryScreen extends StatelessWidget {
     final totalOut = _num(summary['total_outflow']);
     final nett = _num(summary['nett']);
     final from = _parseDate(summary['from_date']);
-    final to = _parseDate(summary['to_date']);
+    final rawTo = _parseDate(summary['to_date']);
+    final to = (from != null && rawTo != null)
+        ? clampReportToDate(from, rawTo)
+        : rawTo;
     final periodText = (from != null && to != null)
-        ? '${_dateFmt.format(from)} to ${_dateFmt.format(to)}'
-        : periodLabel;
+        ? 'Period ${_dateFmt.format(from)} to ${_dateFmt.format(to)}'
+        : (periodLabel.isNotEmpty ? 'Period $periodLabel' : '');
 
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
@@ -76,15 +80,16 @@ class CashFlowSummaryScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
-          Text(
-            periodText,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.textSecondary,
+          if (periodText.isNotEmpty)
+            Text(
+              periodText,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textSecondary,
+              ),
             ),
-          ),
           const SizedBox(height: 16),
           LayoutBuilder(
             builder: (context, constraints) {

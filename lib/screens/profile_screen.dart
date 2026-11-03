@@ -24,14 +24,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUserProfile();
+    // Inherited widgets are not safe to depend on during initState.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadUserProfile();
+    });
   }
 
   Future<void> _loadUserProfile() async {
     if (!mounted) return;
-    final selectedCompany = CompanyProvider.of(context).selectedCompany ?? '';
     setState(() => _isLoading = true);
     try {
+      final selectedCompany =
+          CompanyProvider.of(context).selectedCompany ?? '';
       final user = _service.currentUser;
       if (user != null) {
         _userId = user.id;

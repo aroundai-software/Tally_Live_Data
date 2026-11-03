@@ -364,6 +364,21 @@ class AppTheme {
         backgroundColor: dark ? darkCard : lightCard,
         headerBackgroundColor: accent,
         headerForegroundColor: Colors.white,
+        // Full-screen range picker uses these rangePicker* colors, not header*.
+        // Without a dark header background, white Save / title text vanishes in light mode.
+        rangePickerBackgroundColor: dark ? darkCard : lightCard,
+        rangePickerHeaderBackgroundColor: accent,
+        rangePickerHeaderForegroundColor: Colors.white,
+        rangePickerHeaderHeadlineStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 28,
+          fontWeight: FontWeight.w400,
+        ),
+        rangePickerHeaderHelpStyle: TextStyle(
+          color: Colors.white.withValues(alpha: 0.9),
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
         rangeSelectionBackgroundColor: accent.withValues(alpha: dark ? 0.35 : 0.2),
         dayForegroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) return Colors.white;
@@ -373,7 +388,6 @@ class AppTheme {
           }
           return dark ? darkTextPrimary : lightTextPrimary;
         }),
-        rangePickerHeaderForegroundColor: Colors.white,
         todayForegroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) return Colors.white;
           return accent;
@@ -384,6 +398,12 @@ class AppTheme {
         ),
         yearStyle: TextStyle(
           color: dark ? darkTextPrimary : lightTextPrimary,
+        ),
+        confirmButtonStyle: TextButton.styleFrom(
+          foregroundColor: Colors.white,
+        ),
+        cancelButtonStyle: TextButton.styleFrom(
+          foregroundColor: Colors.white,
         ),
       ),
     );

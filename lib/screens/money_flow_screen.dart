@@ -3,12 +3,12 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../models/ledger_bill_settlement.dart';
 import '../services/supabase_service.dart';
-import '../widgets/shimmer_loading.dart';
 import '../widgets/empty_state.dart';
 import 'customer_ranking_screen.dart';
 import 'ledger_statement_screen.dart';
 import '../providers/company_provider.dart';
 import '../utils/company_scope.dart';
+import '../utils/report_period.dart';
 import '../config/app_theme.dart';
 import '../widgets/combined_mode_unavailable.dart';
 
@@ -720,9 +720,12 @@ class _MoneyFlowScreenState extends State<MoneyFlowScreen> {
 
   Widget _buildTallyRecvTurnoverCard() {
     final days = _tallyRecvTurnoverDays!;
-    final periodLabel = (_tallyRatioFrom != null && _tallyRatioTo != null)
-        ? '${DateFormat('d MMM yyyy').format(_tallyRatioFrom!)} – ${DateFormat('d MMM yyyy').format(_tallyRatioTo!)}'
-        : 'Financial year → today';
+    final ratioTo = (_tallyRatioFrom != null && _tallyRatioTo != null)
+        ? clampReportToDate(_tallyRatioFrom!, _tallyRatioTo!)
+        : _tallyRatioTo;
+    final periodLabel = (_tallyRatioFrom != null && ratioTo != null)
+        ? 'Period ${DateFormat('d MMM yyyy').format(_tallyRatioFrom!)} – ${DateFormat('d MMM yyyy').format(ratioTo)}'
+        : 'Company financial year';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 18),

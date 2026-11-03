@@ -2,7 +2,7 @@
 CREATE TABLE public.tally_companies (
   id uuid not null default gen_random_uuid (),
   company_name text not null,
-  company_number text null,
+  company_number text not null default '',
   guid text not null,
   master_id text null,
   address_line1 text null,
@@ -26,9 +26,7 @@ CREATE TABLE public.tally_companies (
   created_at timestamp with time zone null default now(),
   updated_at timestamp with time zone null default now(),
   constraint tally_companies_pkey primary key (id),
-  constraint tally_companies_company_number_key unique (company_number),
-  constraint tally_companies_guid_key unique (guid),
-  constraint tally_companies_trn_number_key unique (trn_number)
+  constraint tally_companies_identity_key unique (guid, company_name, company_number)
 ) TABLESPACE pg_default;
 
 -- 2. Customers Table

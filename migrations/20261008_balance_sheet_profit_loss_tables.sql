@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS public.balance_sheet_reports (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   company_name text NOT NULL,
   company_guid text NOT NULL,
+  from_date date,
   as_on_date date NOT NULL,
   format text NOT NULL DEFAULT 'condensed',
   total_liabilities numeric NOT NULL DEFAULT 0,
